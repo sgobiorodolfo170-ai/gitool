@@ -1,0 +1,35 @@
+{
+  "name": "gitool",
+  "productName": "Gitool",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Windows Git repository workspace",
+  "author": "gitool",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite --mode web",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b && tsc -p tsconfig.electron.json",
+    "preview": "vite preview",
+    "dist": "npm run build && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "^2.1.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.4.3",
+    "electron-builder": "^26.15.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vite-plugin-electron": "^1.1.2"
+  }
+}
