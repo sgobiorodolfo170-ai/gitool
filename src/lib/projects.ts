@@ -17,6 +17,7 @@ export const seedProjects: Project[] = [
     tags: ["active", "desktop"],
     files: 128,
     syncLabel: "已同步",
+    diskSizeBytes: 184_500_000,
   },
   {
     id: "atlas-api",
@@ -35,6 +36,7 @@ export const seedProjects: Project[] = [
     remote: "origin",
     files: 246,
     syncLabel: "领先 2 个提交",
+    diskSizeBytes: 96_200_000,
   },
   {
     id: "northstar-web",
@@ -53,6 +55,7 @@ export const seedProjects: Project[] = [
     remote: "origin",
     files: 382,
     syncLabel: "3 个文件未提交",
+    diskSizeBytes: 321_000_000,
   },
   {
     id: "papertrail",
@@ -71,6 +74,7 @@ export const seedProjects: Project[] = [
     remote: "origin",
     files: 74,
     syncLabel: "落后 1 个提交",
+    diskSizeBytes: 12_800_000,
   },
 ];
 

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import type {
   BranchInfo,
@@ -18,6 +18,7 @@ import type {
   GitSnapshot,
   LocalProjectInspection,
   ProjectStatus,
+  ReadmeResult,
   RevertCommitInput,
   SwitchBranchInput,
 } from "../../../shared/types";
@@ -491,6 +492,77 @@ function bracketValue(branchLine: string, key: string): string | null {
     .split(/[,\]]/)[0]
     .trim();
   return value.length > 0 ? value : null;
+}
+
+export async function getDiskSize(projectPath: string): Promise<number> {
+  assertDirectory(projectPath);
+  let total = 0;
+  const visited = new Set<string>();
+  const stack = [projectPath];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let realPath;
+    try {
+      realPath = realpathSync(current);
+    } catch {
+      continue;
+    }
+    if (visited.has(realPath)) {
+      continue;
+    }
+    visited.add(realPath);
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+      const entryPath = join(current, entry.name);
+      try {
+        if (entry.isDirectory()) {
+          if (IGNORED_SIZE_DIRECTORIES.has(entry.name)) {
+            continue;
+          }
+          stack.push(entryPath);
+        } else if (entry.isFile()) {
+          const stats = statSync(entryPath);
+          total += stats.size;
+        }
+      } catch {
+        // 跳过无法访问的条目
+      }
+    }
+  }
+  return total;
+}
+
+const IGNORED_SIZE_DIRECTORIES = new Set([".git", "node_modules", "target", "dist", "build", ".next", ".venv", "__pycache__"]);
+
+const README_FILE_NAMES = ["README.md", "README.MD", "readme.md", "README.markdown", "readme.txt", "README"];
+
+export async function readProjectReadme(projectPath: string): Promise<ReadmeResult> {
+  assertDirectory(projectPath);
+  for (const fileName of README_FILE_NAMES) {
+    const candidate = join(projectPath, fileName);
+    if (!existsSync(candidate)) {
+      continue;
+    }
+    const stats = statSync(candidate);
+    if (!stats.isFile() || stats.size > 512 * 1024) {
+      continue;
+    }
+    try {
+      const content = readFileSync(candidate, { encoding: "utf8" });
+      return { found: true, content, fileName };
+    } catch {
+      continue;
+    }
+  }
+  return { found: false, content: "", fileName: "" };
 }
 
 function gitErrorOutput(error: unknown): string {

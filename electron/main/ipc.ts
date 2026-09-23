@@ -17,12 +17,14 @@ import {
   commitChanges,
   createBranch,
   deleteBranch,
+  getDiskSize,
   getEnvironmentStatus,
   getProjectSnapshot,
   inspectLocalProject,
   listBranches,
   listChangedFiles,
   listCommitHistory,
+  readProjectReadme,
   revertCommit,
   runGitOperation,
   stageFiles,
@@ -75,6 +77,12 @@ export function registerIpcHandlers(): void {
   );
   ipcMain.handle("projects:analyze", (_event, projectPath: unknown) =>
     analyzeProject(requireString(projectPath, "项目路径")),
+  );
+  ipcMain.handle("projects:diskSize", (_event, projectPath: unknown) =>
+    getDiskSize(requireString(projectPath, "项目路径")),
+  );
+  ipcMain.handle("projects:readme", (_event, projectPath: unknown) =>
+    readProjectReadme(requireString(projectPath, "项目路径")),
   );
   ipcMain.handle("projects:gitOperation", (_event, projectPath: unknown, operation: unknown) =>
     runGitOperation(requireString(projectPath, "项目路径"), requireGitOperation(operation)),
@@ -194,6 +202,8 @@ function requireProject(value: unknown, index: number): Project {
     languageColor: typeof candidate.languageColor === "string" ? candidate.languageColor : "#8b97a8",
     summary: typeof candidate.summary === "string" ? candidate.summary : "",
     updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : "",
+    diskSizeBytes: typeof candidate.diskSizeBytes === "number" ? candidate.diskSizeBytes : 0,
+    alias: typeof candidate.alias === "string" && candidate.alias.trim().length > 0 ? candidate.alias.trim() : undefined,
   };
 }
 

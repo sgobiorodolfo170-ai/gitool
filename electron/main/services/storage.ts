@@ -14,7 +14,7 @@ export function loadProjects(): Project[] {
   const rows = connection
     .prepare(
       `SELECT id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
-              files, syncLabel, language, languageColor, summary, updatedAt
+              files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias
        FROM projects ORDER BY favorite DESC, updatedAt DESC, name ASC`,
     )
     .all() as unknown as SqlRow[];
@@ -30,8 +30,8 @@ export function saveProjects(projects: Project[]): void {
     const statement = connection.prepare(
       `INSERT INTO projects
        (id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
-        files, syncLabel, language, languageColor, summary, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const project of projects) {
       statement.run(
@@ -51,6 +51,8 @@ export function saveProjects(projects: Project[]): void {
         project.languageColor,
         project.summary,
         project.updatedAt,
+        project.diskSizeBytes ?? 0,
+        project.alias ?? null,
       );
     }
     connection.exec("COMMIT");
@@ -203,7 +205,9 @@ function openDatabase(): DatabaseSync {
       language TEXT NOT NULL,
       languageColor TEXT NOT NULL,
       summary TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
+      updatedAt TEXT NOT NULL,
+      diskSizeBytes INTEGER NOT NULL DEFAULT 0,
+      alias TEXT
     );
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY NOT NULL,
@@ -219,8 +223,21 @@ function openDatabase(): DatabaseSync {
       updatedAt TEXT NOT NULL
     );
   `);
+  migrationEnsureProjectColumns(connection);
   database = connection;
   return connection;
+}
+
+function migrationEnsureProjectColumns(connection: DatabaseSync): void {
+  const columns = connection
+    .prepare("PRAGMA table_info(projects)")
+    .all() as unknown as Array<Record<string, unknown>>;
+  if (!columns.some((column) => column.name === "diskSizeBytes")) {
+    connection.exec("ALTER TABLE projects ADD COLUMN diskSizeBytes INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!columns.some((column) => column.name === "alias")) {
+    connection.exec("ALTER TABLE projects ADD COLUMN alias TEXT");
+  }
 }
 
 function rowToProject(row: SqlRow): Project {
@@ -241,6 +258,8 @@ function rowToProject(row: SqlRow): Project {
     languageColor: String(row.languageColor),
     summary: String(row.summary),
     updatedAt: String(row.updatedAt),
+    diskSizeBytes: Number(row.diskSizeBytes ?? 0),
+    alias: row.alias === null || row.alias === undefined ? undefined : String(row.alias),
   };
 }
 

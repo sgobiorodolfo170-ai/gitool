@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArrowDownToLine,
@@ -12,6 +12,7 @@ import {
   Cloud,
   Code2,
   Command,
+  HardDrive,
   ExternalLink,
   FileCode2,
   FolderGit2,
@@ -22,6 +23,7 @@ import {
   LayoutDashboard,
   ListTodo,
   MoreHorizontal,
+  PenLine,
   Plus,
   RefreshCw,
   Search,
@@ -32,6 +34,7 @@ import {
   Tag,
   TerminalSquare,
   Trash2,
+  X,
 } from "lucide-react";
 import type { Account, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, Workspace } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
@@ -43,26 +46,6 @@ type NavItem = {
   icon: typeof LayoutDashboard;
   count?: string;
 };
-
-const navGroups: { label: string; items: NavItem[] }[] = [
-  {
-    label: "工作区",
-    items: [
-      { id: "overview", label: "总览", icon: LayoutDashboard },
-      { id: "projects", label: "我的项目", icon: FolderGit2, count: "12" },
-      { id: "remotes", label: "远程仓库", icon: Cloud, count: "3" },
-    ],
-  },
-  {
-    label: "工具",
-    items: [
-      { id: "accounts", label: "账号与令牌", icon: KeyRound },
-      { id: "tasks", label: "任务中心", icon: ListTodo, count: "2" },
-      { id: "backups", label: "备份中心", icon: Archive },
-      { id: "logs", label: "操作记录", icon: Clock3 },
-    ],
-  },
-];
 
 const statusMeta: Record<ProjectStatus, { label: string; className: string }> = {
   clean: { label: "已同步", className: "status-clean" },
@@ -98,6 +81,28 @@ const remoteProviderLabels: Record<RemoteProvider, string> = {
   gitee: "Gitee",
   gitlab: "GitLab",
 };
+
+function buildNavGroups(counts: { projects: number; remotes: number; accounts: number; tasks: number }): { label: string; items: NavItem[] }[] {
+  return [
+    {
+      label: "工作区",
+      items: [
+        { id: "overview", label: "总览", icon: LayoutDashboard },
+        { id: "projects", label: "我的项目", icon: FolderGit2, count: counts.projects > 0 ? String(counts.projects) : undefined },
+        { id: "remotes", label: "远程仓库", icon: Cloud, count: counts.remotes > 0 ? String(counts.remotes) : undefined },
+      ],
+    },
+    {
+      label: "工具",
+      items: [
+        { id: "accounts", label: "账号与令牌", icon: KeyRound, count: counts.accounts > 0 ? String(counts.accounts) : undefined },
+        { id: "tasks", label: "任务中心", icon: ListTodo, count: counts.tasks > 0 ? String(counts.tasks) : undefined },
+        { id: "backups", label: "备份中心", icon: Archive },
+        { id: "logs", label: "操作记录", icon: Clock3 },
+      ],
+    },
+  ];
+}
 
 const LAST_IMPORT_DIRECTORY_KEY = "gitool.lastImportDirectory";
 
@@ -296,6 +301,7 @@ function App() {
       if (result.success) {
         const inspected = await bridge.inspectProject(targetPath);
         const snapshot = inspected.snapshot;
+        const diskSizeBytes = await bridge.getDiskSize(targetPath).catch(() => 0);
         window.localStorage.setItem(LAST_IMPORT_DIRECTORY_KEY, parentDirectory);
         const newProject: Project = {
           id: `${repository.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
@@ -313,6 +319,7 @@ function App() {
           languageColor: "#8b97a8",
           summary: repository.description || "从远程平台克隆的项目。",
           updatedAt: snapshot?.updated_at ?? "刚刚",
+          diskSizeBytes,
         };
         updateProjects([newProject, ...projects]);
         setSelectedId(newProject.id);
@@ -393,6 +400,37 @@ function App() {
     }
   };
 
+  const runBulkGitOperation = async (operation: GitOperation, ids: string[]) => {
+    if (!isDesktopRuntime()) {
+      setNotice("浏览器预览不会执行 Git 命令，请使用桌面版");
+      window.setTimeout(() => setNotice(null), 3000);
+      return;
+    }
+    const bridge = requireDesktopBridge();
+    let successCount = 0;
+    let failureCount = 0;
+    const updated: Project[] = [];
+    for (const project of projects) {
+      if (!ids.includes(project.id)) continue;
+      try {
+        const result = await bridge.runGitOperation(project.path, operation);
+        if (result.success) {
+          successCount += 1;
+          updated.push(result.snapshot ? projectFromSnapshot(project, result.snapshot!) : project);
+        } else {
+          failureCount += 1;
+          updated.push(project);
+        }
+      } catch {
+        failureCount += 1;
+        updated.push(project);
+      }
+    }
+    updateProjects(projects.map((project) => updated.find((item) => item.id === project.id) ?? project));
+    setNotice(`批量${operationLabels[operation]}完成：成功 ${successCount}，失败 ${failureCount}`);
+    window.setTimeout(() => setNotice(null), 4000);
+  };
+
   const analyzeProject = async () => {
     if (!selectedProject) return;
     setAnalysis(null);
@@ -437,6 +475,10 @@ function App() {
         setNotice("这个目录还不是 Git 仓库");
         return;
       }
+      let diskSizeBytes = 0;
+      if (bridge) {
+        diskSizeBytes = await bridge.getDiskSize(path).catch(() => 0);
+      }
       const newProject: Project = {
         id: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
         name: projectName,
@@ -453,6 +495,7 @@ function App() {
         tags: ["new"],
         files: 0,
         syncLabel: "待扫描",
+        diskSizeBytes,
       };
       if (importedSnapshot) Object.assign(newProject, projectFromSnapshot(newProject, importedSnapshot));
       window.localStorage.setItem(LAST_IMPORT_DIRECTORY_KEY, path);
@@ -478,7 +521,8 @@ function App() {
       const refreshed = await Promise.all(projects.map(async (project) => {
         try {
           const snapshot = await bridge.getProjectSnapshot(project.path);
-          return projectFromSnapshot(project, snapshot);
+          const disk = await bridge.getDiskSize(project.path).catch(() => 0);
+          return { ...projectFromSnapshot(project, snapshot), diskSizeBytes: disk };
         } catch {
           return project;
         }
@@ -512,7 +556,7 @@ function App() {
         </div>
 
         <nav className="sidebar-nav" aria-label="主导航">
-          {navGroups.map((group) => (
+          {buildNavGroups({ projects: projects.length, remotes: remoteRepositories.length, accounts: accounts.length, tasks: projects.filter((project) => project.tags.includes("building")).length }).map((group) => (
             <div className="nav-group" key={group.label}>
               <span className="nav-group-label">{group.label}</span>
               {group.items.map((item) => {
@@ -577,6 +621,8 @@ function App() {
               onSearchChange={setSearch}
               onSelect={(id) => { setSelectedId(id); setOperationOutput(null); setAnalysis(null); }}
               onToggleFavorite={toggleFavorite}
+              onUpdateProject={(projectId, patch) => updateProjects(projects.map((project) => project.id === projectId ? { ...project, ...patch } : project))}
+              onBulkGitOperation={runBulkGitOperation}
               onImport={importProject}
               onRefresh={refreshProjects}
               isRefreshing={isRefreshing}
@@ -640,6 +686,8 @@ type ProjectsWorkspaceProps = {
   onSearchChange: (search: string) => void;
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
+  onUpdateProject: (id: string, patch: Partial<Project>) => void;
+  onBulkGitOperation: (operation: GitOperation, ids: string[]) => void | Promise<void>;
   onImport: () => void;
   onRefresh: () => void | Promise<void>;
   isRefreshing: boolean;
@@ -663,6 +711,8 @@ function ProjectsWorkspace({
   onSearchChange,
   onSelect,
   onToggleFavorite,
+  onUpdateProject,
+  onBulkGitOperation,
   onImport,
   onRefresh,
   isRefreshing,
@@ -676,6 +726,47 @@ function ProjectsWorkspace({
   const attentionCount = projects.filter((project) => project.status !== "clean").length;
   const favoriteCount = projects.filter((project) => project.favorite).length;
   const providerCount = new Set(projects.map((project) => project.provider)).size;
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const typing = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (event.key === "Escape") {
+        if (typing) {
+          (target as HTMLInputElement).blur();
+        } else if (search) {
+          onSearchChange("");
+        }
+        setSelectedBulkIds([]);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [search, onSearchChange]);
+
+  useEffect(() => {
+    setSelectedBulkIds([]);
+  }, [filter, workspace]);
+
+  const toggleBulk = (id: string) => {
+    setSelectedBulkIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
+  };
+
+  const toggleAll = () => {
+    setSelectedBulkIds((current) => current.length === filteredProjects.length ? [] : filteredProjects.map((project) => project.id));
+  };
+
+  const runBulk = (operation: GitOperation) => {
+    if (selectedBulkIds.length === 0) return;
+    void onBulkGitOperation(operation, selectedBulkIds);
+    setSelectedBulkIds([]);
+  };
 
   return (
     <div className="workspace-page">
@@ -698,26 +789,38 @@ function ProjectsWorkspace({
         <MetricCard label="连接平台" value={providerCount.toString()} detail="远程与本地" icon={<Cloud size={18} />} tone="blue" />
       </section>
 
+      {workspace === "overview" && <AttentionPanel projects={projects} selectedId={selectedProject?.id} onSelect={onSelect} />}
+
       <div className="section-toolbar">
         <div className="filter-tabs">
           <FilterButton active={filter === "all"} onClick={() => onFilterChange("all")}>全部 <span>{projects.length}</span></FilterButton>
           <FilterButton active={filter === "favorite"} onClick={() => onFilterChange("favorite")}>已收藏 <span>{favoriteCount}</span></FilterButton>
           <FilterButton active={filter === "attention"} onClick={() => onFilterChange("attention")}>需要关注 <span>{attentionCount}</span></FilterButton>
         </div>
-        <label className="search-box"><Search size={16} /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="搜索项目、路径或摘要" /><kbd>/</kbd></label>
+        <label className="search-box"><Search size={16} /><input ref={searchRef} value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="搜索项目、路径或摘要" /><kbd>/</kbd></label>
       </div>
 
       <section className="project-layout">
         <div className="project-list-panel">
-          <div className="panel-heading"><div><h2>最近项目</h2><span>{filteredProjects.length} 个结果</span></div><button className="bare-button" aria-label="更多项目"><MoreHorizontal size={18} /></button></div>
+          <div className="panel-heading"><div><h2>最近项目</h2><span>{filteredProjects.length} 个结果</span></div><div className="panel-heading-actions"><label className="select-all"><input type="checkbox" checked={filteredProjects.length > 0 && selectedBulkIds.length === filteredProjects.length} onChange={toggleAll} /><span>全选</span></label><button className="bare-button" aria-label="更多项目"><MoreHorizontal size={18} /></button></div></div>
           <div className="project-list">
             {filteredProjects.length ? filteredProjects.map((project) => (
-              <ProjectRow key={project.id} project={project} selected={project.id === selectedProject?.id} onSelect={() => onSelect(project.id)} onToggleFavorite={() => onToggleFavorite(project.id)} />
+              <ProjectRow key={project.id} project={project} selected={project.id === selectedProject?.id} bulkSelected={selectedBulkIds.includes(project.id)} onToggleBulk={() => toggleBulk(project.id)} onSelect={() => onSelect(project.id)} onToggleFavorite={() => onToggleFavorite(project.id)} />
             )) : <EmptyProjects onImport={onImport} />}
           </div>
         </div>
-        {selectedProject ? <ProjectDetail project={selectedProject} onToggleFavorite={() => onToggleFavorite(selectedProject.id)} onRunGitOperation={onRunGitOperation} activeOperation={activeOperation} operationOutput={operationOutput} onAnalyzeProject={onAnalyzeProject} isAnalyzing={isAnalyzing} analysis={analysis} /> : <div className="detail-panel empty-detail">选择一个项目查看详情</div>}
+        {selectedProject ? <ProjectDetail project={selectedProject} onToggleFavorite={() => onToggleFavorite(selectedProject.id)} onUpdateProject={(patch) => onUpdateProject(selectedProject.id, patch)} onRunGitOperation={onRunGitOperation} activeOperation={activeOperation} operationOutput={operationOutput} onAnalyzeProject={onAnalyzeProject} isAnalyzing={isAnalyzing} analysis={analysis} /> : <div className="detail-panel empty-detail">选择一个项目查看详情</div>}
       </section>
+
+      {selectedBulkIds.length > 0 && <div className="bulk-action-bar">
+        <span>已选 {selectedBulkIds.length} 个项目</span>
+        <div className="bulk-actions">
+          <button className="button secondary compact-button" onClick={() => runBulk("fetch")}><Cloud size={14} />批量获取</button>
+          <button className="button secondary compact-button" onClick={() => runBulk("pull")}><ArrowDownToLine size={14} />批量拉取</button>
+          <button className="button secondary compact-button" onClick={() => runBulk("push")}><ArrowUpRight size={14} />批量推送</button>
+          <button className="icon-button danger" onClick={() => setSelectedBulkIds([])} aria-label="取消选择"><X size={16} /></button>
+        </div>
+      </div>}
     </div>
   );
 }
@@ -726,16 +829,39 @@ function MetricCard({ label, value, detail, icon, tone }: { label: string; value
   return <div className="metric-card"><div className={`metric-icon ${tone}`}>{icon}</div><div className="metric-content"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div><ArrowUpRight size={15} className="metric-arrow" /></div>;
 }
 
+function AttentionPanel({ projects, selectedId, onSelect }: { projects: Project[]; selectedId?: string; onSelect: (id: string) => void }) {
+  const attention = projects.filter((project) => project.status !== "clean");
+  if (attention.length === 0) {
+    return null;
+  }
+  return <section className="attention-panel">
+    <div className="panel-heading"><div><h2>需要关注</h2><span>未提交 / 领先 / 落后 / 冲突 项目</span></div><span className="secure-label"><CircleAlert size={13} />{attention.length} 项</span></div>
+    <div className="attention-list">
+      {attention.map((project) => {
+        const status = statusMeta[project.status];
+        return <button className={`attention-row ${project.id === selectedId ? "selected" : ""}`} key={project.id} onClick={() => onSelect(project.id)}>
+          <span className={`status-pill ${status.className}`}><span className="status-dot" />{status.label}</span>
+          <strong>{project.name}</strong>
+          <span className="attention-path">{project.path}</span>
+          <span className="attention-sync">{project.syncLabel}</span>
+        </button>;
+      })}
+    </div>
+  </section>;
+}
+
 function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return <button className={`filter-button ${active ? "active" : ""}`} onClick={onClick}>{children}</button>;
 }
 
-function ProjectRow({ project, selected, onSelect, onToggleFavorite }: { project: Project; selected: boolean; onSelect: () => void; onToggleFavorite: () => void }) {
+function ProjectRow({ project, selected, bulkSelected, onToggleBulk, onSelect, onToggleFavorite }: { project: Project; selected: boolean; bulkSelected: boolean; onToggleBulk: () => void; onSelect: () => void; onToggleFavorite: () => void }) {
   const ProviderIcon = providerIcons[project.provider];
   const status = statusMeta[project.status];
-  return <div className={`project-row ${selected ? "selected" : ""}`} role="button" tabIndex={0} onClick={onSelect} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(); } }}>
+  const dormant = isDormant(project);
+  return <div className={`project-row ${selected ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""}`} role="button" tabIndex={0} onClick={onSelect} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(); } }}>
+    <label className="bulk-check" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={bulkSelected} onChange={onToggleBulk} aria-label="选择项目" /></label>
     <div className="project-type-icon" style={{ color: project.languageColor }}><ProviderIcon size={18} /></div>
-    <div className="project-row-main"><div className="project-name-line"><strong>{project.name}</strong><span className="provider-name">{providerLabels[project.provider]}</span></div><p>{project.path}</p><div className="project-row-meta"><span className={`status-pill ${status.className}`}><span className="status-dot" />{project.syncLabel}</span><span><GitBranch size={12} />{project.branch}</span></div></div>
+    <div className="project-row-main"><div className="project-name-line"><strong>{project.alias || project.name}</strong><span className="provider-name">{providerLabels[project.provider]}</span></div><p>{project.path}</p><div className="project-row-meta"><span className={`status-pill ${status.className}`}><span className="status-dot" />{project.syncLabel}</span><span><GitBranch size={12} />{project.branch}</span><span><HardDrive size={12} />{project.diskSizeBytes > 0 ? formatBytes(project.diskSizeBytes) : "—"}</span>{dormant && <span className="status-pill status-behind"><span className="status-dot" />休眠</span>}</div></div>
     <button className={`favorite-button ${project.favorite ? "active" : ""}`} onClick={(event) => { event.stopPropagation(); onToggleFavorite(); }} aria-label={project.favorite ? "取消收藏" : "收藏项目"}><Star size={16} fill={project.favorite ? "currentColor" : "none"} /></button>
   </div>;
 }
@@ -744,12 +870,12 @@ function EmptyProjects({ onImport }: { onImport: () => void }) {
   return <div className="empty-projects"><div className="empty-icon"><FolderGit2 size={21} /></div><strong>没有匹配的项目</strong><span>换一个搜索词，或导入一个本地仓库。</span><button className="button secondary compact" onClick={onImport}><Plus size={15} />导入项目</button></div>;
 }
 
-function ProjectDetail({ project, onToggleFavorite, onRunGitOperation, activeOperation, operationOutput, onAnalyzeProject, isAnalyzing, analysis }: { project: Project; onToggleFavorite: () => void; onRunGitOperation: (operation: GitOperation) => void | Promise<void>; activeOperation: GitOperation | null; operationOutput: string | null; onAnalyzeProject: () => void | Promise<void>; isAnalyzing: boolean; analysis: ProjectAnalysis | null }) {
+function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onRunGitOperation, activeOperation, operationOutput, onAnalyzeProject, isAnalyzing, analysis }: { project: Project; onToggleFavorite: () => void; onUpdateProject: (patch: Partial<Project>) => void; onRunGitOperation: (operation: GitOperation) => void | Promise<void>; activeOperation: GitOperation | null; operationOutput: string | null; onAnalyzeProject: () => void | Promise<void>; isAnalyzing: boolean; analysis: ProjectAnalysis | null }) {
   const status = statusMeta[project.status];
   const ProviderIcon = providerIcons[project.provider];
   return <aside className="detail-panel">
     <div className="detail-top"><div className="detail-provider"><ProviderIcon size={16} />{providerLabels[project.provider]}</div><button className={`favorite-button ${project.favorite ? "active" : ""}`} onClick={onToggleFavorite} aria-label={project.favorite ? "取消收藏" : "收藏项目"}><Star size={17} fill={project.favorite ? "currentColor" : "none"} /></button></div>
-    <div className="detail-title"><div className="large-project-icon" style={{ color: project.languageColor }}><Code2 size={25} /></div><div><h2>{project.name}</h2><p>{project.path}</p></div></div>
+    <div className="detail-title"><div className="large-project-icon" style={{ color: project.languageColor }}><Code2 size={25} /></div><div><h2>{project.name}</h2><p>{project.path}</p></div><AliasEditor alias={project.alias} onSave={(alias) => onUpdateProject({ alias: alias.trim().length > 0 ? alias.trim() : undefined })} /></div>
     <div className="detail-status-row"><span className={`status-pill ${status.className}`}><span className="status-dot" />{status.label}</span><span className="detail-updated"><Clock3 size={13} />{project.updatedAt}</span></div>
     <p className="detail-summary">{project.summary}</p>
     <div className="detail-tags">{project.tags.map((tag) => <span className="tag" key={tag}><Tag size={11} />{tag}</span>)}<button className="add-tag" aria-label="添加标签"><Plus size={13} /></button></div>
@@ -761,14 +887,53 @@ function ProjectDetail({ project, onToggleFavorite, onRunGitOperation, activeOpe
     </div>
     {operationOutput && <div className="operation-output"><div><span>最近一次 Git 输出</span><button className="bare-button" onClick={() => onRunGitOperation("fetch")} aria-label="重新获取远程更新"><RefreshCw size={13} /></button></div><pre>{operationOutput}</pre></div>}
     <div className="detail-section"><div className="detail-section-heading"><span>项目概览</span><button className="bare-button"><ExternalLink size={14} /></button></div><div className="detail-stats"><DetailStat icon={<GitBranch size={14} />} label="当前分支" value={project.branch} /><DetailStat icon={<GitCommitHorizontal size={14} />} label="最近提交" value={project.commit} /><DetailStat icon={<FileCode2 size={14} />} label="文件数量" value={`${project.files}`} /></div></div>
+    <ReadmeSection projectPath={project.path} />
     <div className="detail-section"><div className="detail-section-heading"><span>快捷入口</span></div><div className="quick-links"><button><TerminalSquare size={15} />打开终端<ArrowUpRight size={13} /></button><button onClick={onAnalyzeProject} disabled={isAnalyzing}><Blocks size={15} />{isAnalyzing ? "分析中..." : "结构分析"}<ArrowUpRight size={13} /></button><button><Sparkles size={15} />生成 AI 摘要<ArrowUpRight size={13} /></button></div></div>
     {analysis && <ProjectAnalysisPanel analysis={analysis} />}
     <GitActionsPanel projectPath={project.path} />
   </aside>;
 }
 
-function ProjectAnalysisPanel({ analysis }: { analysis: ProjectAnalysis }) {
-  const languageTotal = analysis.languages.reduce((total, language) => total + language.bytes, 0);
+function AliasEditor({ alias, onSave }: { alias?: string; onSave: (alias: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(alias ?? "");
+  if (!editing) {
+    return <button className="alias-badge" onClick={() => { setValue(alias ?? ""); setEditing(true); }} title="编辑别名">{alias ? <><PenLine size={11} />{alias}</> : <span className="alias-empty">别名</span>}</button>;
+  }
+  return <div className="alias-edit"><input autoFocus value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { onSave(value); setEditing(false); } if (event.key === "Escape") { setEditing(false); } }} placeholder="输入别名" /><button className="bare-button" onClick={() => { onSave(value); setEditing(false); }}><Check size={14} /></button></div>;
+}
+
+function ReadmeSection({ projectPath }: { projectPath: string }) {
+  const [state, setState] = useState<{ found: boolean; content: string; fileName: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const bridge = getDesktopBridge();
+
+  useEffect(() => {
+    let cancelled = false;
+    setState(null);
+    if (!bridge) return;
+    setLoading(true);
+    void bridge.readProjectReadme(projectPath)
+      .then((result) => { if (!cancelled) setState(result); })
+      .catch(() => { if (!cancelled) setState({ found: false, content: "", fileName: "" }); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath]);
+
+  if (loading) {
+    return <div className="detail-section readme-section"><div className="detail-section-heading"><span>README</span><small>加载中...</small></div></div>;
+  }
+  if (!state?.found || !state.content.trim()) {
+    return null;
+  }
+  return <div className="detail-section readme-section">
+    <div className="detail-section-heading"><span>README</span><small>{state.fileName}</small></div>
+    <div className="readme-body">{state.content}</div>
+  </div>;
+}
+
+function ProjectAnalysisPanel({ analysis }: { analysis: ProjectAnalysis }) {  const languageTotal = analysis.languages.reduce((total, language) => total + language.bytes, 0);
   return <div className="analysis-panel">
     <div className="analysis-heading"><div><span>结构分析</span><small>本地扫描结果</small></div><FileCode2 size={15} /></div>
     <div className="analysis-metrics"><AnalysisMetric label="文件" value={analysis.files.toString()} /><AnalysisMetric label="目录" value={analysis.directories.toString()} /><AnalysisMetric label="大小" value={formatBytes(analysis.total_bytes)} /></div>
@@ -786,6 +951,20 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isDormant(project: Project, thresholdMonths = 3): boolean {
+  const match = project.updatedAt.match(/^\d{4}-\d{2}-\d{2}/);
+  if (!match) {
+    return false;
+  }
+  const lastActivity = new Date(`${match[0]}T00:00:00`);
+  if (Number.isNaN(lastActivity.getTime())) {
+    return false;
+  }
+  const monthsAgo = new Date();
+  monthsAgo.setMonth(monthsAgo.getMonth() - thresholdMonths);
+  return lastActivity < monthsAgo;
 }
 
 function GitOperationButton({ operation, activeOperation, onRun, icon }: { operation: GitOperation; activeOperation: GitOperation | null; onRun: (operation: GitOperation) => void | Promise<void>; icon: React.ReactNode }) {

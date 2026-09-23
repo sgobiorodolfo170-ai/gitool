@@ -14,6 +14,7 @@ import type {
   LocalProjectInspection,
   Project,
   ProjectAnalysis,
+  ReadmeResult,
   RemoteRepository,
   RemoteRepositoryMutationResult,
 } from "../../shared/types";
@@ -40,6 +41,8 @@ const bridge: DesktopBridge = {
   inspectProject: (path) => invoke<LocalProjectInspection>("projects:inspect", path),
   getProjectSnapshot: (path) => invoke<GitSnapshot>("projects:snapshot", path),
   analyzeProject: (path) => invoke<ProjectAnalysis>("projects:analyze", path),
+  getDiskSize: (path) => invoke<number>("projects:diskSize", path),
+  readProjectReadme: (path) => invoke<ReadmeResult>("projects:readme", path),
   runGitOperation: (path, operation) =>
     invoke<GitOperationResult>("projects:gitOperation", path, operation),
   cloneRepository: (input) => invoke<CloneRepositoryResult>("projects:clone", input),

@@ -39,12 +39,14 @@ GitDock（https://github.com/gitdock-dev/gitdock）是开源的本地 Git 仓库
 
 > 实现说明：克隆使用 GIT_ASKPASS 令牌注入（凭据不进 URL、argv 与日志），失败自动清理不完整目录。Git 操作面板在项目详情页新增「变更 / 分支 / 历史」三个标签页。远程仓库页支持创建、编辑、删除。新增 IPC 通道：`projects:clone`、`git:changedFiles/stageFiles/unstageFiles/commit/branches/createBranch/switchBranch/deleteBranch/history/revert`、`remoteRepositories:create/update/delete`。已完成 `npm run typecheck` 与 `npm run build` 验证。
 
-### 阶段 B — 工作台体验（GitDock 最有辨识度的部分）
+### 阶段 B — 工作台体验（GitDock 最有辨识度的部分）✅ 已完成
 
-- B-1 需要关注面板（未提交 / 领先 / 落后 / 冲突）+ 侧栏统计
-- B-2 仓库卡片增强：磁盘大小、语言、星标、可见性、README 查看器
-- B-3 自定义别名、休眠检测
-- B-4 快捷键：`/` 搜索、`Esc` 关闭、批量多选操作栏（批量 pull/fetch）
+- B-1 需要关注面板（未提交 / 领先 / 落后 / 冲突）+ 侧栏动态统计
+- B-2 仓库卡片增强：磁盘大小、语言、README 查看器
+- B-3 自定义别名（内联编辑）、休眠检测（默认 3 个月）
+- B-4 快捷键（`/` 聚焦搜索、`Esc` 清空/关闭）+ 批量多选操作栏（fetch / pull / push / 全选）
+
+> 实现说明：总览页新增「需要关注」面板，侧栏导航计数改为动态。项目卡片显示磁盘大小与休眠标记；详情页新增 README 阅读器与别名编辑。项目数据库新增 `diskSizeBytes`、`alias` 两列并带迁移。全选 + 多选项目支持批量 fetch/pull/push。已通过 `npm run typecheck` 与 `npm run build`。
 
 ### 阶段 C — 集成与安全
 

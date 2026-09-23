@@ -89,6 +89,8 @@ export type Project = {
   languageColor: string;
   summary: string;
   updatedAt: string;
+  diskSizeBytes: number;
+  alias?: string;
 };
 
 export type ProjectFilter = "all" | "favorite" | "attention";
@@ -133,6 +135,12 @@ export type ChangeFile = {
 export type CommitRequest = {
   path: string;
   message: string;
+};
+
+export type ReadmeResult = {
+  found: boolean;
+  content: string;
+  fileName: string;
 };
 
 export type CommitResult = {
@@ -201,6 +209,8 @@ export type DesktopBridge = {
   inspectProject(path: string): Promise<LocalProjectInspection>;
   getProjectSnapshot(path: string): Promise<GitSnapshot>;
   analyzeProject(path: string): Promise<ProjectAnalysis>;
+  getDiskSize(path: string): Promise<number>;
+  readProjectReadme(path: string): Promise<ReadmeResult>;
   runGitOperation(path: string, operation: GitOperation): Promise<GitOperationResult>;
   cloneRepository(input: CloneRepositoryInput): Promise<CloneRepositoryResult>;
   listChangedFiles(path: string): Promise<ChangeFile[]>;
