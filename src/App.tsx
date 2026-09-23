@@ -33,7 +33,7 @@ import {
   TerminalSquare,
   Trash2,
 } from "lucide-react";
-import type { Account, EnvironmentStatus, GitOperation, GitSnapshot, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, Workspace } from "./types";
+import type { Account, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, Workspace } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 import { loadProjects, saveProjects } from "./lib/projects";
 
@@ -121,6 +121,7 @@ function App() {
   const [selectedAccountId, setSelectedAccountId] = useState("");
   const [remoteSearch, setRemoteSearch] = useState("");
   const [isLoadingRemotes, setIsLoadingRemotes] = useState(false);
+  const [cloningRepositoryId, setCloningRepositoryId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -269,6 +270,98 @@ function App() {
     } finally {
       setIsLoadingRemotes(false);
       window.setTimeout(() => setNotice(null), 3200);
+    }
+  };
+
+  const cloneRemoteRepository = async (repository: RemoteRepository) => {
+    if (!isDesktopRuntime()) {
+      setNotice("浏览器预览不会执行克隆，请使用 Windows 桌面版");
+      window.setTimeout(() => setNotice(null), 3000);
+      return;
+    }
+    const bridge = requireDesktopBridge();
+    const defaultDirectory = window.localStorage.getItem(LAST_IMPORT_DIRECTORY_KEY) ?? undefined;
+    const parentDirectory = await bridge.selectDirectory(defaultDirectory);
+    if (!parentDirectory) {
+      return;
+    }
+    const targetPath = `${parentDirectory}\\${repository.name}`;
+    setCloningRepositoryId(repository.id);
+    try {
+      const result = await bridge.cloneRepository({
+        url: repository.httpsUrl,
+        targetPath,
+        accountId: repository.accountId,
+      });
+      if (result.success) {
+        const inspected = await bridge.inspectProject(targetPath);
+        const snapshot = inspected.snapshot;
+        window.localStorage.setItem(LAST_IMPORT_DIRECTORY_KEY, parentDirectory);
+        const newProject: Project = {
+          id: `${repository.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
+          name: inspected.name,
+          path: targetPath,
+          provider: repository.provider,
+          branch: snapshot?.branch ?? repository.defaultBranch,
+          status: snapshot?.status ?? "clean",
+          commit: snapshot?.commit ?? "未扫描",
+          favorite: false,
+          tags: ["cloned"],
+          files: snapshot?.files ?? 0,
+          syncLabel: snapshot?.sync_label ?? "已克隆",
+          language: "待分析",
+          languageColor: "#8b97a8",
+          summary: repository.description || "从远程平台克隆的项目。",
+          updatedAt: snapshot?.updated_at ?? "刚刚",
+        };
+        updateProjects([newProject, ...projects]);
+        setSelectedId(newProject.id);
+        setWorkspace("projects");
+        setNotice("仓库克隆完成，已加入我的项目");
+      } else {
+        setNotice(`克隆失败：${result.output.slice(0, 200)}`);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "克隆失败，请查看日志");
+    } finally {
+      setCloningRepositoryId(null);
+      window.setTimeout(() => setNotice(null), 4000);
+    }
+  };
+
+  const mutateRemoteRepository = async (
+    action: "create" | "update" | "delete",
+    input: { accountId: string; repositoryId?: string; name: string; description: string; visibility: "public" | "private" | "internal" | ""; init: boolean },
+  ) => {
+    if (!isDesktopRuntime()) {
+      setNotice("浏览器预览不会修改远程仓库，请使用 Windows 桌面版");
+      window.setTimeout(() => setNotice(null), 3000);
+      return false;
+    }
+    if (action === "delete") {
+      const confirmed = window.confirm("删除远程仓库是不可逆操作，仓库及其历史将被永久删除。确定继续吗？");
+      if (!confirmed) return false;
+    }
+    try {
+      const bridge = requireDesktopBridge();
+      const result =
+        action === "create"
+          ? await bridge.createRemoteRepository({ ...input, repositoryId: undefined })
+          : action === "update"
+            ? await bridge.updateRemoteRepository(input)
+            : await bridge.deleteRemoteRepository(input.accountId, input.repositoryId!);
+      setNotice(result.message);
+      if (action === "create" || action === "update") {
+        await loadRemoteRepositories(input.accountId);
+      } else {
+        setRemoteRepositories((current) => current.filter((repository) => repository.accountId !== input.accountId || repository.id !== input.repositoryId));
+      }
+      return result.success;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "远程仓库操作失败");
+      return false;
+    } finally {
+      window.setTimeout(() => setNotice(null), 4000);
     }
   };
 
@@ -498,7 +591,7 @@ function App() {
           ) : workspace === "accounts" ? (
             <AccountsWorkspace accounts={accounts} accountBusyId={accountBusyId} onAdd={addAccount} onTest={testAccount} onDelete={deleteAccount} />
           ) : workspace === "remotes" ? (
-            <RemoteRepositoriesWorkspace accounts={accounts} repositories={remoteRepositories} selectedAccountId={selectedAccountId} search={remoteSearch} isLoading={isLoadingRemotes} onAccountChange={setSelectedAccountId} onSearchChange={setRemoteSearch} onRefresh={() => loadRemoteRepositories()} />
+            <RemoteRepositoriesWorkspace accounts={accounts} repositories={remoteRepositories} selectedAccountId={selectedAccountId} search={remoteSearch} isLoading={isLoadingRemotes} cloningRepositoryId={cloningRepositoryId} onAccountChange={setSelectedAccountId} onSearchChange={setRemoteSearch} onRefresh={() => loadRemoteRepositories()} onClone={cloneRemoteRepository} onMutate={mutateRemoteRepository} />
           ) : (
             <ModuleWorkspace workspace={workspace} onImport={importProject} />
           )}
@@ -670,6 +763,7 @@ function ProjectDetail({ project, onToggleFavorite, onRunGitOperation, activeOpe
     <div className="detail-section"><div className="detail-section-heading"><span>项目概览</span><button className="bare-button"><ExternalLink size={14} /></button></div><div className="detail-stats"><DetailStat icon={<GitBranch size={14} />} label="当前分支" value={project.branch} /><DetailStat icon={<GitCommitHorizontal size={14} />} label="最近提交" value={project.commit} /><DetailStat icon={<FileCode2 size={14} />} label="文件数量" value={`${project.files}`} /></div></div>
     <div className="detail-section"><div className="detail-section-heading"><span>快捷入口</span></div><div className="quick-links"><button><TerminalSquare size={15} />打开终端<ArrowUpRight size={13} /></button><button onClick={onAnalyzeProject} disabled={isAnalyzing}><Blocks size={15} />{isAnalyzing ? "分析中..." : "结构分析"}<ArrowUpRight size={13} /></button><button><Sparkles size={15} />生成 AI 摘要<ArrowUpRight size={13} /></button></div></div>
     {analysis && <ProjectAnalysisPanel analysis={analysis} />}
+    <GitActionsPanel projectPath={project.path} />
   </aside>;
 }
 
@@ -699,6 +793,210 @@ function GitOperationButton({ operation, activeOperation, onRun, icon }: { opera
 }
 
 function DetailStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) { return <div className="detail-stat"><span>{icon}{label}</span><strong>{value}</strong></div>; }
+
+const changeStatusMeta: Record<ChangeFile["status"], { label: string; className: string }> = {
+  added: { label: "新增", className: "change-added" },
+  modified: { label: "修改", className: "change-modified" },
+  deleted: { label: "删除", className: "change-deleted" },
+  renamed: { label: "重命名", className: "change-renamed" },
+  untracked: { label: "未跟踪", className: "change-untracked" },
+  conflicted: { label: "冲突", className: "change-conflicted" },
+};
+
+function GitActionsPanel({ projectPath }: { projectPath: string }) {
+  const [changedFiles, setChangedFiles] = useState<ChangeFile[]>([]);
+  const [branches, setBranches] = useState<BranchInfo[]>([]);
+  const [history, setHistory] = useState<CommitEntry[]>([]);
+  const [commitMessage, setCommitMessage] = useState("");
+  const [tab, setTab] = useState<"changes" | "branches" | "history">("changes");
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [output, setOutput] = useState("");
+  const [newBranchName, setNewBranchName] = useState("");
+
+  const bridge = getDesktopBridge();
+
+  const loadChangedFiles = async () => {
+    if (!bridge) return;
+    setLoading(true);
+    try {
+      setChangedFiles(await bridge.listChangedFiles(projectPath));
+    } catch {
+      setChangedFiles([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadBranches = async () => {
+    if (!bridge) return;
+    setLoading(true);
+    try {
+      setBranches(await bridge.listBranches(projectPath));
+    } catch {
+      setBranches([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadHistory = async () => {
+    if (!bridge) return;
+    setLoading(true);
+    try {
+      setHistory(await bridge.listCommitHistory(projectPath));
+    } catch {
+      setHistory([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshActive = () => {
+    if (tab === "changes") void loadChangedFiles();
+    if (tab === "branches") void loadBranches();
+    if (tab === "history") void loadHistory();
+  };
+
+  useEffect(() => {
+    setChangedFiles([]);
+    setBranches([]);
+    setHistory([]);
+    setOutput("");
+    setCommitMessage("");
+    refreshActive();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath, tab]);
+
+  const toggleStage = async (file: ChangeFile) => {
+    if (!bridge) return;
+    setBusy(true);
+    try {
+      if (file.staged) {
+        await bridge.unstageFiles(projectPath, [file.path]);
+      } else {
+        await bridge.stageFiles(projectPath, [file.path]);
+      }
+      await loadChangedFiles();
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "操作失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const commit = async () => {
+    if (!bridge) return;
+    setBusy(true);
+    try {
+      const result = await bridge.commitChanges({ path: projectPath, message: commitMessage });
+      setOutput(result.output);
+      if (result.success) {
+        setCommitMessage("");
+        await loadChangedFiles();
+        await loadHistory();
+      }
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "提交失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createBranch = async () => {
+    if (!bridge || !newBranchName.trim()) return;
+    setBusy(true);
+    try {
+      await bridge.createBranch({ path: projectPath, name: newBranchName.trim() });
+      setNewBranchName("");
+      await loadBranches();
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "创建分支失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const switchBranch = async (name: string) => {
+    if (!bridge) return;
+    setBusy(true);
+    try {
+      await bridge.switchBranch({ path: projectPath, name });
+      setOutput(`已切换到分支 ${name}`);
+      await loadBranches();
+      await loadHistory();
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "切换分支失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteBranch = async (name: string) => {
+    if (!bridge) return;
+    if (!window.confirm(`确定删除分支 ${name}？未合并的提交会一并丢弃。`)) return;
+    setBusy(true);
+    try {
+      await bridge.deleteBranch({ path: projectPath, name });
+      setOutput(`已删除分支 ${name}`);
+      await loadBranches();
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "删除分支失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revert = async (hash: string) => {
+    if (!bridge) return;
+    if (!window.confirm(`对提交 ${hash.slice(0, 7)} 执行 revert？这会生成一个反向提交。`)) return;
+    setBusy(true);
+    try {
+      const result = await bridge.revertCommit({ path: projectPath, hash });
+      setOutput(result.output);
+      await loadHistory();
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "回退提交失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <div className="git-actions-panel">
+    <div className="analysis-heading"><div><span>Git 操作</span><small>提交、分支与历史</small></div><button className="bare-button" onClick={refreshActive} aria-label="刷新 Git 状态"><RefreshCw size={14} className={loading ? "spin" : ""} /></button></div>
+    <div className="git-tabs">
+      <button className={tab === "changes" ? "active" : ""} onClick={() => setTab("changes")}>变更 {changedFiles.length > 0 ? `(${changedFiles.length})` : ""}</button>
+      <button className={tab === "branches" ? "active" : ""} onClick={() => setTab("branches")}>分支</button>
+      <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>历史 {history.length > 0 ? `(${history.length})` : ""}</button>
+    </div>
+
+    {tab === "changes" && <div className="git-tab-content">
+      {changedFiles.length === 0 ? <div className="git-empty">{loading ? "正在读取变更..." : "工作区干净，没有待提交的变更。"}</div> : <div className="change-list">{changedFiles.map((file) => <div className="change-row" key={`${file.path}-${file.staged}`}><label className="change-check"><input type="checkbox" checked={file.staged} disabled={busy} onChange={() => toggleStage(file)} /><span className={`change-status ${file.staged ? "staged" : ""}`}>{changeStatusMeta[file.status].label}</span></label><code>{file.path}</code></div>)}</div>}
+      <textarea className="commit-message" value={commitMessage} onChange={(event) => setCommitMessage(event.target.value)} placeholder="填写提交信息（subject / body）" rows={3} />
+      <button className="button primary wide" onClick={commit} disabled={busy || !commitMessage.trim() || changedFiles.filter((file) => file.staged).length === 0}>{busy ? "提交中..." : "提交暂存的变更"}</button>
+    </div>}
+
+    {tab === "branches" && <div className="git-tab-content">
+      {branches.length === 0 ? <div className="git-empty">{loading ? "正在读取分支..." : "没有分支"}</div> : <div className="branch-list">{branches.map((branch) => <div className="branch-row" key={branch.name}><div className="branch-main"><span className={`branch-name ${branch.current ? "current" : ""}`}>{branch.current ? "· " : ""}{branch.name}</span>{branch.remote && <small>{branch.remote}{branch.ahead > 0 ? ` · 领先 ${branch.ahead}` : ""}{branch.behind > 0 ? ` · 落后 ${branch.behind}` : ""}</small>}</div><div className="branch-actions">{!branch.current && <button className="bare-button" onClick={() => switchBranch(branch.name)} disabled={busy}>切换</button>}{!branch.current && <button className="bare-button danger" onClick={() => deleteBranch(branch.name)} disabled={busy}>删除</button>}</div></div>)}</div>}
+      <div className="new-branch-row"><input value={newBranchName} onChange={(event) => setNewBranchName(event.target.value)} placeholder="新分支名称" /><button className="button secondary compact-button" onClick={createBranch} disabled={busy || !newBranchName.trim()}>创建</button></div>
+    </div>}
+
+    {tab === "history" && <div className="git-tab-content">
+      {history.length === 0 ? <div className="git-empty">{loading ? "正在读取提交历史..." : "还没有提交"}</div> : <div className="history-list">{history.map((entry) => <div className="history-row" key={entry.hash}><div className="history-main"><div className="history-title"><strong>{entry.subject}</strong><code>{entry.shortHash}</code></div><small>{entry.author} · {formatCommitDate(entry.date)}</small></div><button className="bare-button" onClick={() => revert(entry.hash)} disabled={busy} title="生成反向提交">回退</button></div>)}</div>}
+    </div>}
+
+    {output && <div className="git-output"><pre>{output}</pre><button className="bare-button" onClick={() => setOutput("")} aria-label="关闭输出">关闭</button></div>}
+  </div>;
+}
+
+function formatCommitDate(iso: string): string {
+  try {
+    const date = new Date(iso);
+    return date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
+}
 
 function AccountsWorkspace({ accounts, accountBusyId, onAdd, onTest, onDelete }: { accounts: Account[]; accountBusyId: string | null; onAdd: (input: { provider: RemoteProvider; displayName: string; username: string; token: string }) => Promise<boolean>; onTest: (accountId: string) => Promise<void>; onDelete: (accountId: string) => Promise<void> }) {
   const [provider, setProvider] = useState<RemoteProvider>("github");
@@ -745,17 +1043,58 @@ function AccountRow({ account, busy, onTest, onDelete }: { account: Account; bus
   return <div className="account-row"><div className={`account-provider-icon ${account.provider}`}><span>{remoteProviderLabels[account.provider].slice(0, 1)}</span></div><div className="account-main"><div className="account-title"><strong>{account.displayName}</strong><span className={`status-pill ${statusClass}`}><span className="status-dot" />{status}</span></div><p>{remoteProviderLabels[account.provider]} · {account.username || "未填写用户名"}</p><small>Token 已受保护 · {account.scopes.length ? account.scopes.join(", ") : "权限待检测"}</small></div><div className="account-actions"><button className="button secondary compact-button" onClick={onTest} disabled={busy}>{busy ? "检测中..." : "连接测试"}</button><button className="icon-button danger" onClick={onDelete} disabled={busy} aria-label="删除账号"><Trash2 size={15} /></button></div></div>;
 }
 
-function RemoteRepositoriesWorkspace({ accounts, repositories, selectedAccountId, search, isLoading, onAccountChange, onSearchChange, onRefresh }: { accounts: Account[]; repositories: RemoteRepository[]; selectedAccountId: string; search: string; isLoading: boolean; onAccountChange: (accountId: string) => void; onSearchChange: (search: string) => void; onRefresh: () => void | Promise<void> }) {
+function RemoteRepositoriesWorkspace({ accounts, repositories, selectedAccountId, search, isLoading, cloningRepositoryId, onAccountChange, onSearchChange, onRefresh, onClone, onMutate }: { accounts: Account[]; repositories: RemoteRepository[]; selectedAccountId: string; search: string; isLoading: boolean; cloningRepositoryId: string | null; onAccountChange: (accountId: string) => void; onSearchChange: (search: string) => void; onRefresh: () => void | Promise<void>; onClone: (repository: RemoteRepository) => void | Promise<void>; onMutate: (action: "create" | "update" | "delete", input: { accountId: string; repositoryId?: string; name: string; description: string; visibility: "public" | "private" | "internal" | ""; init: boolean }) => Promise<boolean> }) {
   const filtered = repositories.filter((repository) => `${repository.fullName} ${repository.description}`.toLowerCase().includes(search.trim().toLowerCase()));
   const activeAccount = accounts.find((account) => account.id === selectedAccountId);
   const copyCloneUrl = async (repository: RemoteRepository) => {
     await navigator.clipboard.writeText(repository.httpsUrl);
   };
 
+  const createRepository = async () => {
+    if (!selectedAccountId) {
+      window.alert("请先选择一个远程账号");
+      return;
+    }
+    const name = window.prompt("新仓库名称（英文/数字/下划线）");
+    if (!name) return;
+    const description = window.prompt("仓库描述（可选）", "") ?? "";
+    const visibility = window.confirm("创建为私有仓库？\n“确定”= 私有，“取消”= 公开") ? "private" : "public";
+    const init = window.confirm("是否初始化 README？（clone 前建议初始化）");
+    await onMutate("create", { accountId: selectedAccountId, name, description, visibility, init });
+  };
+
+  const editRepository = async (repository: RemoteRepository) => {
+    const name = window.prompt("仓库名称", repository.name);
+    if (!name) return;
+    const description = window.prompt("仓库描述", repository.description) ?? "";
+    const currentVisibility = repository.visibility === "private" ? "private" : "public";
+    const visibility = window.confirm("修改为私有仓库？\n“确定”= 私有，“取消”= 公开") ? "private" : "public";
+    await onMutate("update", {
+      accountId: repository.accountId,
+      repositoryId: repository.id,
+      name,
+      description,
+      visibility,
+      init: false,
+    });
+    void currentVisibility;
+  };
+
+  const deleteRepository = async (repository: RemoteRepository) => {
+    await onMutate("delete", {
+      accountId: repository.accountId,
+      repositoryId: repository.id,
+      name: repository.name,
+      description: repository.description,
+      visibility: repository.visibility === "private" ? "private" : "public",
+      init: false,
+    });
+  };
+
   return <div className="module-page remote-page">
-    <div className="module-hero"><div className="module-icon"><Cloud size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />REMOTE HUB</div><h1>远程仓库</h1><p>从 GitHub、Gitee 和 GitLab 读取当前账号可访问的仓库。</p></div><button className="button primary" onClick={onRefresh} disabled={isLoading || !selectedAccountId}><RefreshCw size={15} className={isLoading ? "spin" : ""} />{isLoading ? "同步中..." : "同步仓库"}</button></div>
+    <div className="module-hero"><div className="module-icon"><Cloud size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />REMOTE HUB</div><h1>远程仓库</h1><p>从 GitHub、Gitee 和 GitLab 读取当前账号可访问的仓库。</p></div><div className="heading-actions"><button className="button secondary" onClick={onRefresh} disabled={isLoading || !selectedAccountId}><RefreshCw size={15} className={isLoading ? "spin" : ""} />{isLoading ? "同步中..." : "同步仓库"}</button><button className="button primary" onClick={createRepository} disabled={!selectedAccountId}><Plus size={16} />创建仓库</button></div></div>
     <div className="remote-toolbar"><label className="account-select"><span>远程账号</span><select value={selectedAccountId} onChange={(event) => onAccountChange(event.target.value)}><option value="">选择账号</option>{accounts.map((account) => <option value={account.id} key={account.id}>{account.displayName} · {remoteProviderLabels[account.provider]}</option>)}</select></label><label className="search-box remote-search"><Search size={16} /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="搜索仓库名称或描述" /></label></div>
-    <section className="remote-list-panel"><div className="panel-heading"><div><h2>{activeAccount ? `${activeAccount.displayName} 的仓库` : "远程仓库列表"}</h2><span>{filtered.length} 个结果</span></div>{activeAccount && <span className="provider-chip">{remoteProviderLabels[activeAccount.provider]}</span>}</div>{filtered.length ? <div className="remote-list">{filtered.map((repository) => <div className="remote-row" key={`${repository.accountId}-${repository.id}`}><div className={`account-provider-icon ${repository.provider}`}><span>{remoteProviderLabels[repository.provider].slice(0, 1)}</span></div><div className="remote-main"><div className="remote-title"><strong>{repository.fullName}</strong><span>{repository.visibility}</span>{repository.archived && <span>已归档</span>}</div><p>{repository.description || "暂无仓库描述"}</p><div className="remote-meta"><span><GitBranch size={12} />{repository.defaultBranch}</span><code>{repository.httpsUrl}</code></div></div><div className="remote-actions"><button className="button secondary compact-button" onClick={() => copyCloneUrl(repository)}>复制地址</button><button className="icon-button" aria-label="克隆仓库" title="克隆仓库"><ArrowDownToLine size={16} /></button></div></div>)}</div> : <div className="accounts-empty"><Cloud size={22} /><strong>{accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}</strong><span>{accounts.length ? "选择账号后点击同步仓库。" : "账号令牌将由 Windows 凭据管理器保护。"}</span></div>}</section>
+    <section className="remote-list-panel"><div className="panel-heading"><div><h2>{activeAccount ? `${activeAccount.displayName} 的仓库` : "远程仓库列表"}</h2><span>{filtered.length} 个结果</span></div>{activeAccount && <span className="provider-chip">{remoteProviderLabels[activeAccount.provider]}</span>}</div>{filtered.length ? <div className="remote-list">{filtered.map((repository) => <div className="remote-row" key={`${repository.accountId}-${repository.id}`}><div className={`account-provider-icon ${repository.provider}`}><span>{remoteProviderLabels[repository.provider].slice(0, 1)}</span></div><div className="remote-main"><div className="remote-title"><strong>{repository.fullName}</strong><span>{repository.visibility}</span>{repository.archived && <span>已归档</span>}</div><p>{repository.description || "暂无仓库描述"}</p><div className="remote-meta"><span><GitBranch size={12} />{repository.defaultBranch}</span><code>{repository.httpsUrl}</code></div></div><div className="remote-actions"><button className="button secondary compact-button" onClick={() => copyCloneUrl(repository)}>复制地址</button><button className="button secondary compact-button" onClick={() => editRepository(repository)}><Settings2 size={13} />编辑</button><button className="icon-button danger" onClick={() => deleteRepository(repository)} aria-label="删除仓库" title="删除仓库"><Trash2 size={16} /></button><button className="icon-button" aria-label="克隆仓库" title="克隆仓库" onClick={() => onClone(repository)} disabled={cloningRepositoryId !== null && cloningRepositoryId !== repository.id}>{cloningRepositoryId === repository.id ? <RefreshCw size={16} className="spin" /> : <ArrowDownToLine size={16} />}</button></div></div>)}</div> : <div className="accounts-empty"><Cloud size={22} /><strong>{accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}</strong><span>{accounts.length ? "选择账号后点击同步仓库。" : "账号令牌将由 Windows 凭据管理器保护。"}</span></div>}</section>
   </div>;
 }
 

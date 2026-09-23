@@ -110,6 +110,90 @@ export type CreateAccountInput = {
   token: string;
 };
 
+export type CloneRepositoryInput = {
+  url: string;
+  targetPath: string;
+  accountId?: string;
+};
+
+export type CloneRepositoryResult = {
+  success: boolean;
+  output: string;
+  path: string;
+};
+
+export type ChangeFileStatus = "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted";
+
+export type ChangeFile = {
+  path: string;
+  status: ChangeFileStatus;
+  staged: boolean;
+};
+
+export type CommitRequest = {
+  path: string;
+  message: string;
+};
+
+export type CommitResult = {
+  success: boolean;
+  commitHash?: string;
+  output: string;
+};
+
+export type BranchInfo = {
+  name: string;
+  current: boolean;
+  remote?: string;
+  ahead: number;
+  behind: number;
+};
+
+export type CreateBranchInput = {
+  path: string;
+  name: string;
+};
+
+export type SwitchBranchInput = {
+  path: string;
+  name: string;
+};
+
+export type DeleteBranchInput = {
+  path: string;
+  name: string;
+};
+
+export type CommitEntry = {
+  hash: string;
+  shortHash: string;
+  author: string;
+  email: string;
+  date: string;
+  message: string;
+  subject: string;
+};
+
+export type RevertCommitInput = {
+  path: string;
+  hash: string;
+};
+
+export type RemoteRepositoryWriteInput = {
+  accountId: string;
+  repositoryId?: string;
+  name: string;
+  description: string;
+  visibility: "public" | "private" | "internal" | "";
+  init: boolean;
+};
+
+export type RemoteRepositoryMutationResult = {
+  success: boolean;
+  message: string;
+  repository?: RemoteRepository;
+};
+
 export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
   selectDirectory(defaultPath?: string): Promise<string | null>;
@@ -118,6 +202,17 @@ export type DesktopBridge = {
   getProjectSnapshot(path: string): Promise<GitSnapshot>;
   analyzeProject(path: string): Promise<ProjectAnalysis>;
   runGitOperation(path: string, operation: GitOperation): Promise<GitOperationResult>;
+  cloneRepository(input: CloneRepositoryInput): Promise<CloneRepositoryResult>;
+  listChangedFiles(path: string): Promise<ChangeFile[]>;
+  stageFiles(path: string, files: string[]): Promise<void>;
+  unstageFiles(path: string, files: string[]): Promise<void>;
+  commitChanges(input: CommitRequest): Promise<CommitResult>;
+  listBranches(path: string): Promise<BranchInfo[]>;
+  createBranch(input: CreateBranchInput): Promise<void>;
+  switchBranch(input: SwitchBranchInput): Promise<void>;
+  deleteBranch(input: DeleteBranchInput): Promise<void>;
+  listCommitHistory(path: string): Promise<CommitEntry[]>;
+  revertCommit(input: RevertCommitInput): Promise<GitOperationResult>;
   loadProjects(): Promise<Project[]>;
   saveProjects(projects: Project[]): Promise<void>;
   loadAccounts(): Promise<Account[]>;
@@ -125,4 +220,7 @@ export type DesktopBridge = {
   testAccount(accountId: string): Promise<AccountTestResult>;
   deleteAccount(accountId: string): Promise<void>;
   loadRemoteRepositories(accountId: string): Promise<RemoteRepository[]>;
+  createRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
+  updateRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
+  deleteRemoteRepository(accountId: string, repositoryId: string): Promise<RemoteRepositoryMutationResult>;
 };

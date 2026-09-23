@@ -1,15 +1,28 @@
 import { execFile } from "node:child_process";
-import { statSync } from "node:fs";
-import { basename } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute } from "node:path";
 import { promisify } from "node:util";
 import type {
+  BranchInfo,
+  ChangeFile,
+  CloneRepositoryInput,
+  CloneRepositoryResult,
+  CommitEntry,
+  CommitRequest,
+  CommitResult,
+  CreateBranchInput,
+  DeleteBranchInput,
   EnvironmentStatus,
   GitOperation,
   GitOperationResult,
   GitSnapshot,
   LocalProjectInspection,
   ProjectStatus,
+  RevertCommitInput,
+  SwitchBranchInput,
 } from "../../../shared/types";
+import { readCredential } from "./credentials";
+import { getAccount } from "./storage";
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 10 * 1024 * 1024;
@@ -155,6 +168,211 @@ export async function runGitOperation(
   return { operation, success, output, snapshot };
 }
 
+export async function listChangedFiles(projectPath: string): Promise<ChangeFile[]> {
+  assertDirectory(projectPath);
+  const porcelain = await runGit(projectPath, ["status", "--porcelain=v1", "-z"]).catch(() => "");
+  if (!porcelain) {
+    return [];
+  }
+  const files: ChangeFile[] = [];
+  const segments = porcelain.split("\0").filter((segment) => segment.length > 0);
+  for (const segment of segments) {
+    if (segment.length < 3 || segment[2] !== " ") {
+      continue;
+    }
+    const status = segment.slice(0, 2);
+    const path = segment.slice(3);
+    if (!path) continue;
+    files.push({
+      path,
+      status: parseChangeStatus(status),
+      staged: status[0] !== " " && status[0] !== "?",
+    });
+  }
+  return files;
+}
+
+export async function stageFiles(projectPath: string, files: string[]): Promise<void> {
+  assertDirectory(projectPath);
+  if (files.length === 0) {
+    throw new Error("请选择要暂存的文件");
+  }
+  await runGit(projectPath, ["add", "--", ...files]);
+}
+
+export async function unstageFiles(projectPath: string, files: string[]): Promise<void> {
+  assertDirectory(projectPath);
+  if (files.length === 0) {
+    throw new Error("请选择要取消暂存的文件");
+  }
+  await runGit(projectPath, ["restore", "--staged", "--", ...files]);
+}
+
+export async function commitChanges(request: CommitRequest): Promise<CommitResult> {
+  assertDirectory(request.path);
+  const message = request.message.trim();
+  if (message.length === 0) {
+    throw new Error("提交信息不能为空");
+  }
+  if (message.length > 2000) {
+    throw new Error("提交信息过长（最多 2000 字符）");
+  }
+  const messageLines = message.split(/\r?\n/).filter((line) => line.length > 0);
+  const args = ["commit"];
+  for (const line of messageLines) {
+    args.push("-m", line);
+  }
+  const result = await runGitProcess(request.path, args);
+  if (!result.success) {
+    return {
+      success: false,
+      output: result.output || "提交失败",
+    };
+  }
+  const hash = await runGit(request.path, ["rev-parse", "--short", "HEAD"]).catch(() => undefined);
+  return { success: true, commitHash: hash, output: result.output };
+}
+
+export async function listBranches(projectPath: string): Promise<BranchInfo[]> {
+  assertDirectory(projectPath);
+  const output = await runGit(projectPath, ["branch", "-vv"]).catch(() => "");
+  const branches: BranchInfo[] = [];
+  for (const raw of output.split(/\r?\n/)) {
+    if (!raw.trim()) continue;
+    const current = raw.trim().startsWith("*");
+    const line = current ? raw.trim().slice(1).trim() : raw.trim();
+    const match = line.match(/^([^\s]+)/);
+    if (!match) continue;
+    const name = match[1];
+    const tracking = line.match(/\[([^\]]+)\]/);
+    const aheadMatch = tracking?.[1]?.match(/ahead (\d+)/);
+    const behindMatch = tracking?.[1]?.match(/behind (\d+)/);
+    const remotePart = tracking?.[1]?.split(":")[0];
+    branches.push({
+      name,
+      current,
+      remote: tracking ? remotePart ?? undefined : undefined,
+      ahead: aheadMatch ? Number(aheadMatch[1]) : 0,
+      behind: behindMatch ? Number(behindMatch[1]) : 0,
+    });
+  }
+  return branches;
+}
+
+export async function createBranch(input: CreateBranchInput): Promise<void> {
+  assertDirectory(input.path);
+  const name = input.name.trim();
+  if (!/^[A-Za-z0-9._\/-]+$/.test(name)) {
+    throw new Error("分支名只能包含字母、数字、点、下划线、斜杠和连字符");
+  }
+  await runGit(input.path, ["checkout", "-b", name]);
+}
+
+export async function switchBranch(input: SwitchBranchInput): Promise<void> {
+  assertDirectory(input.path);
+  const name = input.name.trim();
+  if (!/^[A-Za-z0-9._\/-]+$/.test(name)) {
+    throw new Error("分支名不合法");
+  }
+  const result = await runGitProcess(input.path, ["checkout", name]);
+  if (!result.success) {
+    throw new Error(result.output || "切换分支失败");
+  }
+}
+
+export async function deleteBranch(input: DeleteBranchInput): Promise<void> {
+  assertDirectory(input.path);
+  const name = input.name.trim();
+  if (!name) {
+    throw new Error("分支名不能为空");
+  }
+  const current = await runGit(input.path, ["branch", "--show-current"]).catch(() => "");
+  if (current === name) {
+    throw new Error("不能删除当前所在分支，请先切换到其他分支");
+  }
+  const result = await runGitProcess(input.path, ["branch", "-D", name]);
+  if (!result.success) {
+    throw new Error(result.output || "删除分支失败");
+  }
+}
+
+export async function listCommitHistory(projectPath: string, limit = 50): Promise<CommitEntry[]> {
+  assertDirectory(projectPath);
+  const output = await runGit(
+    projectPath,
+    ["log", `-n ${limit}`, '--format=%H%x1e%an%x1e%ae%x1e%aI%x1e%s%x1f%b'],
+  ).catch(() => "");
+  const entries: CommitEntry[] = [];
+  for (const record of output.split("\x1f")) {
+    if (!record) continue;
+    const field = record.split("\x1e");
+    if (field.length < 5) continue;
+    const [hash, author, email, date, subject, body = ""] = field;
+    if (!hash) continue;
+    entries.push({
+      hash,
+      shortHash: hash.slice(0, 7),
+      author,
+      email,
+      date,
+      subject: subject.split("\n")[0],
+      message: [subject.split("\n")[0], ...body.split("\n")].filter(Boolean).join("\n"),
+    });
+  }
+  return entries;
+}
+
+export async function revertCommit(input: RevertCommitInput): Promise<GitOperationResult> {
+  assertDirectory(input.path);
+  const hash = input.hash.trim();
+  if (!/^[0-9a-f]{7,40}$/.test(hash)) {
+    throw new Error("提交哈希不合法");
+  }
+  const result = await commitRevertProcess(input.path, hash);
+  let snapshot: GitSnapshot | undefined;
+  try {
+    snapshot = await getProjectSnapshot(input.path);
+  } catch {
+    snapshot = undefined;
+  }
+  return { operation: "pull", success: result.success, output: result.output, snapshot };
+}
+
+async function commitRevertProcess(projectPath: string, hash: string): Promise<{ success: boolean; output: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync("git", ["-C", projectPath, "revert", "--no-edit", hash], {
+      windowsHide: true,
+      maxBuffer: MAX_BUFFER,
+    });
+    const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
+    return { success: true, output };
+  } catch (error) {
+    const failure = error as { stdout?: string; stderr?: string; message?: string };
+    const output = [failure.stdout?.trim(), failure.stderr?.trim()].filter(Boolean).join("\n");
+    return { success: false, output: output || failure.message || "回退提交失败" };
+  }
+}
+
+function parseChangeStatus(status: string): ChangeFile["status"] {
+  const combined = status.trim();
+  if (combined.includes("U") || combined === "AA" || combined === "DD") {
+    return "conflicted";
+  }
+  if (status[0] === "R" || status[1] === "R") {
+    return "renamed";
+  }
+  if (status[0] === "D" || status[1] === "D") {
+    return "deleted";
+  }
+  if (status[1] === "?" || status[1] === "!") {
+    return "untracked";
+  }
+  if (status[1] === "A" || status[0] === "A") {
+    return "added";
+  }
+  return "modified";
+}
+
 function assertDirectory(target: string): void {
   let stats;
   try {
@@ -164,6 +382,75 @@ function assertDirectory(target: string): void {
   }
   if (!stats.isDirectory()) {
     throw new Error("项目路径不是目录");
+  }
+}
+
+export async function cloneRepository(
+  input: CloneRepositoryInput,
+): Promise<CloneRepositoryResult> {
+  const url = input.url.trim();
+  const targetPath = input.targetPath.trim();
+  assertCloneUrl(url);
+  assertCloneTarget(targetPath);
+
+  mkdirSync(dirname(targetPath), { recursive: true });
+
+  const args = ["clone", "--progress"];
+  let token = "";
+  if (input.accountId) {
+    const account = getAccount(input.accountId);
+    token = readCredential(account.credentialRef);
+    args.push(
+      "--config",
+      'credential.helper=!f() { echo username=x-access-token; echo password="$GITOOL_ASKPASS_TOKEN"; }; f',
+    );
+  }
+  args.push(url, targetPath);
+
+  try {
+    await execFileAsync("git", args, {
+      cwd: dirname(targetPath),
+      windowsHide: true,
+      maxBuffer: MAX_BUFFER,
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0",
+        GITOOL_ASKPASS_TOKEN: token,
+      },
+    });
+    return { success: true, output: "克隆完成。", path: targetPath };
+  } catch (error) {
+    if (existsSync(targetPath)) {
+      rmSync(targetPath, { recursive: true, force: true });
+    }
+    return {
+      success: false,
+      output: gitErrorOutput(error),
+      path: targetPath,
+    };
+  }
+}
+
+function assertCloneUrl(url: string): void {
+  const httpsPattern = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+  const sshPattern = /^[^@\s]+@[^:\s]+:.+$/;
+  if (!httpsPattern.test(url) && !sshPattern.test(url)) {
+    throw new Error("不支持的克隆地址，仅接受 HTTPS 或 SSH 格式");
+  }
+}
+
+function assertCloneTarget(targetPath: string): void {
+  if (!isAbsolute(targetPath)) {
+    throw new Error("克隆目标必须是绝对路径");
+  }
+  if (existsSync(targetPath)) {
+    const stats = statSync(targetPath);
+    if (!stats.isDirectory()) {
+      throw new Error("克隆目标不是目录");
+    }
+    if (readdirSync(targetPath).length > 0) {
+      throw new Error("克隆目标目录不是空的，请选择空目录");
+    }
   }
 }
 
@@ -204,4 +491,10 @@ function bracketValue(branchLine: string, key: string): string | null {
     .split(/[,\]]/)[0]
     .trim();
   return value.length > 0 ? value : null;
+}
+
+function gitErrorOutput(error: unknown): string {
+  const failure = error as { stdout?: string; stderr?: string; message?: string };
+  const detail = [failure.stdout, failure.stderr].filter((item): item is string => Boolean(item)).join("\n").trim();
+  return detail.length > 0 ? detail : failure.message ?? "克隆失败";
 }
