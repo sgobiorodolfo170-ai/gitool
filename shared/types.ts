@@ -202,10 +202,18 @@ export type RemoteRepositoryMutationResult = {
   repository?: RemoteRepository;
 };
 
+export type OpenEditorInput = {
+  path: string;
+  editor: "vscode" | "cursor";
+  newWindow: boolean;
+};
+
 export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
   selectDirectory(defaultPath?: string): Promise<string | null>;
   openExternal(url: string): Promise<void>;
+  openInEditor(input: OpenEditorInput): Promise<void>;
+  openInTerminal(path: string): Promise<void>;
   inspectProject(path: string): Promise<LocalProjectInspection>;
   getProjectSnapshot(path: string): Promise<GitSnapshot>;
   analyzeProject(path: string): Promise<ProjectAnalysis>;

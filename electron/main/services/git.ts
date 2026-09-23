@@ -139,6 +139,19 @@ export async function runGitOperation(
     throw new Error("不支持的 Git 操作");
   }
 
+  if (operation === "pull" || operation === "sync") {
+    const uncommittedFiles = await listChangedFiles(projectPath);
+    if (uncommittedFiles.length > 0) {
+      const names = uncommittedFiles.slice(0, 5).map((item) => item.path).join("、");
+      const label = operation === "pull" ? "拉取" : "同步";
+      return {
+        operation,
+        success: false,
+        output: `工作区有未提交的变更，已阻止${label}以免丢失修改。\n变更文件：${names}${uncommittedFiles.length > 5 ? ` 等 ${uncommittedFiles.length} 个` : ""}\n请先提交或暂存这些更改后重试。`,
+      };
+    }
+  }
+
   const sections: string[] = [];
   let success = true;
   for (const args of commands) {

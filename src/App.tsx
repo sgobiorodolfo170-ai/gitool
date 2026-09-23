@@ -873,6 +873,30 @@ function EmptyProjects({ onImport }: { onImport: () => void }) {
 function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onRunGitOperation, activeOperation, operationOutput, onAnalyzeProject, isAnalyzing, analysis }: { project: Project; onToggleFavorite: () => void; onUpdateProject: (patch: Partial<Project>) => void; onRunGitOperation: (operation: GitOperation) => void | Promise<void>; activeOperation: GitOperation | null; operationOutput: string | null; onAnalyzeProject: () => void | Promise<void>; isAnalyzing: boolean; analysis: ProjectAnalysis | null }) {
   const status = statusMeta[project.status];
   const ProviderIcon = providerIcons[project.provider];
+  const bridge = getDesktopBridge();
+  const [actionMessage, setActionMessage] = useState("");
+
+  const runOpen = (editor: "vscode" | "cursor", newWindow: boolean) => {
+    if (!bridge) {
+      setActionMessage("浏览器预览不支持打开编辑器");
+      return;
+    }
+    void bridge.openInEditor({ path: project.path, editor, newWindow }).then(() => setActionMessage(`已请求在 ${editor === "vscode" ? "VS Code" : "Cursor"} 中打开`)).catch((error) => setActionMessage(error instanceof Error ? error.message : "打开编辑器失败"));
+  };
+
+  const openTerminal = () => {
+    if (!bridge) {
+      setActionMessage("浏览器预览不支持打开终端");
+      return;
+    }
+    void bridge.openInTerminal(project.path).then(() => setActionMessage("已在项目目录打开终端")).catch((error) => setActionMessage(error instanceof Error ? error.message : "打开终端失败"));
+  };
+
+  const copyPath = async () => {
+    await navigator.clipboard.writeText(project.path);
+    setActionMessage("项目路径已复制到剪贴板");
+  };
+
   return <aside className="detail-panel">
     <div className="detail-top"><div className="detail-provider"><ProviderIcon size={16} />{providerLabels[project.provider]}</div><button className={`favorite-button ${project.favorite ? "active" : ""}`} onClick={onToggleFavorite} aria-label={project.favorite ? "取消收藏" : "收藏项目"}><Star size={17} fill={project.favorite ? "currentColor" : "none"} /></button></div>
     <div className="detail-title"><div className="large-project-icon" style={{ color: project.languageColor }}><Code2 size={25} /></div><div><h2>{project.name}</h2><p>{project.path}</p></div><AliasEditor alias={project.alias} onSave={(alias) => onUpdateProject({ alias: alias.trim().length > 0 ? alias.trim() : undefined })} /></div>
@@ -888,7 +912,7 @@ function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onRunGitOpe
     {operationOutput && <div className="operation-output"><div><span>最近一次 Git 输出</span><button className="bare-button" onClick={() => onRunGitOperation("fetch")} aria-label="重新获取远程更新"><RefreshCw size={13} /></button></div><pre>{operationOutput}</pre></div>}
     <div className="detail-section"><div className="detail-section-heading"><span>项目概览</span><button className="bare-button"><ExternalLink size={14} /></button></div><div className="detail-stats"><DetailStat icon={<GitBranch size={14} />} label="当前分支" value={project.branch} /><DetailStat icon={<GitCommitHorizontal size={14} />} label="最近提交" value={project.commit} /><DetailStat icon={<FileCode2 size={14} />} label="文件数量" value={`${project.files}`} /></div></div>
     <ReadmeSection projectPath={project.path} />
-    <div className="detail-section"><div className="detail-section-heading"><span>快捷入口</span></div><div className="quick-links"><button><TerminalSquare size={15} />打开终端<ArrowUpRight size={13} /></button><button onClick={onAnalyzeProject} disabled={isAnalyzing}><Blocks size={15} />{isAnalyzing ? "分析中..." : "结构分析"}<ArrowUpRight size={13} /></button><button><Sparkles size={15} />生成 AI 摘要<ArrowUpRight size={13} /></button></div></div>
+    <div className="detail-section"><div className="detail-section-heading"><span>快捷入口</span></div><div className="quick-links"><button onClick={openTerminal}><TerminalSquare size={15} />打开终端<ArrowUpRight size={13} /></button><button onClick={() => runOpen("vscode", false)}><Code2 size={15} />VS Code<ArrowUpRight size={13} /></button><button onClick={() => runOpen("cursor", false)}><Blocks size={15} />Cursor<ArrowUpRight size={13} /></button><button onClick={copyPath}><FileCode2 size={15} />复制路径<ArrowUpRight size={13} /></button><button onClick={onAnalyzeProject} disabled={isAnalyzing}><Blocks size={15} />{isAnalyzing ? "分析中..." : "结构分析"}<ArrowUpRight size={13} /></button><button><Sparkles size={15} />生成 AI 摘要<ArrowUpRight size={13} /></button></div>{actionMessage && <div className="git-output"><pre>{actionMessage}</pre></div>}</div>
     {analysis && <ProjectAnalysisPanel analysis={analysis} />}
     <GitActionsPanel projectPath={project.path} />
   </aside>;

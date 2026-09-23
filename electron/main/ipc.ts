@@ -6,12 +6,14 @@ import type {
   CreateBranchInput,
   DeleteBranchInput,
   GitOperation,
+  OpenEditorInput,
   Project,
   RemoteRepositoryWriteInput,
   RevertCommitInput,
   SwitchBranchInput,
 } from "../../shared/types";
 import { analyzeProject } from "./services/analysis";
+import { openInEditor, openInTerminal } from "./services/openers";
 import {
   cloneRepository,
   commitChanges,
@@ -68,6 +70,14 @@ export function registerIpcHandlers(): void {
     }
     await shell.openExternal(url);
   });
+
+  ipcMain.handle("shell:openEditor", (_event, input: unknown) => {
+    const editorInput = requireOpenEditorInput(input);
+    return openInEditor(editorInput.path, editorInput.editor, editorInput.newWindow);
+  });
+  ipcMain.handle("shell:openTerminal", (_event, projectPath: unknown) =>
+    openInTerminal(requireString(projectPath, "项目路径")),
+  );
 
   ipcMain.handle("projects:inspect", (_event, projectPath: unknown) =>
     inspectLocalProject(requireString(projectPath, "项目路径")),
@@ -150,6 +160,22 @@ export function registerIpcHandlers(): void {
       requireString(repositoryId, "仓库 ID"),
     ),
   );
+}
+
+function requireOpenEditorInput(value: unknown): OpenEditorInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("编辑器参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  const editor = candidate.editor;
+  if (editor !== "vscode" && editor !== "cursor") {
+    throw new Error("不支持的编辑器类型");
+  }
+  return {
+    path: requireString(candidate.path, "项目路径"),
+    editor,
+    newWindow: candidate.newWindow === true,
+  };
 }
 
 function requireString(value: unknown, label: string): string {

@@ -48,11 +48,13 @@ GitDock（https://github.com/gitdock-dev/gitdock）是开源的本地 Git 仓库
 
 > 实现说明：总览页新增「需要关注」面板，侧栏导航计数改为动态。项目卡片显示磁盘大小与休眠标记；详情页新增 README 阅读器与别名编辑。项目数据库新增 `diskSizeBytes`、`alias` 两列并带迁移。全选 + 多选项目支持批量 fetch/pull/push。已通过 `npm run typecheck` 与 `npm run build`。
 
-### 阶段 C — 集成与安全
+### 阶段 C — 集成与安全 ✅ 已完成
 
-- C-1 打开 VS Code / Cursor / 终端 + 复制路径（复用现有 IPC 模式）
-- C-2 Pull 前安全校验（有未提交变更时阻止）
-- C-3 暗色主题
+- C-1 打开 VS Code / Cursor / 终端 + 复制路径（新增 `shell:openEditor` / `shell:openTerminal` IPC）
+- C-2 Pull / Sync 前安全校验：工作区有未提交变更时阻止并列出变更文件
+- C-3 暗色主题 — **已取消**：按用户要求保持亮色主题，不实施
+
+> 实现说明：项目详情「快捷入口」新增 VS Code / Cursor / 打开终端 / 复制路径。`runGitOperation` 在 pull 与 sync 前调用 `listChangedFiles` 检查未提交变更，命中则返回可读提示并阻止操作。暗色主题因需求变更被移除。
 
 ### 阶段 D — 占位页转正（当前 tasks / backups / logs 为假数据）
 
