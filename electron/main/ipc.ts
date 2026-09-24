@@ -10,8 +10,10 @@ import type {
   CreateAccountInput,
   CreateBranchInput,
   DeleteBranchInput,
+  FileDiffRequest,
   GitOperation,
   GitOperationResult,
+  InitRepositoryInput,
   MoveProjectInput,
   OpenEditorInput,
   OperationRecord,
@@ -32,7 +34,9 @@ import {
   deleteBranch,
   getDiskSize,
   getEnvironmentStatus,
+  getFileDiff,
   getProjectSnapshot,
+  initRepository,
   inspectLocalProject,
   listBranches,
   listChangedFiles,
@@ -41,6 +45,7 @@ import {
   readProjectReadme,
   revertCommit,
   runGitOperation,
+  scanDirectoryForRepositories,
   stageFiles,
   switchBranch,
   unstageFiles,
@@ -73,7 +78,7 @@ import {
   saveTaskProfile,
   updateTaskRun,
 } from "./services/storage";
-import { runTask, stopTask } from "./services/tasks";
+import { getRunningTaskOutput, runTask, stopTask } from "./services/tasks";
 
 export function registerIpcHandlers(): void {  ipcMain.handle("system:environment", () => getEnvironmentStatus());
 
@@ -127,6 +132,15 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   );
   ipcMain.handle("projects:readme", (_event, projectPath: unknown) =>
     readProjectReadme(requireString(projectPath, "项目路径")),
+  );
+  ipcMain.handle("projects:init", (_event, input: unknown) =>
+    initRepository(requireInitRepositoryInput(input)),
+  );
+  ipcMain.handle("projects:scanDirectory", (_event, directory: unknown) =>
+    scanDirectoryForRepositories(requireString(directory, "目录")),
+  );
+  ipcMain.handle("projects:fileDiff", (_event, input: unknown) =>
+    getFileDiff(requireFileDiffRequest(input)),
   );
   ipcMain.handle("projects:gitOperation", (_event, projectPath: unknown, operation: unknown) =>
     recordGitOperation(projectPath, operation),
@@ -211,6 +225,9 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
     stopTask(requireString(runId, "运行 ID")),
   );
   ipcMain.handle("tasks:listRuns", () => listTaskRuns());
+  ipcMain.handle("tasks:getRunningOutput", (_event, runId: unknown) =>
+    getRunningTaskOutput(requireString(runId, "运行 ID")),
+  );
   ipcMain.handle("tasks:updateRun", (_event, run: unknown) => {
     const validated = requireTaskRun(run);
     updateTaskRun(validated);
@@ -297,6 +314,28 @@ function requireMoveProjectInput(value: unknown): MoveProjectInput {
   return {
     sourcePath: requireString(candidate.sourcePath, "源路径"),
     targetDirectory: requireString(candidate.targetDirectory, "目标目录"),
+  };
+}
+
+function requireInitRepositoryInput(value: unknown): InitRepositoryInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("初始化仓库参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    path: requireString(candidate.path, "初始化路径"),
+    defaultBranch: typeof candidate.defaultBranch === "string" && candidate.defaultBranch.trim().length > 0 ? candidate.defaultBranch.trim() : undefined,
+  };
+}
+
+function requireFileDiffRequest(value: unknown): FileDiffRequest {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("差异查看参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    path: requireString(candidate.path, "项目路径"),
+    file: requireString(candidate.file, "文件路径"),
   };
 }
 

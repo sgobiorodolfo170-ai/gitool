@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import type { TaskRun } from "../../../shared/types";
 import { getTaskProfile } from "./storage";
 
-const runningTasks = new Map<string, { process: ReturnType<typeof spawn> }>();
+const runningTasks = new Map<string, { process: ReturnType<typeof spawn>; output: () => string }>();
 
 export async function runTask(profileId: string): Promise<TaskRun> {
   const profile = getTaskProfile(profileId);
@@ -25,14 +25,14 @@ export async function runTask(profileId: string): Promise<TaskRun> {
   };
 
   const args = splitCommandLine(profile.args);
+  let output = "";
   const child = spawn(profile.command, args, {
     cwd: profile.workingDirectory,
     windowsHide: true,
     shell: false,
   });
-  runningTasks.set(run.id, { process: child });
+  runningTasks.set(run.id, { process: child, output: () => output });
 
-  let output = "";
   child.stdout?.on("data", (chunk) => {
     output += chunk.toString();
   });
@@ -87,6 +87,14 @@ export function stopTask(runId: string): void {
 
 export function isTaskRunning(runId: string): boolean {
   return runningTasks.has(runId);
+}
+
+export function getRunningTaskOutput(runId: string): string {
+  const running = runningTasks.get(runId);
+  if (!running) {
+    return "";
+  }
+  return running.output();
 }
 
 export function splitCommandLine(input: string): string[] {

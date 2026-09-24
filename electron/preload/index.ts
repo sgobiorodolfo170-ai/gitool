@@ -22,6 +22,7 @@ import type {
   ReadmeResult,
   RemoteRepository,
   RemoteRepositoryMutationResult,
+  RepositoryDiscoveryItem,
   TaskProfile,
   TaskRun,
 } from "../../shared/types";
@@ -94,6 +95,10 @@ const bridge: DesktopBridge = {
   loadSettings: () => invoke<AppSettings>("settings:load"),
   saveSettings: (settings: AppSettings) => invoke<void>("settings:save", settings),
   moveProject: (input: MoveProjectInput) => invoke<MoveProjectResult>("projects:move", input),
+  initRepository: (input) => invoke<void>("projects:init", input),
+  scanDirectoryForRepositories: (path) => invoke<RepositoryDiscoveryItem[]>("projects:scanDirectory", path),
+  getFileDiff: (input) => invoke<string>("projects:fileDiff", input),
+  getRunningTaskOutput: (runId) => invoke<string>("tasks:getRunningOutput", runId),
 };
 
 contextBridge.exposeInMainWorld("gitool", bridge);

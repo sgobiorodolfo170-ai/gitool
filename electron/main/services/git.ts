@@ -13,14 +13,17 @@ import type {
   CreateBranchInput,
   DeleteBranchInput,
   EnvironmentStatus,
+  FileDiffRequest,
   GitOperation,
   GitOperationResult,
   GitSnapshot,
+  InitRepositoryInput,
   LocalProjectInspection,
   MoveProjectInput,
   MoveProjectResult,
   ProjectStatus,
   ReadmeResult,
+  RepositoryDiscoveryItem,
   RevertCommitInput,
   SwitchBranchInput,
 } from "../../../shared/types";
@@ -71,6 +74,64 @@ export async function inspectLocalProject(projectPath: string): Promise<LocalPro
   } catch {
     return { path: projectPath, name, is_git_repository: false };
   }
+}
+
+export async function initRepository(input: InitRepositoryInput): Promise<void> {
+  const projectPath = input.path.trim();
+  if (!isAbsolute(projectPath)) {
+    throw new Error("初始化路径必须是绝对路径");
+  }
+  mkdirSync(projectPath, { recursive: true });
+  if (existsSync(join(projectPath, ".git"))) {
+    throw new Error("该目录已经是 Git 仓库");
+  }
+  const branch = input.defaultBranch?.trim() || "main";
+  if (!/^[A-Za-z0-9._\/-]+$/.test(branch)) {
+    throw new Error("默认分支名不合法");
+  }
+  const args = ["init", "-b", branch];
+  const result = await runGitProcess(projectPath, args);
+  if (!result.success) {
+    throw new Error(result.output || "初始化失败");
+  }
+}
+
+export async function scanDirectoryForRepositories(directory: string): Promise<RepositoryDiscoveryItem[]> {
+  if (!isAbsolute(directory) || !existsSync(directory) || !statSync(directory).isDirectory()) {
+    throw new Error("目录不存在或不是目录");
+  }
+  const items: RepositoryDiscoveryItem[] = [];
+  const entries = readdirSync(directory, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === ".git" || entry.name === "node_modules" || entry.name === "dist" || entry.name === "build") {
+      continue;
+    }
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const entryPath = join(directory, entry.name);
+    items.push({
+      path: entryPath,
+      name: entry.name,
+      isGitRepository: existsSync(join(entryPath, ".git")),
+    });
+  }
+  return items.sort((left, right) => Number(right.isGitRepository) - Number(left.isGitRepository));
+}
+
+export async function getFileDiff(input: FileDiffRequest): Promise<string> {
+  const projectPath = input.path.trim();
+  const file = input.file.trim();
+  assertDirectory(projectPath);
+  if (!file || file.includes("\0")) {
+    throw new Error("文件路径不合法");
+  }
+  const result = await runGitProcess(projectPath, ["diff", "--", file]);
+  if (!result.success) {
+    throw new Error(result.output || "读取差异失败");
+  }
+  const diff = result.output.trim();
+  return diff.length > 0 ? diff : "该文件没有未暂存的差异。";
 }
 
 export async function getProjectSnapshot(projectPath: string): Promise<GitSnapshot> {

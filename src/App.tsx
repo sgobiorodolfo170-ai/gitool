@@ -36,7 +36,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Account, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, TaskProfile, TaskRun, Workspace } from "./types";
+import type { Account, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, Workspace } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 import { loadProjects, saveProjects } from "./lib/projects";
 
@@ -564,6 +564,141 @@ function App() {
     }
   };
 
+  const initNewRepository = async () => {
+    if (!isDesktopRuntime()) {
+      setNotice("浏览器预览不支持初始化仓库");
+      window.setTimeout(() => setNotice(null), 3000);
+      return;
+    }
+    const bridge = requireDesktopBridge();
+    const directory = await bridge.selectDirectory();
+    if (!directory) return;
+    const projectName = window.prompt("项目名称（用于新建项目目录）", "my-project");
+    if (!projectName || !/^[a-zA-Z0-9_-]+$/.test(projectName)) {
+      setNotice("项目名称只能使用字母、数字、下划线或连字符");
+      window.setTimeout(() => setNotice(null), 3000);
+      return;
+    }
+    const targetPath = `${directory}\\${projectName}`;
+    let alreadyExists = false;
+    try {
+      const inspected = await bridge.inspectProject(targetPath);
+      alreadyExists = inspected.is_git_repository;
+    } catch {
+      alreadyExists = false;
+    }
+    if (alreadyExists) {
+      setNotice("该目录已经是 Git 仓库");
+      window.setTimeout(() => setNotice(null), 3000);
+      return;
+    }
+    setIsImporting(true);
+    try {
+      await bridge.initRepository({ path: targetPath });
+      const inspected = await bridge.inspectProject(targetPath);
+      const diskSizeBytes = await bridge.getDiskSize(targetPath).catch(() => 0);
+      const newProject: Project = {
+        id: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
+        name: inspected.name,
+        path: targetPath,
+        provider: "local",
+        branch: "main",
+        status: "clean",
+        commit: "无提交",
+        favorite: false,
+        tags: ["new"],
+        files: 0,
+        syncLabel: "已初始化",
+        language: "待分析",
+        languageColor: "#8b97a8",
+        summary: "刚初始化的新 Git 仓库。",
+        updatedAt: "刚刚",
+        diskSizeBytes,
+      };
+      updateProjects([newProject, ...projects]);
+      setSelectedId(newProject.id);
+      setWorkspace("projects");
+      setNotice("新 Git 仓库初始化完成");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "初始化失败");
+    } finally {
+      setIsImporting(false);
+      window.setTimeout(() => setNotice(null), 3500);
+    }
+  };
+
+  const importScannedRepositories = async (items: RepositoryDiscoveryItem[]) => {
+    if (!isDesktopRuntime()) return;
+    const bridge = requireDesktopBridge();
+    setIsImporting(true);
+    let imported = 0;
+    try {
+      const existingPaths = new Set(projects.map((project) => project.path.toLowerCase()));
+      const newProjects: Project[] = [];
+      for (const item of items) {
+        if (!item.isGitRepository || existingPaths.has(item.path.toLowerCase())) {
+          continue;
+        }
+        const inspected = await bridge.inspectProject(item.path);
+        const snapshot = inspected.snapshot;
+        const diskSizeBytes = await bridge.getDiskSize(item.path).catch(() => 0);
+        newProjects.push({
+          id: `${item.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: inspected.name,
+          path: item.path,
+          provider: "local",
+          branch: snapshot?.branch ?? "main",
+          status: snapshot?.status ?? "clean",
+          commit: snapshot?.commit ?? "未扫描",
+          favorite: false,
+          tags: ["new"],
+          files: snapshot?.files ?? 0,
+          syncLabel: snapshot?.sync_label ?? "待扫描",
+          language: "待分析",
+          languageColor: "#8b97a8",
+          summary: "批量扫描导入的本地项目。",
+          updatedAt: snapshot?.updated_at ?? "刚刚",
+          diskSizeBytes,
+        });
+        existingPaths.add(item.path.toLowerCase());
+        imported += 1;
+      }
+      if (newProjects.length > 0) {
+        updateProjects([...newProjects, ...projects]);
+      }
+    } finally {
+      setIsImporting(false);
+    }
+    setNotice(imported > 0 ? `已导入 ${imported} 个仓库` : "没有可导入的新仓库");
+    window.setTimeout(() => setNotice(null), 3500);
+  };
+
+  const scanDirectoryForImport = async () => {
+    if (!isDesktopRuntime()) {
+      setNotice("浏览器预览不支持批量导入");
+      window.setTimeout(() => setNotice(null), 3000);
+      return;
+    }
+    const bridge = requireDesktopBridge();
+    const directory = await bridge.selectDirectory();
+    if (!directory) return;
+    try {
+      const items = await bridge.scanDirectoryForRepositories(directory);
+      const gitRepos = items.filter((item) => item.isGitRepository);
+      if (gitRepos.length === 0) {
+        setNotice("该目录下没有发现 Git 仓库");
+        window.setTimeout(() => setNotice(null), 3000);
+        return;
+      }
+      const confirmed = window.confirm(`发现 ${items.length} 个子目录，其中 ${gitRepos.length} 个是 Git 仓库。导入全部仓库？`);
+      if (!confirmed) return;
+      await importScannedRepositories(items);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "扫描失败");
+      window.setTimeout(() => setNotice(null), 3000);
+    }
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -656,6 +791,8 @@ function App() {
               onUpdateProject={(projectId, patch) => updateProjects(projects.map((project) => project.id === projectId ? { ...project, ...patch } : project))}
               onBulkGitOperation={runBulkGitOperation}
               onMoveProject={moveProject}
+              onInitRepository={initNewRepository}
+              onScanImport={scanDirectoryForImport}
               onImport={importProject}
               onRefresh={refreshProjects}
               isRefreshing={isRefreshing}
@@ -734,6 +871,8 @@ type ProjectsWorkspaceProps = {
   onUpdateProject: (id: string, patch: Partial<Project>) => void;
   onBulkGitOperation: (operation: GitOperation, ids: string[]) => void | Promise<void>;
   onMoveProject: (project: Project) => void | Promise<void>;
+  onInitRepository: () => void | Promise<void>;
+  onScanImport: () => void | Promise<void>;
   onImport: () => void;
   onRefresh: () => void | Promise<void>;
   isRefreshing: boolean;
@@ -763,6 +902,8 @@ function ProjectsWorkspace({
   onUpdateProject,
   onBulkGitOperation,
   onMoveProject,
+  onInitRepository,
+  onScanImport,
   onImport,
   onRefresh,
   isRefreshing,
@@ -832,6 +973,8 @@ function ProjectsWorkspace({
         </div>
         <div className="heading-actions">
           <button className="button secondary" onClick={onRefresh} disabled={isRefreshing}><RefreshCw size={15} className={isRefreshing ? "spin" : ""} />{isRefreshing ? "刷新中..." : "刷新状态"}</button>
+          <button className="button secondary" onClick={onScanImport}><FolderGit2 size={15} />批量导入</button>
+          <button className="button secondary" onClick={onInitRepository}><Plus size={15} />初始化仓库</button>
           <button className="button primary" onClick={onImport}><Plus size={16} />{isImporting ? "导入中..." : "导入项目"}</button>
         </div>
       </div>
@@ -1198,8 +1341,21 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
   const [busy, setBusy] = useState(false);
   const [output, setOutput] = useState("");
   const [newBranchName, setNewBranchName] = useState("");
+  const [diffFor, setDiffFor] = useState<string | null>(null);
+  const [diffText, setDiffText] = useState("");
 
   const bridge = getDesktopBridge();
+
+  const loadDiff = async (filePath: string) => {
+    if (!bridge) return;
+    setDiffFor(filePath);
+    setDiffText("正在读取差异...");
+    try {
+      setDiffText(await bridge.getFileDiff({ path: projectPath, file: filePath }));
+    } catch (error) {
+      setDiffText(error instanceof Error ? error.message : "读取差异失败");
+    }
+  };
 
   const loadChangedFiles = async () => {
     if (!bridge) return;
@@ -1366,10 +1522,11 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
             <ol className="conflict-steps"><li>打开冲突文件，保留需要的改动（`&lt;&lt;&lt;&lt;&lt;&lt;&lt;` 到 `&gt;&gt;&gt;&gt;&gt;&gt;&gt;` 之间的内容）</li><li>删除冲突标记</li><li>回到此面板勾选暂存该文件</li><li>填写提交信息完成合并</li></ol>
           </div>;
         }
-        return changedFiles.length === 0 ? <div className="git-empty">{loading ? "正在读取变更..." : "工作区干净，没有待提交的变更。"}</div> : <div className="change-list">{changedFiles.map((file) => <div className="change-row" key={`${file.path}-${file.staged}`}><label className="change-check"><input type="checkbox" checked={file.staged} disabled={busy} onChange={() => toggleStage(file)} /><span className={`change-status ${file.staged ? "staged" : ""}`}>{changeStatusMeta[file.status].label}</span></label><code>{file.path}</code></div>)}</div>;
+        return changedFiles.length === 0 ? <div className="git-empty">{loading ? "正在读取变更..." : "工作区干净，没有待提交的变更。"}</div> : <div className="change-list">{changedFiles.map((file) => <div className="change-row" key={`${file.path}-${file.staged}`}><label className="change-check"><input type="checkbox" checked={file.staged} disabled={busy} onChange={() => toggleStage(file)} /><span className={`change-status ${file.staged ? "staged" : ""}`}>{changeStatusMeta[file.status].label}</span></label><code className="change-path" onClick={() => loadDiff(file.path)} title="点击查看差异">{file.path}</code></div>)}</div>;
       })()}
       <textarea className="commit-message" value={commitMessage} onChange={(event) => setCommitMessage(event.target.value)} placeholder="填写提交信息（subject / body）" rows={3} />
       <button className="button primary wide" onClick={commit} disabled={busy || !commitMessage.trim() || changedFiles.filter((file) => file.staged).length === 0}>{busy ? "提交中..." : "提交暂存的变更"}</button>
+      {diffFor && <div className="diff-viewer"><div className="diff-heading"><span>差异 · {diffFor}</span><button className="bare-button" onClick={() => setDiffFor(null)} aria-label="关闭差异"><X size={13} /></button></div><pre>{diffText}</pre></div>}
     </div>}
 
     {tab === "branches" && <div className="git-tab-content">
@@ -1524,10 +1681,32 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
     setRuns(loadedRuns);
   };
 
+  const refreshRunningOutput = async () => {
+    if (!bridge) return;
+    const runningRuns = runs.filter((run) => run.status === "running");
+    if (runningRuns.length === 0) return;
+    const patches = await Promise.all(runningRuns.map(async (run) => {
+      const live = await bridge.getRunningTaskOutput(run.id).catch(() => "");
+      return live && live !== run.output ? { id: run.id, output: live } : null;
+    }));
+    const valid = patches.filter((patch): patch is { id: string; output: string } => patch !== null);
+    if (valid.length > 0) {
+      setRuns((current) => current.map((run) => {
+        const patch = valid.find((item) => item.id === run.id);
+        return patch ? { ...run, output: patch.output } : run;
+      }));
+    }
+  };
+
   useEffect(() => { void load(); }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => { void load(); }, 2000);
+    const timer = window.setInterval(() => { void refreshRunningOutput(); }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { void load(); }, 4000);
     return () => window.clearInterval(timer);
   }, []);
 

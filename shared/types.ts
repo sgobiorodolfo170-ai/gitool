@@ -287,6 +287,22 @@ export type MoveProjectResult = {
   output: string;
 };
 
+export type InitRepositoryInput = {
+  path: string;
+  defaultBranch?: string;
+};
+
+export type RepositoryDiscoveryItem = {
+  path: string;
+  name: string;
+  isGitRepository: boolean;
+};
+
+export type FileDiffRequest = {
+  path: string;
+  file: string;
+};
+
 export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
   selectDirectory(defaultPath?: string): Promise<string | null>;
@@ -335,4 +351,8 @@ export type DesktopBridge = {
   loadSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<void>;
   moveProject(input: MoveProjectInput): Promise<MoveProjectResult>;
+  initRepository(input: InitRepositoryInput): Promise<void>;
+  scanDirectoryForRepositories(path: string): Promise<RepositoryDiscoveryItem[]>;
+  getFileDiff(input: FileDiffRequest): Promise<string>;
+  getRunningTaskOutput(runId: string): Promise<string>;
 };
