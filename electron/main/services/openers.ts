@@ -1,18 +1,31 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { statSync } from "node:fs";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export type EditorTarget = "vscode" | "cursor";
 
 export async function openInEditor(projectPath: string, editor: EditorTarget, newWindow: boolean): Promise<void> {
   assertDirectory(projectPath);
   const command = editor === "vscode" ? "code" : "cursor";
+  await assertCommandExists(editor === "vscode" ? "VS Code" : "Cursor", command);
   const args = newWindow ? ["--new-window", projectPath] : [projectPath];
   spawnDetached(command, args);
 }
 
 export async function openInTerminal(projectPath: string): Promise<void> {
   assertDirectory(projectPath);
+  await assertCommandExists("PowerShell", "powershell");
   spawnDetached("powershell", ["-NoExit", "-Command", `Set-Location -LiteralPath '${projectPath}'`]);
+}
+
+async function assertCommandExists(label: string, command: string): Promise<void> {
+  try {
+    await execFileAsync("where", [command], { windowsHide: true });
+  } catch {
+    throw new Error(`${label} 未安装或不在 PATH 中，无法打开`);
+  }
 }
 
 function assertDirectory(target: string): void {
@@ -30,7 +43,7 @@ function spawnDetached(command: string, args: string[]): void {
     shell: false,
   });
   child.on("error", () => {
-    // 编辑器或终端不存在时静默失败，由渲染层提示
+    // 启动失败时静默，检测已在上层完成
   });
   child.unref();
 }

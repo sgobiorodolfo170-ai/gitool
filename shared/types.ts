@@ -274,6 +274,7 @@ export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
   selectDirectory(defaultPath?: string): Promise<string | null>;
   openExternal(url: string): Promise<void>;
+  openPath(path: string): Promise<void>;
   openInEditor(input: OpenEditorInput): Promise<void>;
   openInTerminal(path: string): Promise<void>;
   inspectProject(path: string): Promise<LocalProjectInspection>;

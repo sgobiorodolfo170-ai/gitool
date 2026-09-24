@@ -92,6 +92,14 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
     await shell.openExternal(url);
   });
 
+  ipcMain.handle("shell:openPath", async (_event, projectPath: unknown) => {
+    const path = requireString(projectPath, "项目路径");
+    const errorMessage = await shell.openPath(path);
+    if (errorMessage) {
+      throw new Error(`无法在资源管理器中打开：${errorMessage}`);
+    }
+  });
+
   ipcMain.handle("shell:openEditor", (_event, input: unknown) => {
     const editorInput = requireOpenEditorInput(input);
     return openInEditor(editorInput.path, editorInput.editor, editorInput.newWindow);

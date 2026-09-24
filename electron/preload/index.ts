@@ -42,6 +42,7 @@ const bridge: DesktopBridge = {
   environment: () => invoke<EnvironmentStatus>("system:environment"),
   selectDirectory: (defaultPath) => invoke<string | null>("system:selectDirectory", defaultPath),
   openExternal: (url) => invoke<void>("shell:openExternal", url),
+  openPath: (path) => invoke<void>("shell:openPath", path),
   openInEditor: (input) => invoke<void>("shell:openEditor", input),
   openInTerminal: (path) => invoke<void>("shell:openTerminal", path),
   inspectProject: (path) => invoke<LocalProjectInspection>("projects:inspect", path),

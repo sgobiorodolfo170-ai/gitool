@@ -743,6 +743,10 @@ function ProjectsWorkspace({
         event.preventDefault();
         searchRef.current?.focus();
       }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
       if (event.key === "Escape") {
         if (typing) {
           (target as HTMLInputElement).blur();
@@ -903,12 +907,56 @@ function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onRunGitOpe
     setActionMessage("项目路径已复制到剪贴板");
   };
 
+  const openFolder = () => {
+    if (!bridge) {
+      setActionMessage("浏览器预览不支持打开资源管理器");
+      return;
+    }
+    void bridge.openPath(project.path).then(() => setActionMessage("已在资源管理器中打开")).catch((error) => setActionMessage(error instanceof Error ? error.message : "打开失败"));
+  };
+
+  const generateSummary = async () => {
+    if (!bridge) {
+      setActionMessage("浏览器预览无法读取项目内容");
+      return;
+    }
+    setActionMessage("正在生成摘要...");
+    try {
+      const [readme, history, disk] = await Promise.all([
+        bridge.readProjectReadme(project.path),
+        bridge.listCommitHistory(project.path).catch(() => []),
+        bridge.getDiskSize(project.path).catch(() => 0),
+      ]);
+      const readmeSummary = readme.found && readme.content.trim()
+        ? readme.content.trim().split(/\r?\n/).find((line) => /^#\s+/.test(line) || line.trim().length > 0)?.replace(/^#+\s*/, "").slice(0, 120)
+        : "";
+      const languageLine = analysis && analysis.languages.length > 0
+        ? `主要语言：${analysis.languages.slice(0, 3).map((item) => item.name).join("、")}`
+        : "";
+      const historyLine = history.length > 0
+        ? `最近提交：${history.slice(0, 3).map((entry) => entry.subject).join("；")}`
+        : "";
+      const sizeLine = disk > 0 ? `项目大小约 ${formatBytes(disk)}` : "";
+      const parts = [
+        readmeSummary ? `「${readmeSummary}」` : `基于 ${project.name} 的项目摘要。`,
+        languageLine,
+        historyLine,
+        sizeLine,
+        `共 ${analysis?.files ?? 0} 个文件、${analysis?.directories ?? 0} 个目录。`,
+      ].filter(Boolean);
+      onUpdateProject({ summary: parts.join("。") + "。" });
+      setActionMessage("本地智能摘要已生成（未发送到任何外部服务）");
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : "生成摘要失败");
+    }
+  };
+
   return <aside className="detail-panel">
     <div className="detail-top"><div className="detail-provider"><ProviderIcon size={16} />{providerLabels[project.provider]}</div><button className={`favorite-button ${project.favorite ? "active" : ""}`} onClick={onToggleFavorite} aria-label={project.favorite ? "取消收藏" : "收藏项目"}><Star size={17} fill={project.favorite ? "currentColor" : "none"} /></button></div>
     <div className="detail-title"><div className="large-project-icon" style={{ color: project.languageColor }}><Code2 size={25} /></div><div><h2>{project.name}</h2><p>{project.path}</p></div><AliasEditor alias={project.alias} onSave={(alias) => onUpdateProject({ alias: alias.trim().length > 0 ? alias.trim() : undefined })} /></div>
     <div className="detail-status-row"><span className={`status-pill ${status.className}`}><span className="status-dot" />{status.label}</span><span className="detail-updated"><Clock3 size={13} />{project.updatedAt}</span></div>
     <p className="detail-summary">{project.summary}</p>
-    <div className="detail-tags">{project.tags.map((tag) => <span className="tag" key={tag}><Tag size={11} />{tag}</span>)}<button className="add-tag" aria-label="添加标签"><Plus size={13} /></button></div>
+    <div className="detail-tags">{project.tags.map((tag) => <span className="tag" key={tag}><Tag size={11} />{tag}<button className="tag-remove" aria-label={`删除标签 ${tag}`} onClick={() => onUpdateProject({ tags: project.tags.filter((item) => item !== tag) })}><X size={9} /></button></span>)}<TagEditor tags={project.tags} onAdd={(tag) => onUpdateProject({ tags: [...project.tags, tag] })} /></div>
     <div className="detail-actions"><button className="button primary wide" onClick={() => onRunGitOperation("pull")} disabled={activeOperation !== null}><ArrowDownToLine size={15} />{activeOperation === "pull" ? "拉取中..." : "拉取更新"}</button><button className="button secondary square" onClick={() => onRunGitOperation("sync")} disabled={activeOperation !== null} aria-label="同步项目"><RefreshCw size={17} className={activeOperation === "sync" ? "spin" : ""} /></button></div>
     <div className="git-operation-grid">
       <GitOperationButton operation="fetch" activeOperation={activeOperation} onRun={onRunGitOperation} icon={<Cloud size={14} />} />
@@ -916,9 +964,9 @@ function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onRunGitOpe
       <GitOperationButton operation="sync" activeOperation={activeOperation} onRun={onRunGitOperation} icon={<RefreshCw size={14} />} />
     </div>
     {operationOutput && <div className="operation-output"><div><span>最近一次 Git 输出</span><button className="bare-button" onClick={() => onRunGitOperation("fetch")} aria-label="重新获取远程更新"><RefreshCw size={13} /></button></div><pre>{operationOutput}</pre></div>}
-    <div className="detail-section"><div className="detail-section-heading"><span>项目概览</span><button className="bare-button"><ExternalLink size={14} /></button></div><div className="detail-stats"><DetailStat icon={<GitBranch size={14} />} label="当前分支" value={project.branch} /><DetailStat icon={<GitCommitHorizontal size={14} />} label="最近提交" value={project.commit} /><DetailStat icon={<FileCode2 size={14} />} label="文件数量" value={`${project.files}`} /></div></div>
+    <div className="detail-section"><div className="detail-section-heading"><span>项目概览</span><button className="bare-button" onClick={openFolder} aria-label="在资源管理器中打开" title="在资源管理器中打开"><ExternalLink size={14} /></button></div><div className="detail-stats"><DetailStat icon={<GitBranch size={14} />} label="当前分支" value={project.branch} /><DetailStat icon={<GitCommitHorizontal size={14} />} label="最近提交" value={project.commit} /><DetailStat icon={<FileCode2 size={14} />} label="文件数量" value={`${project.files}`} /></div></div>
     <ReadmeSection projectPath={project.path} />
-    <div className="detail-section"><div className="detail-section-heading"><span>快捷入口</span></div><div className="quick-links"><button onClick={openTerminal}><TerminalSquare size={15} />打开终端<ArrowUpRight size={13} /></button><button onClick={() => runOpen("vscode", false)}><Code2 size={15} />VS Code<ArrowUpRight size={13} /></button><button onClick={() => runOpen("cursor", false)}><Blocks size={15} />Cursor<ArrowUpRight size={13} /></button><button onClick={copyPath}><FileCode2 size={15} />复制路径<ArrowUpRight size={13} /></button><button onClick={onAnalyzeProject} disabled={isAnalyzing}><Blocks size={15} />{isAnalyzing ? "分析中..." : "结构分析"}<ArrowUpRight size={13} /></button><button><Sparkles size={15} />生成 AI 摘要<ArrowUpRight size={13} /></button></div>{actionMessage && <div className="git-output"><pre>{actionMessage}</pre></div>}</div>
+    <div className="detail-section"><div className="detail-section-heading"><span>快捷入口</span></div><div className="quick-links"><button onClick={openTerminal}><TerminalSquare size={15} />打开终端<ArrowUpRight size={13} /></button><button onClick={() => runOpen("vscode", false)}><Code2 size={15} />VS Code<ArrowUpRight size={13} /></button><button onClick={() => runOpen("cursor", false)}><Blocks size={15} />Cursor<ArrowUpRight size={13} /></button><button onClick={copyPath}><FileCode2 size={15} />复制路径<ArrowUpRight size={13} /></button><button onClick={onAnalyzeProject} disabled={isAnalyzing}><Blocks size={15} />{isAnalyzing ? "分析中..." : "结构分析"}<ArrowUpRight size={13} /></button><button onClick={generateSummary}><Sparkles size={15} />生成摘要<ArrowUpRight size={13} /></button></div>{actionMessage && <div className="git-output"><pre>{actionMessage}</pre></div>}</div>
     {analysis && <ProjectAnalysisPanel analysis={analysis} />}
     <GitActionsPanel projectPath={project.path} />
   </aside>;
@@ -931,6 +979,23 @@ function AliasEditor({ alias, onSave }: { alias?: string; onSave: (alias: string
     return <button className="alias-badge" onClick={() => { setValue(alias ?? ""); setEditing(true); }} title="编辑别名">{alias ? <><PenLine size={11} />{alias}</> : <span className="alias-empty">别名</span>}</button>;
   }
   return <div className="alias-edit"><input autoFocus value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { onSave(value); setEditing(false); } if (event.key === "Escape") { setEditing(false); } }} placeholder="输入别名" /><button className="bare-button" onClick={() => { onSave(value); setEditing(false); }}><Check size={14} /></button></div>;
+}
+
+function TagEditor({ tags, onAdd }: { tags: string[]; onAdd: (tag: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const submit = () => {
+    const tag = value.trim();
+    if (tag && !tags.includes(tag)) {
+      onAdd(tag);
+    }
+    setValue("");
+    setEditing(false);
+  };
+  if (!editing) {
+    return <button className="add-tag" aria-label="添加标签" title="添加标签" onClick={() => setEditing(true)}><Plus size={13} /></button>;
+  }
+  return <div className="tag-edit"><input autoFocus value={value} onChange={(event) => setValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submit(); if (event.key === "Escape") setEditing(false); }} placeholder="新标签" /><button className="bare-button" onClick={submit}><Check size={13} /></button></div>;
 }
 
 function ReadmeSection({ projectPath }: { projectPath: string }) {
@@ -959,7 +1024,7 @@ function ReadmeSection({ projectPath }: { projectPath: string }) {
   }
   return <div className="detail-section readme-section">
     <div className="detail-section-heading"><span>README</span><small>{state.fileName}</small></div>
-    <div className="readme-body">{state.content}</div>
+    <div className="readme-body markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdownSafe(state.content) }} />
   </div>;
 }
 
@@ -981,6 +1046,71 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function escapeHtml(source: string): string {
+  return source
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderMarkdownSafe(markdown: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const html: string[] = [];
+  let inCode = false;
+  let inList = false;
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    if (line.trim().startsWith("```")) {
+      if (inCode) {
+        html.push("</code></pre>");
+        inCode = false;
+      } else {
+        html.push("<pre><code>");
+        inCode = true;
+      }
+      continue;
+    }
+    if (inCode) {
+      html.push(escapeHtml(line));
+      continue;
+    }
+    if (!line.trim()) {
+      if (inList) { html.push("</ul>"); inList = false; }
+      continue;
+    }
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      const level = Math.min(heading[1].length, 6);
+      html.push(`<h${level}>${inlineMarkdown(escapeHtml(heading[2]))}</h${level}>`);
+      continue;
+    }
+    if (/^\s*[-*+]\s+/.test(line)) {
+      if (!inList) { html.push("<ul>"); inList = true; }
+      html.push(`<li>${inlineMarkdown(escapeHtml(line.replace(/^\s*[-*+]\s+/, "")))}</li>`);
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      if (!inList) { html.push("<ul>"); inList = true; }
+      html.push(`<li>${inlineMarkdown(escapeHtml(line.replace(/^\s*\d+[.)]\s+/, "")))}</li>`);
+      continue;
+    }
+    html.push(`<p>${inlineMarkdown(escapeHtml(line))}</p>`);
+  }
+  if (inCode) html.push("</code></pre>");
+  if (inList) html.push("</ul>");
+  return html.join("\n");
+}
+
+function inlineMarkdown(source: string): string {
+  return source
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
 }
 
 function isDormant(project: Project, thresholdMonths = 3): boolean {
@@ -1327,6 +1457,7 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
   const [editing, setEditing] = useState<TaskProfile | null>(null);
   const [draft, setDraft] = useState({ projectId: "", name: "", command: "", args: "", timeoutSeconds: 120 });
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
 
   const load = async () => {
     if (!bridge) return;
@@ -1336,6 +1467,11 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
   };
 
   useEffect(() => { void load(); }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => { void load(); }, 2000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const taskTypeLabel: Record<TaskProfile["taskType"], string> = { build: "构建", run: "运行", package: "打包" };
 
@@ -1386,6 +1522,28 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
     await load();
   };
 
+  const stopRun = async (runId: string) => {
+    if (!bridge) return;
+    setStoppingId(runId);
+    try {
+      await bridge.stopTask(runId);
+      setNotice("已请求停止任务");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "停止失败");
+    } finally {
+      setStoppingId(null);
+      await load();
+    }
+  };
+
+  const runStatusMeta: Record<TaskRun["status"], { label: string; className: string }> = {
+    running: { label: "运行中", className: "status-ahead" },
+    succeeded: { label: "成功", className: "status-clean" },
+    failed: { label: "失败", className: "status-conflicted" },
+    stopped: { label: "已停止", className: "status-behind" },
+    timedout: { label: "超时", className: "status-conflicted" },
+  };
+
   const edit = (profile: TaskProfile) => {
     setEditing(profile);
     setDraft({ projectId: profile.projectId, name: profile.name, command: profile.command, args: profile.args, timeoutSeconds: profile.timeoutSeconds });
@@ -1411,10 +1569,10 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
         {profiles.length ? <div className="account-list">{profiles.map((profile) => <div className="account-row" key={profile.id}><div className="account-provider-icon github"><span>{taskTypeLabel[profile.taskType].slice(0, 1)}</span></div><div className="account-main"><div className="account-title"><strong>{profile.name}</strong><span className="status-pill status-clean"><span className="status-dot" />{taskTypeLabel[profile.taskType]}</span></div><p>{profile.command} {profile.args}</p><small>{projects.find((project) => project.id === profile.projectId)?.name ?? profile.projectPath}</small></div><div className="account-actions"><button className="button secondary compact-button" onClick={() => startTask(profile)} disabled={runningId !== null}>{runningId === profile.id ? "启动中..." : "运行"}</button><button className="button secondary compact-button" onClick={() => edit(profile)}>编辑</button><button className="icon-button danger" onClick={() => deleteProfile(profile)} aria-label="删除任务"><Trash2 size={15} /></button></div></div>)}</div> : <div className="accounts-empty"><ListTodo size={21} /><strong>还没有任务配置</strong><span>在左侧表单创建第一个任务。</span></div>}
       </section>
     </div>
-    <section className="module-list" style={{ marginTop: 16 }}>
-      <div className="panel-heading"><div><h2>运行记录</h2><span>最近 {runs.length} 次</span></div><button className="bare-button" onClick={() => void load()}><RefreshCw size={16} /></button></div>
-      {runs.length ? <div className="remote-list">{runs.slice(0, 20).map((run) => <div className="remote-row" key={run.id}><div className="remote-main"><div className="remote-title"><strong>{run.name}</strong><span className="status-pill status-clean">{run.status}</span><span>{run.exitCode !== undefined ? `退出码 ${run.exitCode}` : ""}</span></div><p>{run.command} · {run.startedAt}</p><code className="run-output">{run.output.slice(0, 300) || "（无输出）"}</code></div></div>)}</div> : <div className="accounts-empty"><ListTodo size={22} /><strong>还没有运行记录</strong><span>运行任务后这里会显示输出。</span></div>}
-    </section>
+<section className="module-list" style={{ marginTop: 16 }}>
+        <div className="panel-heading"><div><h2>运行记录</h2><span>最近 {runs.length} 次</span></div><button className="bare-button" onClick={() => void load()}><RefreshCw size={16} /></button></div>
+        {runs.length ? <div className="remote-list">{runs.slice(0, 20).map((run) => { const meta = runStatusMeta[run.status] ?? runStatusMeta.failed; return <div className="remote-row" key={run.id}><div className="remote-main"><div className="remote-title"><strong>{run.name}</strong><span className={`status-pill ${meta.className}`}><span className="status-dot" />{meta.label}</span><span>{run.exitCode !== undefined ? `退出码 ${run.exitCode}` : ""}</span></div><p>{run.command} · {run.startedAt}</p><code className="run-output">{run.output.slice(0, 300) || "（无输出）"}</code></div><div className="remote-actions">{run.status === "running" && <button className="button secondary compact-button" onClick={() => stopRun(run.id)} disabled={stoppingId === run.id}>{stoppingId === run.id ? "停止中..." : <><X size={13} />停止</>}</button>}</div></div>; })}</div> : <div className="accounts-empty"><ListTodo size={22} /><strong>还没有运行记录</strong><span>运行任务后这里会显示输出。</span></div>}
+      </section>
   </div>;
 }
 
