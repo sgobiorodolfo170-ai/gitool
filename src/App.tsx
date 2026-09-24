@@ -1118,35 +1118,58 @@ function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onMoveProje
 
   const generateSummary = async () => {
     if (!bridge) {
-      setActionMessage("浏览器预览无法读取项目内容");
+      setActionMessage("浏览器预览无法生成摘要");
       return;
     }
     setActionMessage("正在生成摘要...");
     try {
-      const [readme, history, disk] = await Promise.all([
+      const [readme, history, disk, settings] = await Promise.all([
         bridge.readProjectReadme(project.path),
         bridge.listCommitHistory(project.path).catch(() => []),
         bridge.getDiskSize(project.path).catch(() => 0),
+        bridge.loadSettings().catch(() => null),
       ]);
       const readmeSummary = readme.found && readme.content.trim()
-        ? readme.content.trim().split(/\r?\n/).find((line) => /^#\s+/.test(line) || line.trim().length > 0)?.replace(/^#+\s*/, "").slice(0, 120)
+        ? readme.content.trim().slice(0, 400)
         : "";
       const languageLine = analysis && analysis.languages.length > 0
         ? `主要语言：${analysis.languages.slice(0, 3).map((item) => item.name).join("、")}`
         : "";
       const historyLine = history.length > 0
-        ? `最近提交：${history.slice(0, 3).map((entry) => entry.subject).join("；")}`
+        ? `最近提交：${history.slice(0, 5).map((entry) => entry.subject).join("；")}`
         : "";
-      const sizeLine = disk > 0 ? `项目大小约 ${formatBytes(disk)}` : "";
-      const parts = [
-        readmeSummary ? `「${readmeSummary}」` : `基于 ${project.name} 的项目摘要。`,
+      const projectTypes = analysis && analysis.project_types.length > 0
+        ? `项目类型：${analysis.project_types.join("、")}`
+        : "";
+
+      const context = [
+        readmeSummary ? `README 首段：${readmeSummary}` : "",
+        languageLine,
+        projectTypes,
+        historyLine,
+        `共 ${analysis?.files ?? 0} 个文件、${analysis?.directories ?? 0} 个目录，磁盘约 ${formatBytes(disk)}。`,
+      ].filter(Boolean).join("\n");
+
+      const aiConfigured = Boolean(settings?.aiApiKey);
+      if (aiConfigured) {
+        setActionMessage("正在调用 AI 服务生成摘要...");
+        const aiResult = await bridge.generateAiSummary({ projectName: project.name, context });
+        if (aiResult.success) {
+          onUpdateProject({ summary: aiResult.summary });
+          setActionMessage("AI 摘要已生成并保存");
+          return;
+        }
+        setActionMessage(`${aiResult.error ?? "AI 摘要失败"}，已回退到本地摘要`);
+      }
+
+      const fallbackParts = [
+        readmeSummary ? `「${readmeSummary.split(/\r?\n/)[0].replace(/^#+\s*/, "").slice(0, 120)}」` : `基于 ${project.name} 的项目摘要。`,
         languageLine,
         historyLine,
-        sizeLine,
         `共 ${analysis?.files ?? 0} 个文件、${analysis?.directories ?? 0} 个目录。`,
       ].filter(Boolean);
-      onUpdateProject({ summary: parts.join("。") + "。" });
-      setActionMessage("本地智能摘要已生成（未发送到任何外部服务）");
+      onUpdateProject({ summary: fallbackParts.join("。") + "。" });
+      setActionMessage(aiConfigured ? "已保存本地智能摘要（AI 服务不可用）" : "本地智能摘要已生成（未发送到任何外部服务）");
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : "生成摘要失败");
     }
@@ -1363,6 +1386,7 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
   const [compareBase, setCompareBase] = useState("");
   const [compareHead, setCompareHead] = useState("");
   const [compareResult, setCompareResult] = useState<{ changedFiles: string[]; insertions: number; deletions: number; output: string } | null>(null);
+  const [timelineMode, setTimelineMode] = useState(false);
 
   const bridge = getDesktopBridge();
 
@@ -1650,7 +1674,8 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
     </div>}
 
     {tab === "history" && <div className="git-tab-content">
-      {history.length === 0 ? <div className="git-empty">{loading ? "正在读取提交历史..." : "还没有提交"}</div> : <div className="history-list">{history.map((entry) => <div className="history-row" key={entry.hash}><div className="history-main"><div className="history-title"><strong>{entry.subject}</strong><code>{entry.shortHash}</code></div><small>{entry.author} · {formatCommitDate(entry.date)}</small></div><button className="bare-button" onClick={() => revert(entry.hash)} disabled={busy} title="生成反向提交">回退</button></div>)}</div>}
+      <div className="history-toolbar"><button className={`bare-button history-toggle ${timelineMode ? "active" : ""}`} onClick={() => setTimelineMode((value) => !value)}><GitCommitHorizontal size={12} />{timelineMode ? "列表" : "时间线"}</button></div>
+      {history.length === 0 ? <div className="git-empty">{loading ? "正在读取提交历史..." : "还没有提交"}</div> : timelineMode ? renderTimeline(history, busy, revert) : <div className="history-list">{history.map((entry) => <div className="history-row" key={entry.hash}><div className="history-main"><div className="history-title"><strong>{entry.subject}</strong><code>{entry.shortHash}</code></div><small>{entry.author} · {formatCommitDate(entry.date)}</small></div><button className="bare-button" onClick={() => revert(entry.hash)} disabled={busy} title="生成反向提交">回退</button></div>)}</div>}
       <div className="compare-section">
         <div className="compare-heading"><GitCommitHorizontal size={13} />版本对比</div>
         <div className="compare-inputs">
@@ -1671,10 +1696,54 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
   </div>;
 }
 
+function renderTimeline(history: CommitEntry[], busy: boolean, revert: (hash: string) => void): React.ReactNode {
+  const groups: Array<{ label: string; entries: CommitEntry[] }> = [];
+  for (const entry of history) {
+    const label = formatDayGroup(entry.date);
+    const lastGroup = groups[groups.length - 1];
+    if (lastGroup && lastGroup.label === label) {
+      lastGroup.entries.push(entry);
+    } else {
+      groups.push({ label, entries: [entry] });
+    }
+  }
+  return <div className="timeline-list">
+    {groups.map((group) => (
+      <div className="timeline-group" key={group.label}>
+        <div className="timeline-day">{group.label}<span>{group.entries.length} 次提交</span></div>
+        {group.entries.map((entry) => (
+          <div className="timeline-item" key={entry.hash}>
+            <span className="timeline-dot" />
+            <div className="timeline-main">
+              <div className="timeline-title"><strong>{entry.subject}</strong><code>{entry.shortHash}</code></div>
+              <small>{entry.author} · {formatCommitDate(entry.date)}</small>
+            </div>
+            <button className="bare-button" onClick={() => revert(entry.hash)} disabled={busy} title="生成反向提交">回退</button>
+          </div>
+        ))}
+      </div>
+    ))}
+  </div>;
+}
+
 function formatCommitDate(iso: string): string {
   try {
     const date = new Date(iso);
     return date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
+}
+
+function formatDayGroup(iso: string): string {
+  try {
+    const date = new Date(iso);
+    const today = new Date();
+    const isToday = date.toDateString() === today.toDateString();
+    if (isToday) {
+      return "今天";
+    }
+    return date.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
   } catch {
     return iso;
   }
@@ -1728,38 +1797,59 @@ function AccountRow({ account, busy, onTest, onDelete }: { account: Account; bus
 function RemoteRepositoriesWorkspace({ accounts, repositories, selectedAccountId, search, isLoading, cloningRepositoryId, cloneProgress, onAccountChange, onSearchChange, onRefresh, onClone, onMutate }: { accounts: Account[]; repositories: RemoteRepository[]; selectedAccountId: string; search: string; isLoading: boolean; cloningRepositoryId: string | null; cloneProgress: { percent: number; phase: string; output: string } | null; onAccountChange: (accountId: string) => void; onSearchChange: (search: string) => void; onRefresh: () => void | Promise<void>; onClone: (repository: RemoteRepository) => void | Promise<void>; onMutate: (action: "create" | "update" | "delete", input: { accountId: string; repositoryId?: string; name: string; description: string; visibility: "public" | "private" | "internal" | ""; init: boolean }) => Promise<boolean> }) {
   const filtered = repositories.filter((repository) => `${repository.fullName} ${repository.description}`.toLowerCase().includes(search.trim().toLowerCase()));
   const activeAccount = accounts.find((account) => account.id === selectedAccountId);
+  const [formState, setFormState] = useState<{ mode: "create" | "edit"; repositoryId?: string; name: string; description: string; visibility: "public" | "private"; init: boolean } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [formNotice, setFormNotice] = useState("");
   const copyCloneUrl = async (repository: RemoteRepository) => {
     await navigator.clipboard.writeText(repository.httpsUrl);
   };
 
-  const createRepository = async () => {
+  const openCreate = () => {
     if (!selectedAccountId) {
       window.alert("请先选择一个远程账号");
       return;
     }
-    const name = window.prompt("新仓库名称（英文/数字/下划线）");
-    if (!name) return;
-    const description = window.prompt("仓库描述（可选）", "") ?? "";
-    const visibility = window.confirm("创建为私有仓库？\n“确定”= 私有，“取消”= 公开") ? "private" : "public";
-    const init = window.confirm("是否初始化 README？（clone 前建议初始化）");
-    await onMutate("create", { accountId: selectedAccountId, name, description, visibility, init });
+    setFormState({ mode: "create", name: "", description: "", visibility: "public", init: false });
   };
 
-  const editRepository = async (repository: RemoteRepository) => {
-    const name = window.prompt("仓库名称", repository.name);
-    if (!name) return;
-    const description = window.prompt("仓库描述", repository.description) ?? "";
-    const currentVisibility = repository.visibility === "private" ? "private" : "public";
-    const visibility = window.confirm("修改为私有仓库？\n“确定”= 私有，“取消”= 公开") ? "private" : "public";
-    await onMutate("update", {
-      accountId: repository.accountId,
+  const openEdit = (repository: RemoteRepository) => {
+    setFormState({
+      mode: "edit",
       repositoryId: repository.id,
-      name,
-      description,
-      visibility,
+      name: repository.name,
+      description: repository.description,
+      visibility: repository.visibility === "private" ? "private" : "public",
       init: false,
     });
-    void currentVisibility;
+  };
+
+  const submitForm = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!formState) return;
+    if (!formState.name.trim()) {
+      setFormNotice("仓库名称不能为空");
+      return;
+    }
+    if (!/^[A-Za-z0-9_.-]+$/.test(formState.name.trim())) {
+      setFormNotice("仓库名称仅支持字母、数字、下划线、点和连字符");
+      return;
+    }
+    setSaving(true);
+    setFormNotice("");
+    const ok = await onMutate(formState.mode === "create" ? "create" : "update", {
+      accountId: selectedAccountId,
+      repositoryId: formState.repositoryId,
+      name: formState.name.trim(),
+      description: formState.description.trim(),
+      visibility: formState.visibility,
+      init: formState.init,
+    });
+    setSaving(false);
+    if (ok) {
+      setFormState(null);
+    } else {
+      setFormNotice("操作失败，请稍后重试");
+    }
   };
 
   const deleteRepository = async (repository: RemoteRepository) => {
@@ -1774,13 +1864,28 @@ function RemoteRepositoriesWorkspace({ accounts, repositories, selectedAccountId
   };
 
   return <div className="module-page remote-page">
-    <div className="module-hero"><div className="module-icon"><Cloud size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />REMOTE HUB</div><h1>远程仓库</h1><p>从 GitHub、Gitee 和 GitLab 读取当前账号可访问的仓库。</p></div><div className="heading-actions"><button className="button secondary" onClick={onRefresh} disabled={isLoading || !selectedAccountId}><RefreshCw size={15} className={isLoading ? "spin" : ""} />{isLoading ? "同步中..." : "同步仓库"}</button><button className="button primary" onClick={createRepository} disabled={!selectedAccountId}><Plus size={16} />创建仓库</button></div></div>
+    <div className="module-hero"><div className="module-icon"><Cloud size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />REMOTE HUB</div><h1>远程仓库</h1><p>从 GitHub、Gitee 和 GitLab 读取当前账号可访问的仓库。</p></div><div className="heading-actions"><button className="button secondary" onClick={onRefresh} disabled={isLoading || !selectedAccountId}><RefreshCw size={15} className={isLoading ? "spin" : ""} />{isLoading ? "同步中..." : "同步仓库"}</button><button className="button primary" onClick={openCreate} disabled={!selectedAccountId}><Plus size={16} />创建仓库</button></div></div>
     <div className="remote-toolbar"><label className="account-select"><span>远程账号</span><select value={selectedAccountId} onChange={(event) => onAccountChange(event.target.value)}><option value="">选择账号</option>{accounts.map((account) => <option value={account.id} key={account.id}>{account.displayName} · {remoteProviderLabels[account.provider]}</option>)}</select></label><label className="search-box remote-search"><Search size={16} /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="搜索仓库名称或描述" /></label></div>
-    <section className="remote-list-panel"><div className="panel-heading"><div><h2>{activeAccount ? `${activeAccount.displayName} 的仓库` : "远程仓库列表"}</h2><span>{filtered.length} 个结果</span></div>{activeAccount && <span className="provider-chip">{remoteProviderLabels[activeAccount.provider]}</span>}</div>{filtered.length ? <div className="remote-list">{filtered.map((repository) => <div className="remote-row" key={`${repository.accountId}-${repository.id}`}><div className={`account-provider-icon ${repository.provider}`}><span>{remoteProviderLabels[repository.provider].slice(0, 1)}</span></div><div className="remote-main"><div className="remote-title"><strong>{repository.fullName}</strong><span>{repository.visibility}</span>{repository.archived && <span>已归档</span>}</div><p>{repository.description || "暂无仓库描述"}</p><div className="remote-meta"><span><GitBranch size={12} />{repository.defaultBranch}</span><code>{repository.httpsUrl}</code></div>{cloningRepositoryId === repository.id && cloneProgress && <div className="clone-progress"><div className="clone-progress-bar" style={{ width: `${cloneProgress.percent}%` }} /><span>{cloneProgress.phase} {cloneProgress.percent}%</span></div>}</div><div className="remote-actions"><button className="button secondary compact-button" onClick={() => copyCloneUrl(repository)}>复制地址</button><button className="button secondary compact-button" onClick={() => editRepository(repository)}><Settings2 size={13} />编辑</button><button className="icon-button danger" onClick={() => deleteRepository(repository)} aria-label="删除仓库" title="删除仓库"><Trash2 size={16} /></button><button className="icon-button" aria-label="克隆仓库" title="克隆仓库" onClick={() => onClone(repository)} disabled={cloningRepositoryId !== null && cloningRepositoryId !== repository.id}>{cloningRepositoryId === repository.id ? <RefreshCw size={16} className="spin" /> : <ArrowDownToLine size={16} />}</button></div></div>)}</div> : <div className="accounts-empty"><Cloud size={22} /><strong>{accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}</strong><span>{accounts.length ? "选择账号后点击同步仓库。" : "账号令牌将由 Windows 凭据管理器保护。"}</span></div>}</section>
+    <section className="remote-list-panel"><div className="panel-heading"><div><h2>{activeAccount ? `${activeAccount.displayName} 的仓库` : "远程仓库列表"}</h2><span>{filtered.length} 个结果</span></div>{activeAccount && <span className="provider-chip">{remoteProviderLabels[activeAccount.provider]}</span>}</div>{filtered.length ? <div className="remote-list">{filtered.map((repository) => <div className="remote-row" key={`${repository.accountId}-${repository.id}`}><div className={`account-provider-icon ${repository.provider}`}><span>{remoteProviderLabels[repository.provider].slice(0, 1)}</span></div><div className="remote-main"><div className="remote-title"><strong>{repository.fullName}</strong><span>{repository.visibility}</span>{repository.archived && <span>已归档</span>}</div><p>{repository.description || "暂无仓库描述"}</p><div className="remote-meta"><span><GitBranch size={12} />{repository.defaultBranch}</span><code>{repository.httpsUrl}</code></div>{cloningRepositoryId === repository.id && cloneProgress && <div className="clone-progress"><div className="clone-progress-bar" style={{ width: `${cloneProgress.percent}%` }} /><span>{cloneProgress.phase} {cloneProgress.percent}%</span></div>}</div><div className="remote-actions"><button className="button secondary compact-button" onClick={() => copyCloneUrl(repository)}>复制地址</button><button className="button secondary compact-button" onClick={() => openEdit(repository)}><Settings2 size={13} />编辑</button><button className="icon-button danger" onClick={() => deleteRepository(repository)} aria-label="删除仓库" title="删除仓库"><Trash2 size={16} /></button><button className="icon-button" aria-label="克隆仓库" title="克隆仓库" onClick={() => onClone(repository)} disabled={cloningRepositoryId !== null && cloningRepositoryId !== repository.id}>{cloningRepositoryId === repository.id ? <RefreshCw size={16} className="spin" /> : <ArrowDownToLine size={16} />}</button></div></div>)}</div> : <div className="accounts-empty"><Cloud size={22} /><strong>{accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}</strong><span>{accounts.length ? "选择账号后点击同步仓库。" : "账号令牌将由 Windows 凭据管理器保护。"}</span></div>}</section>
+  {formState && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setFormState(null); }}>
+      <div className="modal-panel" role="dialog" aria-modal="true">
+        <form onSubmit={submitForm}>
+          <div className="modal-heading"><div><h2>{formState.mode === "create" ? "创建远程仓库" : "编辑远程仓库"}</h2><span>{activeAccount ? `${activeAccount.displayName} · ${remoteProviderLabels[activeAccount.provider]}` : ""}</span></div><button type="button" className="bare-button" onClick={() => setFormState(null)} disabled={saving} aria-label="关闭"><X size={15} /></button></div>
+          <div className="form-body">
+            <label>仓库名称<input value={formState.name} onChange={(event) => setFormState({ ...formState, name: event.target.value })} placeholder="例如 my-project" autoFocus /></label>
+            <label>仓库描述<input value={formState.description} onChange={(event) => setFormState({ ...formState, description: event.target.value })} placeholder="可选描述" /></label>
+            <label>可见性<select value={formState.visibility} onChange={(event) => setFormState({ ...formState, visibility: event.target.value as "public" | "private" })}><option value="public">公开</option><option value="private">私有</option></select></label>
+            {formState.mode === "create" && <label className="checkbox-row"><input type="checkbox" checked={formState.init} onChange={(event) => setFormState({ ...formState, init: event.target.checked })} /><span>初始化 README（推荐）</span></label>}
+            {formNotice && <div className="form-error">{formNotice}</div>}
+            <button className="button primary form-submit" disabled={saving}><Check size={15} />{saving ? "保存中..." : formState.mode === "create" ? "创建仓库" : "保存修改"}</button>
+          </div>
+        </form>
+      </div>
+    </div>}
   </div>;
 }
 
-function ModuleWorkspace({ workspace, onImport }: { workspace: Exclude<Workspace, "overview" | "projects">; onImport: () => void }) {
+      function ModuleWorkspace({ workspace, onImport }: { workspace: Exclude<Workspace, "overview" | "projects">; onImport: () => void }) {
   const content: Record<Exclude<Workspace, "overview" | "projects">, { eyebrow: string; title: string; description: string; icon: React.ReactNode; items: string[] }> = {
     remotes: { eyebrow: "REMOTE HUB", title: "远程仓库", description: "连接 GitHub、Gitee 与 GitLab，统一浏览远程项目。", icon: <Cloud size={21} />, items: ["GitHub · 6 个仓库", "Gitee · 4 个仓库", "GitLab · 2 个仓库"] },
     accounts: { eyebrow: "CREDENTIALS", title: "账号与令牌", description: "账号元数据留在本地，令牌由 Windows 凭据管理器保护。", icon: <KeyRound size={21} />, items: ["本地工作区 · 未连接远程账号", "Personal Access Token · 已准备", "OAuth · 等待授权"] },
@@ -1938,7 +2043,7 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
 <section className="module-list" style={{ marginTop: 16 }}>
         <div className="panel-heading"><div><h2>运行记录</h2><span>最近 {runs.length} 次</span></div><button className="bare-button" onClick={() => void load()}><RefreshCw size={16} /></button></div>
         {runs.length ? <div className="remote-list">{runs.slice(0, 20).map((run) => { const meta = runStatusMeta[run.status] ?? runStatusMeta.failed; return <div className="remote-row" key={run.id}><div className="remote-main"><div className="remote-title"><strong>{run.name}</strong><span className={`status-pill ${meta.className}`}><span className="status-dot" />{meta.label}</span><span>{run.exitCode !== undefined ? `退出码 ${run.exitCode}` : ""}</span></div><p>{run.command} · {run.startedAt}</p><code className="run-output">{run.output.slice(0, 300) || "（无输出）"}</code></div><div className="remote-actions">{run.status === "running" && <button className="button secondary compact-button" onClick={() => stopRun(run.id)} disabled={stoppingId === run.id}>{stoppingId === run.id ? "停止中..." : <><X size={13} />停止</>}</button>}</div></div>; })}</div> : <div className="accounts-empty"><ListTodo size={22} /><strong>还没有运行记录</strong><span>运行任务后这里会显示输出。</span></div>}
-      </section>
+</section>
   </div>;
 }
 
@@ -2033,7 +2138,7 @@ function LogsWorkspace() {
 
 function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | null }) {
   const bridge = getDesktopBridge();
-  const [settings, setSettings] = useState<{ gitPath: string; defaultProjectDirectory: string; defaultBackupDirectory: string; backupExcludePatterns: string }>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "", backupExcludePatterns: "" });
+  const [settings, setSettings] = useState<{ gitPath: string; defaultProjectDirectory: string; defaultBackupDirectory: string; backupExcludePatterns: string; aiApiKey: string; aiModel: string; aiBaseUrl: string }>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "", backupExcludePatterns: "", aiApiKey: "", aiModel: "", aiBaseUrl: "" });
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -2077,7 +2182,12 @@ function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | n
         <div className="panel-heading"><div><h2>应用设置</h2><span>保存到本地数据库</span></div><Settings2 size={16} /></div>
         <div className="form-body">
           {settingsRows.map((row) => <label key={row.key}>{row.label}<div className="setting-row"><input value={row.value} onChange={(event) => setSettings((current) => ({ ...current, [row.key]: event.target.value }))} placeholder={row.placeholder} />{row.key !== "gitPath" && <button type="button" className="button secondary compact-button" onClick={() => pickDirectory(row.key)}>选择</button>}</div><small className="setting-hint">{row.hint}</small></label>)}
-          <label>备份排除规则<textarea className="commit-message" value={settings.backupExcludePatterns} onChange={(event) => setSettings((current) => ({ ...current, backupExcludePatterns: event.target.value }))} placeholder="每行一个，如 node_modules  dist .next（备份时排除的相对路径）" rows={3} /></label>          <button className="button primary form-submit" disabled={busy}>保存设置</button>
+          <label>备份排除规则<textarea className="commit-message" value={settings.backupExcludePatterns} onChange={(event) => setSettings((current) => ({ ...current, backupExcludePatterns: event.target.value }))} placeholder="每行一个，如 node_modules  dist .next（备份时排除的相对路径）" rows={3} /></label>
+          <div className="setting-section-label"><Sparkles size={13} />AI 摘要服务（OpenAI 兼容）</div>
+          <label>API Key<input type="password" value={settings.aiApiKey} onChange={(event) => setSettings((current) => ({ ...current, aiApiKey: event.target.value }))} placeholder="或设置环境变量 GITOOL_AI_API_KEY" /></label>
+          <label>模型<input value={settings.aiModel} onChange={(event) => setSettings((current) => ({ ...current, aiModel: event.target.value }))} placeholder="例如 gpt-3.5-turbo / deepseek-chat" /></label>
+          <label>接口地址（Base URL）<input value={settings.aiBaseUrl} onChange={(event) => setSettings((current) => ({ ...current, aiBaseUrl: event.target.value }))} placeholder="例如 https://api.openai.com/v1（可空）" /></label>
+                    <button className="button primary form-submit" disabled={busy}>保存设置</button>
         </div>
       </form>
       <section className="account-list-panel">

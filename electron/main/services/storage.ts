@@ -590,6 +590,9 @@ export function loadSettings(): AppSettings {
     defaultProjectDirectory: values.get("defaultProjectDirectory") ?? "",
     defaultBackupDirectory: values.get("defaultBackupDirectory") ?? "",
     backupExcludePatterns: values.get("backupExcludePatterns") ?? "",
+    aiApiKey: values.get("aiApiKey") ?? "",
+    aiModel: values.get("aiModel") ?? "",
+    aiBaseUrl: values.get("aiBaseUrl") ?? "",
   };
 }
 
@@ -605,6 +608,9 @@ export function saveSettings(settings: AppSettings): void {
     statement.run("defaultProjectDirectory", settings.defaultProjectDirectory);
     statement.run("defaultBackupDirectory", settings.defaultBackupDirectory);
     statement.run("backupExcludePatterns", settings.backupExcludePatterns);
+    statement.run("aiApiKey", settings.aiApiKey);
+    statement.run("aiModel", settings.aiModel);
+    statement.run("aiBaseUrl", settings.aiBaseUrl);
     connection.exec("COMMIT");
   } catch (error) {
     connection.exec("ROLLBACK");

@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
+  AiSummaryRequest,
   AppSettings,
   BackupCreateInput,
   BackupRestoreInput,
@@ -28,6 +29,7 @@ import type {
   TaskRun,
 } from "../../shared/types";
 import { analyzeProject } from "./services/analysis";
+import { generateAiSummary } from "./services/ai";
 import { createBackup, restoreBackup } from "./services/backups";
 import { openInEditor, openInTerminal } from "./services/openers";
 import {
@@ -281,6 +283,9 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   ipcMain.handle("projects:move", (_event, input: unknown) =>
     moveProject(requireMoveProjectInput(input)),
   );
+  ipcMain.handle("ai:generateSummary", (_event, input: unknown) =>
+    generateAiSummary(requireAiSummaryRequest(input)),
+  );
 }
 
 async function recordGitOperation(projectPath: unknown, operation: unknown): Promise<GitOperationResult> {
@@ -331,6 +336,20 @@ function requireAppSettings(value: unknown): AppSettings {
     defaultProjectDirectory: typeof candidate.defaultProjectDirectory === "string" ? candidate.defaultProjectDirectory : "",
     defaultBackupDirectory: typeof candidate.defaultBackupDirectory === "string" ? candidate.defaultBackupDirectory : "",
     backupExcludePatterns: typeof candidate.backupExcludePatterns === "string" ? candidate.backupExcludePatterns : "",
+    aiApiKey: typeof candidate.aiApiKey === "string" ? candidate.aiApiKey : "",
+    aiModel: typeof candidate.aiModel === "string" ? candidate.aiModel : "",
+    aiBaseUrl: typeof candidate.aiBaseUrl === "string" ? candidate.aiBaseUrl : "",
+  };
+}
+
+function requireAiSummaryRequest(value: unknown): AiSummaryRequest {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("AI 摘要参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    projectName: requireString(candidate.projectName, "项目名称"),
+    context: typeof candidate.context === "string" ? candidate.context : "",
   };
 }
 

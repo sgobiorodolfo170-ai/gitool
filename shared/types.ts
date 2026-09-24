@@ -284,6 +284,9 @@ export type AppSettings = {
   defaultProjectDirectory: string;
   defaultBackupDirectory: string;
   backupExcludePatterns: string;
+  aiApiKey: string;
+  aiModel: string;
+  aiBaseUrl: string;
 };
 
 export type MoveProjectInput = {
@@ -353,6 +356,17 @@ export type ListVersionsResult = {
   tags: GitTag[];
 };
 
+export type AiSummaryRequest = {
+  projectName: string;
+  context: string;
+};
+
+export type AiSummaryResult = {
+  success: boolean;
+  summary: string;
+  error?: string;
+};
+
 export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
   selectDirectory(defaultPath?: string): Promise<string | null>;
@@ -412,4 +426,5 @@ export type DesktopBridge = {
   deleteTag(path: string, name: string): Promise<void>;
   listVersions(path: string): Promise<ListVersionsResult>;
   compareVersions(input: CompareRequest): Promise<CompareResult>;
+  generateAiSummary(input: AiSummaryRequest): Promise<AiSummaryResult>;
 };

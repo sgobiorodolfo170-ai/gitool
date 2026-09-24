@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   Account,
   AccountTestResult,
+  AiSummaryResult,
   AppSettings,
   BackupRecord,
   BranchInfo,
@@ -118,6 +119,7 @@ const bridge: DesktopBridge = {
   deleteTag: (path, name) => invoke<void>("git:deleteTag", path, name),
   listVersions: (path) => invoke<ListVersionsResult>("git:listVersions", path),
   compareVersions: (input) => invoke<CompareResult>("git:compareVersions", input),
+  generateAiSummary: (input) => invoke<AiSummaryResult>("ai:generateSummary", input),
 };
 
 contextBridge.exposeInMainWorld("gitool", bridge);
