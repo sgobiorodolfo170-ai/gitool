@@ -99,6 +99,7 @@ function buildNavGroups(counts: { projects: number; remotes: number; accounts: n
         { id: "tasks", label: "任务中心", icon: ListTodo, count: counts.tasks > 0 ? String(counts.tasks) : undefined },
         { id: "backups", label: "备份中心", icon: Archive },
         { id: "logs", label: "操作记录", icon: Clock3 },
+        { id: "settings", label: "设置", icon: Settings2 },
       ],
     },
   ];
@@ -112,6 +113,7 @@ function App() {
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<ProjectFilter>("all");
   const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeOperation, setActiveOperation] = useState<GitOperation | null>(null);
@@ -157,6 +159,7 @@ function App() {
   }, []);
 
   const selectedProject = projects.find((project) => project.id === selectedId) ?? projects[0];
+  const allTags = useMemo(() => [...new Set(projects.flatMap((project) => project.tags))].sort(), [projects]);
   const filteredProjects = useMemo(() => {
     const query = search.trim().toLowerCase();
     return projects.filter((project) => {
@@ -164,10 +167,11 @@ function App() {
         filter === "all" ||
         (filter === "favorite" && project.favorite) ||
         (filter === "attention" && project.status !== "clean");
-      const matchesSearch = !query || `${project.name} ${project.path} ${project.summary}`.toLowerCase().includes(query);
-      return matchesFilter && matchesSearch;
+      const matchesTag = !tagFilter || project.tags.includes(tagFilter);
+      const matchesSearch = !query || `${project.name} ${project.path} ${project.summary} ${project.tags.join(" ")}`.toLowerCase().includes(query);
+      return matchesFilter && matchesTag && matchesSearch;
     });
-  }, [filter, projects, search]);
+  }, [filter, projects, search, tagFilter]);
 
   const updateProjects = (nextProjects: Project[]) => {
     setProjects(nextProjects);
@@ -535,6 +539,31 @@ function App() {
     }
   };
 
+  const moveProject = async (sourceProject: Project) => {
+    if (!isDesktopRuntime()) {
+      setNotice("浏览器预览不支持移动项目");
+      window.setTimeout(() => setNotice(null), 3000);
+      return;
+    }
+    if (!window.confirm("移动项目会复制整个目录（含 .git）到新位置，并更新本地记录。确定继续吗？")) return;
+    const bridge = requireDesktopBridge();
+    const targetDirectory = await bridge.selectDirectory();
+    if (!targetDirectory) return;
+    try {
+      const result = await bridge.moveProject({ sourcePath: sourceProject.path, targetDirectory });
+      if (result.success) {
+        updateProjects(projects.map((project) => project.id === sourceProject.id ? { ...project, path: result.targetPath } : project));
+        setNotice("项目已移动，记录已更新");
+      } else {
+        setNotice(`移动失败：${result.output}`);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "移动失败");
+    } finally {
+      window.setTimeout(() => setNotice(null), 4000);
+    }
+  };
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -586,7 +615,7 @@ function App() {
             </div>
             <p>{environment?.git_version ?? "正在检测 Git"} · {environment?.platform === "web" ? "浏览器预览" : "Windows x64"}</p>
           </div>
-          <button className="nav-item settings-item" onClick={() => setWorkspace("logs")}>
+          <button className="nav-item settings-item" onClick={() => setWorkspace("settings")}>
             <Settings2 size={17} />
             <span>设置</span>
           </button>
@@ -616,13 +645,17 @@ function App() {
               selectedProject={selectedProject}
               filter={filter}
               search={search}
+              tagFilter={tagFilter}
+              allTags={allTags}
               isImporting={isImporting}
               onFilterChange={setFilter}
               onSearchChange={setSearch}
+              onTagFilterChange={setTagFilter}
               onSelect={(id) => { setSelectedId(id); setOperationOutput(null); setAnalysis(null); }}
               onToggleFavorite={toggleFavorite}
               onUpdateProject={(projectId, patch) => updateProjects(projects.map((project) => project.id === projectId ? { ...project, ...patch } : project))}
               onBulkGitOperation={runBulkGitOperation}
+              onMoveProject={moveProject}
               onImport={importProject}
               onRefresh={refreshProjects}
               isRefreshing={isRefreshing}
@@ -644,6 +677,8 @@ function App() {
             <BackupsWorkspace projects={projects} />
           ) : workspace === "logs" ? (
             <LogsWorkspace />
+          ) : workspace === "settings" ? (
+            <SettingsWorkspace environment={environment} />
           ) : (
             <ModuleWorkspace workspace={workspace} onImport={importProject} />
           )}
@@ -676,6 +711,7 @@ function workspaceLabel(workspace: Workspace) {
     tasks: "任务中心",
     backups: "备份中心",
     logs: "设置与记录",
+    settings: "设置",
   };
   return labels[workspace];
 }
@@ -686,14 +722,18 @@ type ProjectsWorkspaceProps = {
   selectedProject?: Project;
   filter: ProjectFilter;
   search: string;
+  tagFilter: string;
+  allTags: string[];
   isImporting: boolean;
   workspace: Workspace;
   onFilterChange: (filter: ProjectFilter) => void;
   onSearchChange: (search: string) => void;
+  onTagFilterChange: (tag: string) => void;
   onSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onUpdateProject: (id: string, patch: Partial<Project>) => void;
   onBulkGitOperation: (operation: GitOperation, ids: string[]) => void | Promise<void>;
+  onMoveProject: (project: Project) => void | Promise<void>;
   onImport: () => void;
   onRefresh: () => void | Promise<void>;
   isRefreshing: boolean;
@@ -711,14 +751,18 @@ function ProjectsWorkspace({
   selectedProject,
   filter,
   search,
+  tagFilter,
+  allTags,
   isImporting,
   workspace,
   onFilterChange,
   onSearchChange,
+  onTagFilterChange,
   onSelect,
   onToggleFavorite,
   onUpdateProject,
   onBulkGitOperation,
+  onMoveProject,
   onImport,
   onRefresh,
   isRefreshing,
@@ -810,6 +854,8 @@ function ProjectsWorkspace({
         <label className="search-box"><Search size={16} /><input ref={searchRef} value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="搜索项目、路径或摘要" /><kbd>/</kbd></label>
       </div>
 
+      {allTags.length > 0 && <div className="tag-filter-bar"><span>标签：</span><button className={`tag-filter-chip ${tagFilter === "" ? "active" : ""}`} onClick={() => onTagFilterChange("")}>全部</button>{allTags.map((tag) => <button key={tag} className={`tag-filter-chip ${tagFilter === tag ? "active" : ""}`} onClick={() => onTagFilterChange(tagFilter === tag ? "" : tag)}><Tag size={10} />{tag}</button>)}</div>}
+
       <section className="project-layout">
         <div className="project-list-panel">
           <div className="panel-heading"><div><h2>最近项目</h2><span>{filteredProjects.length} 个结果</span></div><div className="panel-heading-actions"><label className="select-all"><input type="checkbox" checked={filteredProjects.length > 0 && selectedBulkIds.length === filteredProjects.length} onChange={toggleAll} /><span>全选</span></label><button className="bare-button" aria-label="更多项目"><MoreHorizontal size={18} /></button></div></div>
@@ -819,7 +865,7 @@ function ProjectsWorkspace({
             )) : <EmptyProjects onImport={onImport} />}
           </div>
         </div>
-        {selectedProject ? <ProjectDetail project={selectedProject} onToggleFavorite={() => onToggleFavorite(selectedProject.id)} onUpdateProject={(patch) => onUpdateProject(selectedProject.id, patch)} onRunGitOperation={onRunGitOperation} activeOperation={activeOperation} operationOutput={operationOutput} onAnalyzeProject={onAnalyzeProject} isAnalyzing={isAnalyzing} analysis={analysis} /> : <div className="detail-panel empty-detail">选择一个项目查看详情</div>}
+        {selectedProject ? <ProjectDetail project={selectedProject} onToggleFavorite={() => onToggleFavorite(selectedProject.id)} onUpdateProject={(patch) => onUpdateProject(selectedProject.id, patch)} onMoveProject={() => onMoveProject(selectedProject)} onRunGitOperation={onRunGitOperation} activeOperation={activeOperation} operationOutput={operationOutput} onAnalyzeProject={onAnalyzeProject} isAnalyzing={isAnalyzing} analysis={analysis} /> : <div className="detail-panel empty-detail">选择一个项目查看详情</div>}
       </section>
 
       {selectedBulkIds.length > 0 && <div className="bulk-action-bar">
@@ -880,7 +926,7 @@ function EmptyProjects({ onImport }: { onImport: () => void }) {
   return <div className="empty-projects"><div className="empty-icon"><FolderGit2 size={21} /></div><strong>没有匹配的项目</strong><span>换一个搜索词，或导入一个本地仓库。</span><button className="button secondary compact" onClick={onImport}><Plus size={15} />导入项目</button></div>;
 }
 
-function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onRunGitOperation, activeOperation, operationOutput, onAnalyzeProject, isAnalyzing, analysis }: { project: Project; onToggleFavorite: () => void; onUpdateProject: (patch: Partial<Project>) => void; onRunGitOperation: (operation: GitOperation) => void | Promise<void>; activeOperation: GitOperation | null; operationOutput: string | null; onAnalyzeProject: () => void | Promise<void>; isAnalyzing: boolean; analysis: ProjectAnalysis | null }) {
+function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onMoveProject, onRunGitOperation, activeOperation, operationOutput, onAnalyzeProject, isAnalyzing, analysis }: { project: Project; onToggleFavorite: () => void; onUpdateProject: (patch: Partial<Project>) => void; onMoveProject: () => void; onRunGitOperation: (operation: GitOperation) => void | Promise<void>; activeOperation: GitOperation | null; operationOutput: string | null; onAnalyzeProject: () => void | Promise<void>; isAnalyzing: boolean; analysis: ProjectAnalysis | null }) {
   const status = statusMeta[project.status];
   const ProviderIcon = providerIcons[project.provider];
   const bridge = getDesktopBridge();
@@ -966,7 +1012,7 @@ function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onRunGitOpe
     {operationOutput && <div className="operation-output"><div><span>最近一次 Git 输出</span><button className="bare-button" onClick={() => onRunGitOperation("fetch")} aria-label="重新获取远程更新"><RefreshCw size={13} /></button></div><pre>{operationOutput}</pre></div>}
     <div className="detail-section"><div className="detail-section-heading"><span>项目概览</span><button className="bare-button" onClick={openFolder} aria-label="在资源管理器中打开" title="在资源管理器中打开"><ExternalLink size={14} /></button></div><div className="detail-stats"><DetailStat icon={<GitBranch size={14} />} label="当前分支" value={project.branch} /><DetailStat icon={<GitCommitHorizontal size={14} />} label="最近提交" value={project.commit} /><DetailStat icon={<FileCode2 size={14} />} label="文件数量" value={`${project.files}`} /></div></div>
     <ReadmeSection projectPath={project.path} />
-    <div className="detail-section"><div className="detail-section-heading"><span>快捷入口</span></div><div className="quick-links"><button onClick={openTerminal}><TerminalSquare size={15} />打开终端<ArrowUpRight size={13} /></button><button onClick={() => runOpen("vscode", false)}><Code2 size={15} />VS Code<ArrowUpRight size={13} /></button><button onClick={() => runOpen("cursor", false)}><Blocks size={15} />Cursor<ArrowUpRight size={13} /></button><button onClick={copyPath}><FileCode2 size={15} />复制路径<ArrowUpRight size={13} /></button><button onClick={onAnalyzeProject} disabled={isAnalyzing}><Blocks size={15} />{isAnalyzing ? "分析中..." : "结构分析"}<ArrowUpRight size={13} /></button><button onClick={generateSummary}><Sparkles size={15} />生成摘要<ArrowUpRight size={13} /></button></div>{actionMessage && <div className="git-output"><pre>{actionMessage}</pre></div>}</div>
+    <div className="detail-section"><div className="detail-section-heading"><span>快捷入口</span></div><div className="quick-links"><button onClick={openTerminal}><TerminalSquare size={15} />打开终端<ArrowUpRight size={13} /></button><button onClick={() => runOpen("vscode", false)}><Code2 size={15} />VS Code<ArrowUpRight size={13} /></button><button onClick={() => runOpen("cursor", false)}><Blocks size={15} />Cursor<ArrowUpRight size={13} /></button><button onClick={copyPath}><FileCode2 size={15} />复制路径<ArrowUpRight size={13} /></button><button onClick={onAnalyzeProject} disabled={isAnalyzing}><Blocks size={15} />{isAnalyzing ? "分析中..." : "结构分析"}<ArrowUpRight size={13} /></button><button onClick={generateSummary}><Sparkles size={15} />生成摘要<ArrowUpRight size={13} /></button><button onClick={onMoveProject}><FolderGit2 size={15} />移动项目<ArrowUpRight size={13} /></button></div>{actionMessage && <div className="git-output"><pre>{actionMessage}</pre></div>}</div>
     {analysis && <ProjectAnalysisPanel analysis={analysis} />}
     <GitActionsPanel projectPath={project.path} />
   </aside>;
@@ -1310,7 +1356,18 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
     </div>
 
     {tab === "changes" && <div className="git-tab-content">
-      {changedFiles.length === 0 ? <div className="git-empty">{loading ? "正在读取变更..." : "工作区干净，没有待提交的变更。"}</div> : <div className="change-list">{changedFiles.map((file) => <div className="change-row" key={`${file.path}-${file.staged}`}><label className="change-check"><input type="checkbox" checked={file.staged} disabled={busy} onChange={() => toggleStage(file)} /><span className={`change-status ${file.staged ? "staged" : ""}`}>{changeStatusMeta[file.status].label}</span></label><code>{file.path}</code></div>)}</div>}
+      {(() => {
+        const conflictedFiles = changedFiles.filter((file) => file.status === "conflicted");
+        if (conflictedFiles.length > 0) {
+          return <div className="conflict-wizard">
+            <div className="conflict-heading"><CircleAlert size={14} /><strong>存在 {conflictedFiles.length} 个冲突文件</strong></div>
+            <p>拉取/合并产生冲突，已停止自动操作。请逐个解决冲突后暂存并提交。</p>
+            <div className="conflict-files">{conflictedFiles.map((file) => <code key={file.path}>{file.path}</code>)}</div>
+            <ol className="conflict-steps"><li>打开冲突文件，保留需要的改动（`&lt;&lt;&lt;&lt;&lt;&lt;&lt;` 到 `&gt;&gt;&gt;&gt;&gt;&gt;&gt;` 之间的内容）</li><li>删除冲突标记</li><li>回到此面板勾选暂存该文件</li><li>填写提交信息完成合并</li></ol>
+          </div>;
+        }
+        return changedFiles.length === 0 ? <div className="git-empty">{loading ? "正在读取变更..." : "工作区干净，没有待提交的变更。"}</div> : <div className="change-list">{changedFiles.map((file) => <div className="change-row" key={`${file.path}-${file.staged}`}><label className="change-check"><input type="checkbox" checked={file.staged} disabled={busy} onChange={() => toggleStage(file)} /><span className={`change-status ${file.staged ? "staged" : ""}`}>{changeStatusMeta[file.status].label}</span></label><code>{file.path}</code></div>)}</div>;
+      })()}
       <textarea className="commit-message" value={commitMessage} onChange={(event) => setCommitMessage(event.target.value)} placeholder="填写提交信息（subject / body）" rows={3} />
       <button className="button primary wide" onClick={commit} disabled={busy || !commitMessage.trim() || changedFiles.filter((file) => file.staged).length === 0}>{busy ? "提交中..." : "提交暂存的变更"}</button>
     </div>}
@@ -1444,6 +1501,7 @@ function ModuleWorkspace({ workspace, onImport }: { workspace: Exclude<Workspace
     tasks: { eyebrow: "TASK RUNNER", title: "任务中心", description: "把构建、运行和打包命令放到同一个可追踪的入口。", icon: <ListTodo size={21} />, items: ["gitool · npm run dev · 运行中", "atlas-api · cargo test · 22 分钟前", "northstar-web · pnpm build · 昨天"] },
     backups: { eyebrow: "RECOVERY", title: "备份中心", description: "完整保留 .git 历史，把项目恢复到一个新的工作目录。", icon: <Archive size={21} />, items: ["本周已备份 · 3 个项目", "最近归档 · gitool_2026-09-19.zip", "备份策略 · 手动触发"] },
     logs: { eyebrow: "SYSTEM", title: "设置与记录", description: "查看应用运行环境、操作日志和本地数据位置。", icon: <Settings2 size={21} />, items: ["Git · 2.46.0", "Windows · x64", "数据目录 · %APPDATA%\\Gitool"] },
+    settings: { eyebrow: "SYSTEM", title: "设置", description: "配置 Git 路径、默认目录与应用环境信息。", icon: <Settings2 size={21} />, items: ["Git 路径 · 系统 PATH", "默认项目目录 · 未设置", "默认备份目录 · 未设置"] },
   };
   const current = content[workspace];
   return <div className="module-page"><div className="module-hero"><div className="module-icon">{current.icon}</div><div><div className="eyebrow"><span className="eyebrow-line" />{current.eyebrow}</div><h1>{current.title}</h1><p>{current.description}</p></div><button className="button primary" onClick={onImport}><Plus size={16} />添加内容</button></div><section className="module-list"><div className="panel-heading"><div><h2>当前状态</h2><span>本地工作区快照</span></div><button className="bare-button"><RefreshCw size={16} /></button></div>{current.items.map((item, index) => <div className="module-list-row" key={item}><span className={`module-list-index ${index === 0 ? "active" : ""}`}>{index === 0 ? <Check size={14} /> : index + 1}</span><span>{item}</span><ArrowUpRight size={15} /></div>)}</section></div>;
@@ -1661,6 +1719,68 @@ function LogsWorkspace() {
     <div className="module-hero"><div className="module-icon"><Clock3 size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />SYSTEM</div><h1>操作记录</h1><p>查看应用执行过的 Git 操作、任务与结果。</p></div><button className="button secondary" onClick={clear}><Trash2 size={15} />清空记录</button></div>
     {notice && <div className="toast"><Check size={16} />{notice}</div>}
     <section className="remote-list-panel"><div className="panel-heading"><div><h2>最近操作</h2><span>{records.length} 条</span></div><button className="bare-button" onClick={() => void load()}><RefreshCw size={16} /></button></div>{records.length ? <div className="remote-list">{records.map((record) => { const meta = resultMeta[record.result]; return <div className="remote-row" key={record.id}><div className="remote-main"><div className="remote-title"><strong>{record.operation}</strong><span className={`status-pill ${meta.className}`}>{meta.label}</span></div><p>{record.projectPath}</p><code className="run-output">{record.detail.slice(0, 300) || "（无详情）"}</code><small>{record.createdAt}</small></div></div>; })}</div> : <div className="accounts-empty"><Clock3 size={22} /><strong>还没有操作记录</strong><span>Git 操作会自动记录到这里。</span></div>}</section>
+  </div>;
+}
+
+function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | null }) {
+  const bridge = getDesktopBridge();
+  const [settings, setSettings] = useState<{ gitPath: string; defaultProjectDirectory: string; defaultBackupDirectory: string }>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "" });
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    if (!bridge) return;
+    setSettings(await bridge.loadSettings());
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const pickDirectory = async (key: "defaultProjectDirectory" | "defaultBackupDirectory") => {
+    if (!bridge) return;
+    const directory = await bridge.selectDirectory(settings[key] || undefined);
+    if (directory) setSettings((current) => ({ ...current, [key]: directory }));
+  };
+
+  const save = async () => {
+    if (!bridge) return;
+    setBusy(true);
+    try {
+      await bridge.saveSettings(settings);
+      setNotice("设置已保存");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "保存失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const settingsRows = [
+    { key: "gitPath" as const, label: "Git 可执行文件路径", value: settings.gitPath, placeholder: "留空则使用系统 PATH 中的 git", hint: "例如 C:\\Program Files\\Git\\cmd\\git.exe" },
+    { key: "defaultProjectDirectory" as const, label: "默认项目目录", value: settings.defaultProjectDirectory, placeholder: "新建/导入项目时的默认位置", hint: "留空则不指定" },
+    { key: "defaultBackupDirectory" as const, label: "默认备份目录", value: settings.defaultBackupDirectory, placeholder: "备份 ZIP 的默认存放位置", hint: "留空则每次备份时选择" },
+  ];
+
+  return <div className="module-page">
+    <div className="module-hero"><div className="module-icon"><Settings2 size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />SYSTEM</div><h1>设置</h1><p>配置 Git 路径、默认目录与应用环境信息。</p></div><button className="button primary" onClick={save} disabled={busy}><Check size={15} />{busy ? "保存中..." : "保存设置"}</button></div>
+    {notice && <div className="toast"><Check size={16} />{notice}</div>}
+    <div className="accounts-grid">
+      <form className="account-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+        <div className="panel-heading"><div><h2>应用设置</h2><span>保存到本地数据库</span></div><Settings2 size={16} /></div>
+        <div className="form-body">
+          {settingsRows.map((row) => <label key={row.key}>{row.label}<div className="setting-row"><input value={row.value} onChange={(event) => setSettings((current) => ({ ...current, [row.key]: event.target.value }))} placeholder={row.placeholder} />{row.key !== "gitPath" && <button type="button" className="button secondary compact-button" onClick={() => pickDirectory(row.key)}>选择</button>}</div><small className="setting-hint">{row.hint}</small></label>)}
+          <button className="button primary form-submit" disabled={busy}>保存设置</button>
+        </div>
+      </form>
+      <section className="account-list-panel">
+        <div className="panel-heading"><div><h2>环境信息</h2><span>本地运行环境</span></div><span className="secure-label"><ShieldCheck size={13} />安全</span></div>
+        <div className="form-body">
+          <label>Git 可用性<span className="status-pill status-clean setting-value"><span className="status-dot" />{environment?.git_available ? "可用" : "不可用"}</span></label>
+          <label>Git 版本<div className="setting-value mono">{environment?.git_version ?? "检测中"}</div></label>
+          <label>操作系统<div className="setting-value mono">{environment?.platform === "web" ? "浏览器预览" : "Windows x64"}</div></label>
+          <label>数据目录<div className="setting-value mono">%APPDATA%\Gitool</div></label>
+        </div>
+      </section>
+    </div>
   </div>;
 }
 

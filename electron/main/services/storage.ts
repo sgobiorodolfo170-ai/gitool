@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { app } from "electron";
-import type { Account, BackupRecord, CreateAccountInput, OperationRecord, Project, RemoteProvider, TaskProfile, TaskRun } from "../../../shared/types";
+import type { Account, AppSettings, BackupRecord, CreateAccountInput, OperationRecord, Project, RemoteProvider, TaskProfile, TaskRun } from "../../../shared/types";
 import { deleteCredential, saveCredential } from "./credentials";
 
 type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
@@ -265,6 +265,10 @@ function openDatabase(): DatabaseSync {
       detail TEXT NOT NULL,
       result TEXT NOT NULL,
       createdAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL
     );
   `);
   migrationEnsureProjectColumns(connection);
@@ -570,4 +574,38 @@ function rowToOperationRecord(row: SqlRow): OperationRecord {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function loadSettings(): AppSettings {
+  const connection = openDatabase();
+  const rows = connection
+    .prepare("SELECT key, value FROM settings")
+    .all() as unknown as SqlRow[];
+  const values = new Map<string, string>();
+  for (const row of rows) {
+    values.set(String(row.key), String(row.value));
+  }
+  return {
+    gitPath: values.get("gitPath") ?? "",
+    defaultProjectDirectory: values.get("defaultProjectDirectory") ?? "",
+    defaultBackupDirectory: values.get("defaultBackupDirectory") ?? "",
+  };
+}
+
+export function saveSettings(settings: AppSettings): void {
+  const connection = openDatabase();
+  connection.exec("BEGIN");
+  try {
+    const statement = connection.prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    );
+    statement.run("gitPath", settings.gitPath);
+    statement.run("defaultProjectDirectory", settings.defaultProjectDirectory);
+    statement.run("defaultBackupDirectory", settings.defaultBackupDirectory);
+    connection.exec("COMMIT");
+  } catch (error) {
+    connection.exec("ROLLBACK");
+    throw new Error(`保存设置失败：${errorMessage(error)}`);
+  }
 }

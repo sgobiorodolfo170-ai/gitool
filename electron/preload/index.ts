@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   Account,
   AccountTestResult,
+  AppSettings,
   BackupRecord,
   BranchInfo,
   ChangeFile,
@@ -13,6 +14,8 @@ import type {
   GitOperationResult,
   GitSnapshot,
   LocalProjectInspection,
+  MoveProjectInput,
+  MoveProjectResult,
   OperationRecord,
   Project,
   ProjectAnalysis,
@@ -88,6 +91,9 @@ const bridge: DesktopBridge = {
   restoreBackup: (input) => invoke<void>("backups:restore", input),
   listOperationRecords: () => invoke<OperationRecord[]>("operations:list"),
   clearOperationRecords: () => invoke<void>("operations:clear"),
+  loadSettings: () => invoke<AppSettings>("settings:load"),
+  saveSettings: (settings: AppSettings) => invoke<void>("settings:save", settings),
+  moveProject: (input: MoveProjectInput) => invoke<MoveProjectResult>("projects:move", input),
 };
 
 contextBridge.exposeInMainWorld("gitool", bridge);

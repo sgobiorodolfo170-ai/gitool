@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
+  AppSettings,
   BackupCreateInput,
   BackupRestoreInput,
   CloneRepositoryInput,
@@ -11,6 +12,7 @@ import type {
   DeleteBranchInput,
   GitOperation,
   GitOperationResult,
+  MoveProjectInput,
   OpenEditorInput,
   OperationRecord,
   Project,
@@ -35,6 +37,7 @@ import {
   listBranches,
   listChangedFiles,
   listCommitHistory,
+  moveProject,
   readProjectReadme,
   revertCommit,
   runGitOperation,
@@ -65,6 +68,8 @@ import {
   listOperationRecords,
   listTaskProfiles,
   listTaskRuns,
+  loadSettings,
+  saveSettings,
   saveTaskProfile,
   updateTaskRun,
 } from "./services/storage";
@@ -224,6 +229,14 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   ipcMain.handle("operations:record", (_event, record: unknown) => {
     insertOperationRecord(requireOperationRecord(record));
   });
+
+  ipcMain.handle("settings:load", () => loadSettings());
+  ipcMain.handle("settings:save", (_event, settings: unknown) => {
+    saveSettings(requireAppSettings(settings));
+  });
+  ipcMain.handle("projects:move", (_event, input: unknown) =>
+    moveProject(requireMoveProjectInput(input)),
+  );
 }
 
 async function recordGitOperation(projectPath: unknown, operation: unknown): Promise<GitOperationResult> {
@@ -262,6 +275,29 @@ function recordOperation(operation: string, path: string, detail: string, result
   } catch {
     // 记录失败不影响主流程
   }
+}
+
+function requireAppSettings(value: unknown): AppSettings {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("设置数据格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    gitPath: typeof candidate.gitPath === "string" ? candidate.gitPath : "",
+    defaultProjectDirectory: typeof candidate.defaultProjectDirectory === "string" ? candidate.defaultProjectDirectory : "",
+    defaultBackupDirectory: typeof candidate.defaultBackupDirectory === "string" ? candidate.defaultBackupDirectory : "",
+  };
+}
+
+function requireMoveProjectInput(value: unknown): MoveProjectInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("移动项目参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    sourcePath: requireString(candidate.sourcePath, "源路径"),
+    targetDirectory: requireString(candidate.targetDirectory, "目标目录"),
+  };
 }
 
 function requireOpenEditorInput(value: unknown): OpenEditorInput {  if (typeof value !== "object" || value === null) {

@@ -95,7 +95,7 @@ export type Project = {
 
 export type ProjectFilter = "all" | "favorite" | "attention";
 
-export type Workspace = "overview" | "projects" | "remotes" | "accounts" | "tasks" | "backups" | "logs";
+export type Workspace = "overview" | "projects" | "remotes" | "accounts" | "tasks" | "backups" | "logs" | "settings";
 
 export type LocalProjectInspection = {
   path: string;
@@ -270,6 +270,23 @@ export type OperationRecord = {
   createdAt: string;
 };
 
+export type AppSettings = {
+  gitPath: string;
+  defaultProjectDirectory: string;
+  defaultBackupDirectory: string;
+};
+
+export type MoveProjectInput = {
+  sourcePath: string;
+  targetDirectory: string;
+};
+
+export type MoveProjectResult = {
+  success: boolean;
+  targetPath: string;
+  output: string;
+};
+
 export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
   selectDirectory(defaultPath?: string): Promise<string | null>;
@@ -315,4 +332,7 @@ export type DesktopBridge = {
   restoreBackup(input: BackupRestoreInput): Promise<void>;
   listOperationRecords(): Promise<OperationRecord[]>;
   clearOperationRecords(): Promise<void>;
+  loadSettings(): Promise<AppSettings>;
+  saveSettings(settings: AppSettings): Promise<void>;
+  moveProject(input: MoveProjectInput): Promise<MoveProjectResult>;
 };

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -17,6 +17,8 @@ import type {
   GitOperationResult,
   GitSnapshot,
   LocalProjectInspection,
+  MoveProjectInput,
+  MoveProjectResult,
   ProjectStatus,
   ReadmeResult,
   RevertCommitInput,
@@ -578,8 +580,68 @@ export async function readProjectReadme(projectPath: string): Promise<ReadmeResu
   return { found: false, content: "", fileName: "" };
 }
 
+export async function moveProject(input: MoveProjectInput): Promise<MoveProjectResult> {
+  const sourcePath = input.sourcePath.trim();
+  const targetDirectory = input.targetDirectory.trim();
+  assertDirectory(sourcePath);
+  if (!isAbsolute(targetDirectory) || !existsSync(targetDirectory) || !statSync(targetDirectory).isDirectory()) {
+    throw new Error("目标目录不存在或不是目录");
+  }
+  const sourceName = basename(sourcePath);
+  const targetPath = join(targetDirectory, sourceName);
+  if (existsSync(targetPath)) {
+    throw new Error("目标位置已存在同名目录，请选择其他目录");
+  }
+  if (realpathSync(sourcePath) === realpathSync(targetDirectory)) {
+    throw new Error("目标目录不能是项目所在目录");
+  }
+
+  try {
+    cpSync(sourcePath, targetPath, { recursive: true });
+    const sourceCount = countFiles(sourcePath);
+    const targetCount = countFiles(targetPath);
+    if (sourceCount !== targetCount) {
+      rmSync(targetPath, { recursive: true, force: true });
+      throw new Error(`复制校验失败：源目录 ${sourceCount} 个文件，目标 ${targetCount} 个文件`);
+    }
+    return { success: true, targetPath, output: `项目已移动到 ${targetPath}` };
+  } catch (error) {
+    if (existsSync(targetPath)) {
+      rmSync(targetPath, { recursive: true, force: true });
+    }
+    return { success: false, targetPath, output: errorMessage(error) };
+  }
+}
+
+function countFiles(directory: string): number {
+  let count = 0;
+  const stack = [directory];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const entryPath = join(current, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(entryPath);
+      } else if (entry.isFile()) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+}
+
 function gitErrorOutput(error: unknown): string {
   const failure = error as { stdout?: string; stderr?: string; message?: string };
   const detail = [failure.stdout, failure.stderr].filter((item): item is string => Boolean(item)).join("\n").trim();
   return detail.length > 0 ? detail : failure.message ?? "克隆失败";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
