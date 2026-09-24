@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   Account,
   AccountTestResult,
+  BackupRecord,
   BranchInfo,
   ChangeFile,
   CloneRepositoryResult,
@@ -12,11 +13,14 @@ import type {
   GitOperationResult,
   GitSnapshot,
   LocalProjectInspection,
+  OperationRecord,
   Project,
   ProjectAnalysis,
   ReadmeResult,
   RemoteRepository,
   RemoteRepositoryMutationResult,
+  TaskProfile,
+  TaskRun,
 } from "../../shared/types";
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
@@ -72,6 +76,17 @@ const bridge: DesktopBridge = {
     invoke<RemoteRepositoryMutationResult>("remoteRepositories:update", input),
   deleteRemoteRepository: (accountId, repositoryId) =>
     invoke<RemoteRepositoryMutationResult>("remoteRepositories:delete", accountId, repositoryId),
+  listTaskProfiles: () => invoke<TaskProfile[]>("tasks:listProfiles"),
+  saveTaskProfile: (input) => invoke<TaskProfile>("tasks:saveProfile", input),
+  deleteTaskProfile: (id) => invoke<void>("tasks:deleteProfile", id),
+  runTask: (profileId) => invoke<TaskRun>("tasks:run", profileId),
+  stopTask: (runId) => invoke<void>("tasks:stop", runId),
+  listTaskRuns: () => invoke<TaskRun[]>("tasks:listRuns"),
+  listBackups: () => invoke<BackupRecord[]>("backups:list"),
+  createBackup: (input) => invoke<BackupRecord>("backups:create", input),
+  restoreBackup: (input) => invoke<void>("backups:restore", input),
+  listOperationRecords: () => invoke<OperationRecord[]>("operations:list"),
+  clearOperationRecords: () => invoke<void>("operations:clear"),
 };
 
 contextBridge.exposeInMainWorld("gitool", bridge);

@@ -56,11 +56,13 @@ GitDock（https://github.com/gitdock-dev/gitdock）是开源的本地 Git 仓库
 
 > 实现说明：项目详情「快捷入口」新增 VS Code / Cursor / 打开终端 / 复制路径。`runGitOperation` 在 pull 与 sync 前调用 `listChangedFiles` 检查未提交变更，命中则返回可读提示并阻止操作。暗色主题因需求变更被移除。
 
-### 阶段 D — 占位页转正（当前 tasks / backups / logs 为假数据）
+### 阶段 D — 占位页转正（当前 tasks / backups / logs 为假数据）✅ 已完成
 
-- D-1 任务中心（FR-901）
-- D-2 备份 ZIP（FR-1001）
-- D-3 操作记录（FR-412 / FR-1104）
+- D-1 任务中心（FR-901）：任务配置 CRUD + 运行 + 停止 + 历史输出
+- D-2 备份 ZIP（FR-1001）：tar 打包（含 .git）+ 恢复 + 备份记录
+- D-3 操作记录（FR-412 / FR-1104）：Git 操作自动落库 + 查看 + 清空
+
+> 实现说明：新增 `tasks.ts`（子进程任务执行）、`backups.ts`（tar -a 打包 ZIP / tar -xf 恢复）服务。数据库新增 `task_profiles`、`task_runs`、`backup_records`、`operation_records` 四张表。`projects:gitOperation`、`projects:clone`、`git:commit` 自动写入操作记录。新增 IPC：`tasks:*`、`backups:*`、`operations:*`。任务中心支持项目级配置、实时输出、超时终止；备份中心支持选择项目打包到任意目录并恢复；操作记录页可查看并清空。已通过 `npm run typecheck` 与 `npm run build`。
 
 ## 4. 执行原则
 

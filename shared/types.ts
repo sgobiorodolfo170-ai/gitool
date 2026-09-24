@@ -208,6 +208,68 @@ export type OpenEditorInput = {
   newWindow: boolean;
 };
 
+export type TaskType = "build" | "run" | "package";
+
+export type TaskProfile = {
+  id: string;
+  projectId: string;
+  projectPath: string;
+  taskType: TaskType;
+  name: string;
+  command: string;
+  args: string;
+  workingDirectory: string;
+  timeoutSeconds: number;
+  createdAt: string;
+};
+
+export type TaskRun = {
+  id: string;
+  profileId: string;
+  projectId: string;
+  name: string;
+  command: string;
+  startedAt: string;
+  finishedAt?: string;
+  status: "running" | "succeeded" | "failed" | "stopped" | "timedout";
+  exitCode?: number;
+  output: string;
+};
+
+export type BackupRecord = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  sourcePath: string;
+  archivePath: string;
+  sizeBytes: number;
+  status: "ok" | "failed";
+  error?: string;
+  createdAt: string;
+};
+
+export type BackupCreateInput = {
+  projectId: string;
+  projectName: string;
+  sourcePath: string;
+  targetDirectory: string;
+};
+
+export type BackupRestoreInput = {
+  archivePath: string;
+  targetDirectory: string;
+};
+
+export type OperationRecord = {
+  id: string;
+  operation: string;
+  projectId: string;
+  projectPath: string;
+  detail: string;
+  result: "ok" | "failed";
+  createdAt: string;
+};
+
 export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
   selectDirectory(defaultPath?: string): Promise<string | null>;
@@ -241,4 +303,15 @@ export type DesktopBridge = {
   createRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
   updateRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
   deleteRemoteRepository(accountId: string, repositoryId: string): Promise<RemoteRepositoryMutationResult>;
+  listTaskProfiles(): Promise<TaskProfile[]>;
+  saveTaskProfile(input: TaskProfile): Promise<TaskProfile>;
+  deleteTaskProfile(id: string): Promise<void>;
+  runTask(profileId: string): Promise<TaskRun>;
+  stopTask(runId: string): Promise<void>;
+  listTaskRuns(): Promise<TaskRun[]>;
+  listBackups(): Promise<BackupRecord[]>;
+  createBackup(input: BackupCreateInput): Promise<BackupRecord>;
+  restoreBackup(input: BackupRestoreInput): Promise<void>;
+  listOperationRecords(): Promise<OperationRecord[]>;
+  clearOperationRecords(): Promise<void>;
 };

@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { app } from "electron";
-import type { Account, CreateAccountInput, Project, RemoteProvider } from "../../../shared/types";
+import type { Account, BackupRecord, CreateAccountInput, OperationRecord, Project, RemoteProvider, TaskProfile, TaskRun } from "../../../shared/types";
 import { deleteCredential, saveCredential } from "./credentials";
 
 type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
@@ -222,6 +222,50 @@ function openDatabase(): DatabaseSync {
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS task_profiles (
+      id TEXT PRIMARY KEY NOT NULL,
+      projectId TEXT NOT NULL,
+      projectPath TEXT NOT NULL,
+      taskType TEXT NOT NULL,
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      args TEXT NOT NULL DEFAULT '',
+      workingDirectory TEXT NOT NULL,
+      timeoutSeconds INTEGER NOT NULL DEFAULT 0,
+      createdAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS task_runs (
+      id TEXT PRIMARY KEY NOT NULL,
+      profileId TEXT NOT NULL,
+      projectId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      command TEXT NOT NULL,
+      startedAt TEXT NOT NULL,
+      finishedAt TEXT,
+      status TEXT NOT NULL,
+      exitCode INTEGER,
+      output TEXT NOT NULL DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS backup_records (
+      id TEXT PRIMARY KEY NOT NULL,
+      projectId TEXT NOT NULL,
+      projectName TEXT NOT NULL,
+      sourcePath TEXT NOT NULL,
+      archivePath TEXT NOT NULL,
+      sizeBytes INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      error TEXT,
+      createdAt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS operation_records (
+      id TEXT PRIMARY KEY NOT NULL,
+      operation TEXT NOT NULL,
+      projectId TEXT NOT NULL,
+      projectPath TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      result TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    );
   `);
   migrationEnsureProjectColumns(connection);
   database = connection;
@@ -293,6 +337,235 @@ function parseStringArray(value: string | number | bigint | null | Uint8Array | 
 
 function isRemoteProvider(value: string): value is RemoteProvider {
   return value === "github" || value === "gitee" || value === "gitlab";
+}
+
+export function listTaskProfiles(): TaskProfile[] {
+  const connection = openDatabase();
+  const rows = connection
+    .prepare(
+      `SELECT id, projectId, projectPath, taskType, name, command, args, workingDirectory, timeoutSeconds, createdAt
+       FROM task_profiles ORDER BY createdAt DESC`,
+    )
+    .all() as unknown as SqlRow[];
+  return rows.map(rowToTaskProfile);
+}
+
+export function getTaskProfile(profileId: string): TaskProfile | undefined {
+  const connection = openDatabase();
+  const row = connection
+    .prepare(`SELECT * FROM task_profiles WHERE id = ?`)
+    .get(profileId) as unknown as SqlRow | undefined;
+  return row ? rowToTaskProfile(row) : undefined;
+}
+
+export function saveTaskProfile(input: TaskProfile): TaskProfile {
+  const connection = openDatabase();
+  const existing = connection.prepare("SELECT id FROM task_profiles WHERE id = ?").get(input.id) as SqlRow | undefined;
+  if (existing) {
+    connection
+      .prepare(
+        `UPDATE task_profiles SET projectId = ?, projectPath = ?, taskType = ?, name = ?, command = ?,
+         args = ?, workingDirectory = ?, timeoutSeconds = ? WHERE id = ?`,
+      )
+      .run(
+        input.projectId,
+        input.projectPath,
+        input.taskType,
+        input.name,
+        input.command,
+        input.args,
+        input.workingDirectory,
+        input.timeoutSeconds,
+        input.id,
+      );
+  } else {
+    connection
+      .prepare(
+        `INSERT INTO task_profiles
+         (id, projectId, projectPath, taskType, name, command, args, workingDirectory, timeoutSeconds, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.id,
+        input.projectId,
+        input.projectPath,
+        input.taskType,
+        input.name,
+        input.command,
+        input.args,
+        input.workingDirectory,
+        input.timeoutSeconds,
+        input.createdAt,
+      );
+  }
+  return input;
+}
+
+export function deleteTaskProfile(profileId: string): void {
+  const connection = openDatabase();
+  connection.prepare("DELETE FROM task_profiles WHERE id = ?").run(profileId);
+}
+
+export function listTaskRuns(): TaskRun[] {
+  const connection = openDatabase();
+  const rows = connection
+    .prepare(
+      `SELECT id, profileId, projectId, name, command, startedAt, finishedAt, status, exitCode, output
+       FROM task_runs ORDER BY startedAt DESC LIMIT 200`,
+    )
+    .all() as unknown as SqlRow[];
+  return rows.map(rowToTaskRun);
+}
+
+export function insertTaskRun(run: TaskRun): void {
+  const connection = openDatabase();
+  connection
+    .prepare(
+      `INSERT INTO task_runs (id, profileId, projectId, name, command, startedAt, finishedAt, status, exitCode, output)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      run.id,
+      run.profileId,
+      run.projectId,
+      run.name,
+      run.command,
+      run.startedAt,
+      run.finishedAt ?? null,
+      run.status,
+      run.exitCode ?? null,
+      run.output,
+    );
+}
+
+export function updateTaskRun(run: TaskRun): void {
+  const connection = openDatabase();
+  connection
+    .prepare(
+      `UPDATE task_runs SET finishedAt = ?, status = ?, exitCode = ?, output = ? WHERE id = ?`,
+    )
+    .run(run.finishedAt ?? null, run.status, run.exitCode ?? null, run.output, run.id);
+}
+
+export function listBackups(): BackupRecord[] {
+  const connection = openDatabase();
+  const rows = connection
+    .prepare(
+      `SELECT id, projectId, projectName, sourcePath, archivePath, sizeBytes, status, error, createdAt
+       FROM backup_records ORDER BY createdAt DESC`,
+    )
+    .all() as unknown as SqlRow[];
+  return rows.map(rowToBackup);
+}
+
+export function insertBackup(record: BackupRecord): void {
+  const connection = openDatabase();
+  connection
+    .prepare(
+      `INSERT INTO backup_records (id, projectId, projectName, sourcePath, archivePath, sizeBytes, status, error, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      record.id,
+      record.projectId,
+      record.projectName,
+      record.sourcePath,
+      record.archivePath,
+      record.sizeBytes,
+      record.status,
+      record.error ?? null,
+      record.createdAt,
+    );
+}
+
+export function listOperationRecords(): OperationRecord[] {
+  const connection = openDatabase();
+  const rows = connection
+    .prepare(
+      `SELECT id, operation, projectId, projectPath, detail, result, createdAt
+       FROM operation_records ORDER BY createdAt DESC LIMIT 500`,
+    )
+    .all() as unknown as SqlRow[];
+  return rows.map(rowToOperationRecord);
+}
+
+export function insertOperationRecord(record: OperationRecord): void {
+  const connection = openDatabase();
+  connection
+    .prepare(
+      `INSERT INTO operation_records (id, operation, projectId, projectPath, detail, result, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      record.id,
+      record.operation,
+      record.projectId,
+      record.projectPath,
+      record.detail,
+      record.result,
+      record.createdAt,
+    );
+}
+
+export function clearOperationRecords(): void {
+  const connection = openDatabase();
+  connection.exec("DELETE FROM operation_records");
+}
+
+function rowToTaskProfile(row: SqlRow): TaskProfile {
+  return {
+    id: String(row.id),
+    projectId: String(row.projectId),
+    projectPath: String(row.projectPath),
+    taskType: String(row.taskType) as TaskProfile["taskType"],
+    name: String(row.name),
+    command: String(row.command),
+    args: String(row.args),
+    workingDirectory: String(row.workingDirectory),
+    timeoutSeconds: Number(row.timeoutSeconds),
+    createdAt: String(row.createdAt),
+  };
+}
+
+function rowToTaskRun(row: SqlRow): TaskRun {
+  return {
+    id: String(row.id),
+    profileId: String(row.profileId),
+    projectId: String(row.projectId),
+    name: String(row.name),
+    command: String(row.command),
+    startedAt: String(row.startedAt),
+    finishedAt: row.finishedAt === null ? undefined : String(row.finishedAt),
+    status: String(row.status) as TaskRun["status"],
+    exitCode: row.exitCode === null ? undefined : Number(row.exitCode),
+    output: String(row.output),
+  };
+}
+
+function rowToBackup(row: SqlRow): BackupRecord {
+  return {
+    id: String(row.id),
+    projectId: String(row.projectId),
+    projectName: String(row.projectName),
+    sourcePath: String(row.sourcePath),
+    archivePath: String(row.archivePath),
+    sizeBytes: Number(row.sizeBytes),
+    status: String(row.status) as BackupRecord["status"],
+    error: row.error === null ? undefined : String(row.error),
+    createdAt: String(row.createdAt),
+  };
+}
+
+function rowToOperationRecord(row: SqlRow): OperationRecord {
+  return {
+    id: String(row.id),
+    operation: String(row.operation),
+    projectId: String(row.projectId),
+    projectPath: String(row.projectPath),
+    detail: String(row.detail),
+    result: String(row.result) as OperationRecord["result"],
+    createdAt: String(row.createdAt),
+  };
 }
 
 function errorMessage(error: unknown): string {

@@ -1,18 +1,27 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
+  BackupCreateInput,
+  BackupRestoreInput,
   CloneRepositoryInput,
+  CloneRepositoryResult,
   CommitRequest,
+  CommitResult,
   CreateAccountInput,
   CreateBranchInput,
   DeleteBranchInput,
   GitOperation,
+  GitOperationResult,
   OpenEditorInput,
+  OperationRecord,
   Project,
   RemoteRepositoryWriteInput,
   RevertCommitInput,
   SwitchBranchInput,
+  TaskProfile,
+  TaskRun,
 } from "../../shared/types";
 import { analyzeProject } from "./services/analysis";
+import { createBackup, restoreBackup } from "./services/backups";
 import { openInEditor, openInTerminal } from "./services/openers";
 import {
   cloneRepository,
@@ -47,9 +56,21 @@ import {
   loadProjects,
   saveProjects,
 } from "./services/storage";
+import {
+  clearOperationRecords,
+  deleteTaskProfile,
+  insertOperationRecord,
+  insertTaskRun,
+  listBackups,
+  listOperationRecords,
+  listTaskProfiles,
+  listTaskRuns,
+  saveTaskProfile,
+  updateTaskRun,
+} from "./services/storage";
+import { runTask, stopTask } from "./services/tasks";
 
-export function registerIpcHandlers(): void {
-  ipcMain.handle("system:environment", () => getEnvironmentStatus());
+export function registerIpcHandlers(): void {  ipcMain.handle("system:environment", () => getEnvironmentStatus());
 
   ipcMain.handle("system:selectDirectory", async (event, defaultPath: unknown) => {
     const owner = BrowserWindow.fromWebContents(event.sender);
@@ -95,10 +116,10 @@ export function registerIpcHandlers(): void {
     readProjectReadme(requireString(projectPath, "项目路径")),
   );
   ipcMain.handle("projects:gitOperation", (_event, projectPath: unknown, operation: unknown) =>
-    runGitOperation(requireString(projectPath, "项目路径"), requireGitOperation(operation)),
+    recordGitOperation(projectPath, operation),
   );
   ipcMain.handle("projects:clone", (_event, input: unknown) =>
-    cloneRepository(requireCloneRepositoryInput(input)),
+    recordClone(input),
   );
   ipcMain.handle("git:changedFiles", (_event, projectPath: unknown) =>
     listChangedFiles(requireString(projectPath, "项目路径")),
@@ -110,7 +131,7 @@ export function registerIpcHandlers(): void {
     unstageFiles(requireString(projectPath, "项目路径"), requireStringArray(files)),
   );
   ipcMain.handle("git:commit", (_event, input: unknown) =>
-    commitChanges(requireCommitRequest(input)),
+    recordCommit(input),
   );
   ipcMain.handle("git:branches", (_event, projectPath: unknown) =>
     listBranches(requireString(projectPath, "项目路径")),
@@ -160,10 +181,82 @@ export function registerIpcHandlers(): void {
       requireString(repositoryId, "仓库 ID"),
     ),
   );
+
+  ipcMain.handle("tasks:listProfiles", () => listTaskProfiles());
+  ipcMain.handle("tasks:saveProfile", (_event, input: unknown) =>
+    saveTaskProfile(requireTaskProfile(input)),
+  );
+  ipcMain.handle("tasks:deleteProfile", (_event, id: unknown) =>
+    deleteTaskProfile(requireString(id, "任务 ID")),
+  );
+  ipcMain.handle("tasks:run", async (_event, profileId: unknown) => {
+    const run = await runTask(requireString(profileId, "任务 ID"));
+    insertTaskRun(run);
+    return run;
+  });
+  ipcMain.handle("tasks:stop", (_event, runId: unknown) =>
+    stopTask(requireString(runId, "运行 ID")),
+  );
+  ipcMain.handle("tasks:listRuns", () => listTaskRuns());
+  ipcMain.handle("tasks:updateRun", (_event, run: unknown) => {
+    const validated = requireTaskRun(run);
+    updateTaskRun(validated);
+  });
+
+  ipcMain.handle("backups:list", () => listBackups());
+  ipcMain.handle("backups:create", (_event, input: unknown) =>
+    createBackup(requireBackupCreateInput(input)),
+  );
+  ipcMain.handle("backups:restore", (_event, input: unknown) =>
+    restoreBackup(requireBackupRestoreInput(input)),
+  );
+
+  ipcMain.handle("operations:list", () => listOperationRecords());
+  ipcMain.handle("operations:clear", () => clearOperationRecords());
+  ipcMain.handle("operations:record", (_event, record: unknown) => {
+    insertOperationRecord(requireOperationRecord(record));
+  });
 }
 
-function requireOpenEditorInput(value: unknown): OpenEditorInput {
-  if (typeof value !== "object" || value === null) {
+async function recordGitOperation(projectPath: unknown, operation: unknown): Promise<GitOperationResult> {
+  const path = requireString(projectPath, "项目路径");
+  const op = requireGitOperation(operation);
+  const result = await runGitOperation(path, op);
+  recordOperation(op, path, result.output, result.success ? "ok" : "failed");
+  return result;
+}
+
+async function recordClone(input: unknown): Promise<CloneRepositoryResult> {
+  const validated = requireCloneRepositoryInput(input);
+  const result = await cloneRepository(validated);
+  recordOperation("clone", validated.targetPath, result.output, result.success ? "ok" : "failed");
+  return result;
+}
+
+async function recordCommit(input: unknown): Promise<CommitResult> {
+  const validated = requireCommitRequest(input);
+  const result = await commitChanges(validated);
+  recordOperation("commit", validated.path, result.output, result.success ? "ok" : "failed");
+  return result;
+}
+
+function recordOperation(operation: string, path: string, detail: string, result: "ok" | "failed"): void {
+  try {
+    insertOperationRecord({
+      id: `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      operation,
+      projectId: "",
+      projectPath: path,
+      detail: detail.slice(0, 500),
+      result,
+      createdAt: new Date().toISOString(),
+    });
+  } catch {
+    // 记录失败不影响主流程
+  }
+}
+
+function requireOpenEditorInput(value: unknown): OpenEditorInput {  if (typeof value !== "object" || value === null) {
     throw new Error("编辑器参数格式不正确");
   }
   const candidate = value as Record<string, unknown>;
@@ -183,6 +276,92 @@ function requireString(value: unknown, label: string): string {
     throw new Error(`${label}不能为空`);
   }
   return value;
+}
+
+function requireTaskProfile(value: unknown): TaskProfile {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("任务配置格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  const taskType = candidate.taskType;
+  if (taskType !== "build" && taskType !== "run" && taskType !== "package") {
+    throw new Error("任务类型无效");
+  }
+  return {
+    id: requireString(candidate.id, "任务 ID"),
+    projectId: requireString(candidate.projectId, "项目 ID"),
+    projectPath: requireString(candidate.projectPath, "任务工作目录"),
+    taskType,
+    name: requireString(candidate.name, "任务名称"),
+    command: requireString(candidate.command, "命令"),
+    args: typeof candidate.args === "string" ? candidate.args : "",
+    workingDirectory: requireString(candidate.workingDirectory, "任务工作目录"),
+    timeoutSeconds: typeof candidate.timeoutSeconds === "number" ? candidate.timeoutSeconds : 0,
+    createdAt: requireString(candidate.createdAt, "创建时间"),
+  };
+}
+
+function requireTaskRun(value: unknown): TaskRun {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("任务运行记录格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  const status = candidate.status;
+  if (status !== "running" && status !== "succeeded" && status !== "failed" && status !== "stopped" && status !== "timedout") {
+    throw new Error("任务状态无效");
+  }
+  return {
+    id: requireString(candidate.id, "运行 ID"),
+    profileId: typeof candidate.profileId === "string" ? candidate.profileId : "",
+    projectId: typeof candidate.projectId === "string" ? candidate.projectId : "",
+    name: typeof candidate.name === "string" ? candidate.name : "",
+    command: typeof candidate.command === "string" ? candidate.command : "",
+    startedAt: requireString(candidate.startedAt, "开始时间"),
+    finishedAt: typeof candidate.finishedAt === "string" ? candidate.finishedAt : undefined,
+    status: status as TaskRun["status"],
+    exitCode: typeof candidate.exitCode === "number" ? candidate.exitCode : undefined,
+    output: typeof candidate.output === "string" ? candidate.output : "",
+  };
+}
+
+function requireBackupCreateInput(value: unknown): BackupCreateInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("备份参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    projectId: requireString(candidate.projectId, "项目 ID"),
+    projectName: requireString(candidate.projectName, "项目名称"),
+    sourcePath: requireString(candidate.sourcePath, "源路径"),
+    targetDirectory: requireString(candidate.targetDirectory, "备份目录"),
+  };
+}
+
+function requireBackupRestoreInput(value: unknown): BackupRestoreInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("恢复参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    archivePath: requireString(candidate.archivePath, "备份文件"),
+    targetDirectory: requireString(candidate.targetDirectory, "恢复目录"),
+  };
+}
+
+function requireOperationRecord(value: unknown): OperationRecord {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("操作记录格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    id: requireString(candidate.id, "记录 ID"),
+    operation: requireString(candidate.operation, "操作类型"),
+    projectId: typeof candidate.projectId === "string" ? candidate.projectId : "",
+    projectPath: typeof candidate.projectPath === "string" ? candidate.projectPath : "",
+    detail: typeof candidate.detail === "string" ? candidate.detail : "",
+    result: candidate.result === "ok" || candidate.result === "failed" ? candidate.result : "ok",
+    createdAt: requireString(candidate.createdAt, "记录时间"),
+  };
 }
 
 function requireGitOperation(value: unknown): GitOperation {

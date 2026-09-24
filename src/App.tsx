@@ -36,7 +36,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Account, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, Workspace } from "./types";
+import type { Account, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, TaskProfile, TaskRun, Workspace } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 import { loadProjects, saveProjects } from "./lib/projects";
 
@@ -638,6 +638,12 @@ function App() {
             <AccountsWorkspace accounts={accounts} accountBusyId={accountBusyId} onAdd={addAccount} onTest={testAccount} onDelete={deleteAccount} />
           ) : workspace === "remotes" ? (
             <RemoteRepositoriesWorkspace accounts={accounts} repositories={remoteRepositories} selectedAccountId={selectedAccountId} search={remoteSearch} isLoading={isLoadingRemotes} cloningRepositoryId={cloningRepositoryId} onAccountChange={setSelectedAccountId} onSearchChange={setRemoteSearch} onRefresh={() => loadRemoteRepositories()} onClone={cloneRemoteRepository} onMutate={mutateRemoteRepository} />
+          ) : workspace === "tasks" ? (
+            <TasksWorkspace projects={projects} />
+          ) : workspace === "backups" ? (
+            <BackupsWorkspace projects={projects} />
+          ) : workspace === "logs" ? (
+            <LogsWorkspace />
           ) : (
             <ModuleWorkspace workspace={workspace} onImport={importProject} />
           )}
@@ -1311,6 +1317,193 @@ function ModuleWorkspace({ workspace, onImport }: { workspace: Exclude<Workspace
   };
   const current = content[workspace];
   return <div className="module-page"><div className="module-hero"><div className="module-icon">{current.icon}</div><div><div className="eyebrow"><span className="eyebrow-line" />{current.eyebrow}</div><h1>{current.title}</h1><p>{current.description}</p></div><button className="button primary" onClick={onImport}><Plus size={16} />添加内容</button></div><section className="module-list"><div className="panel-heading"><div><h2>当前状态</h2><span>本地工作区快照</span></div><button className="bare-button"><RefreshCw size={16} /></button></div>{current.items.map((item, index) => <div className="module-list-row" key={item}><span className={`module-list-index ${index === 0 ? "active" : ""}`}>{index === 0 ? <Check size={14} /> : index + 1}</span><span>{item}</span><ArrowUpRight size={15} /></div>)}</section></div>;
+}
+
+function TasksWorkspace({ projects }: { projects: Project[] }) {
+  const bridge = getDesktopBridge();
+  const [profiles, setProfiles] = useState<TaskProfile[]>([]);
+  const [runs, setRuns] = useState<TaskRun[]>([]);
+  const [notice, setNotice] = useState("");
+  const [editing, setEditing] = useState<TaskProfile | null>(null);
+  const [draft, setDraft] = useState({ projectId: "", name: "", command: "", args: "", timeoutSeconds: 120 });
+  const [runningId, setRunningId] = useState<string | null>(null);
+
+  const load = async () => {
+    if (!bridge) return;
+    const [loadedProfiles, loadedRuns] = await Promise.all([bridge.listTaskProfiles(), bridge.listTaskRuns()]);
+    setProfiles(loadedProfiles);
+    setRuns(loadedRuns);
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const taskTypeLabel: Record<TaskProfile["taskType"], string> = { build: "构建", run: "运行", package: "打包" };
+
+  const save = async () => {
+    if (!bridge || !draft.projectId || !draft.name || !draft.command) return;
+    const now = new Date().toISOString();
+    const profile: TaskProfile = {
+      id: editing?.id ?? `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      projectId: draft.projectId,
+      projectPath: projects.find((project) => project.id === draft.projectId)?.path ?? "",
+      taskType: editing?.taskType ?? "run",
+      name: draft.name,
+      command: draft.command,
+      args: draft.args,
+      workingDirectory: projects.find((project) => project.id === draft.projectId)?.path ?? "",
+      timeoutSeconds: draft.timeoutSeconds,
+      createdAt: editing?.createdAt ?? now,
+    };
+    try {
+      await bridge.saveTaskProfile(profile);
+      setNotice("任务已保存");
+      setEditing(null);
+      setDraft({ projectId: "", name: "", command: "", args: "", timeoutSeconds: 120 });
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "保存失败");
+    }
+  };
+
+  const startTask = async (profile: TaskProfile) => {
+    if (!bridge) return;
+    setRunningId(profile.id);
+    try {
+      const run = await bridge.runTask(profile.id);
+      setRuns((current) => [run, ...current]);
+      setNotice(`任务「${profile.name}」已启动`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "启动失败");
+    } finally {
+      setRunningId(null);
+    }
+  };
+
+  const deleteProfile = async (profile: TaskProfile) => {
+    if (!bridge) return;
+    if (!window.confirm(`删除任务「${profile.name}」？`)) return;
+    await bridge.deleteTaskProfile(profile.id);
+    await load();
+  };
+
+  const edit = (profile: TaskProfile) => {
+    setEditing(profile);
+    setDraft({ projectId: profile.projectId, name: profile.name, command: profile.command, args: profile.args, timeoutSeconds: profile.timeoutSeconds });
+  };
+
+  return <div className="module-page">
+    <div className="module-hero"><div className="module-icon"><ListTodo size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />TASK RUNNER</div><h1>任务中心</h1><p>配置构建、运行和打包命令，一键执行并查看实时日志。</p></div></div>
+    {notice && <div className="toast"><Check size={16} />{notice}</div>}
+    <div className="accounts-grid">
+      <form className="account-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+        <div className="panel-heading"><div><h2>{editing ? `编辑任务 · ${editing.name}` : "新建任务"}</h2><span>命令将在项目目录执行</span></div><ListTodo size={16} /></div>
+        <div className="form-body">
+          <label>关联项目<select value={draft.projectId} onChange={(event) => setDraft({ ...draft, projectId: event.target.value })}><option value="">选择项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
+          <label>任务名称<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="例如：开发服务器" /></label>
+          <label>命令<input value={draft.command} onChange={(event) => setDraft({ ...draft, command: event.target.value })} placeholder="例如：npm" /></label>
+          <label>参数<input value={draft.args} onChange={(event) => setDraft({ ...draft, args: event.target.value })} placeholder="例如：run dev" /></label>
+          <label>超时（秒）<input type="number" value={draft.timeoutSeconds} onChange={(event) => setDraft({ ...draft, timeoutSeconds: Number(event.target.value) || 0 })} /></label>
+          <button className="button primary form-submit" disabled={!draft.projectId || !draft.name || !draft.command}>{editing ? "保存修改" : "创建任务"}</button>
+        </div>
+      </form>
+      <section className="account-list-panel">
+        <div className="panel-heading"><div><h2>任务配置</h2><span>{profiles.length} 个任务</span></div><span className="secure-label"><ListTodo size={13} />可执行</span></div>
+        {profiles.length ? <div className="account-list">{profiles.map((profile) => <div className="account-row" key={profile.id}><div className="account-provider-icon github"><span>{taskTypeLabel[profile.taskType].slice(0, 1)}</span></div><div className="account-main"><div className="account-title"><strong>{profile.name}</strong><span className="status-pill status-clean"><span className="status-dot" />{taskTypeLabel[profile.taskType]}</span></div><p>{profile.command} {profile.args}</p><small>{projects.find((project) => project.id === profile.projectId)?.name ?? profile.projectPath}</small></div><div className="account-actions"><button className="button secondary compact-button" onClick={() => startTask(profile)} disabled={runningId !== null}>{runningId === profile.id ? "启动中..." : "运行"}</button><button className="button secondary compact-button" onClick={() => edit(profile)}>编辑</button><button className="icon-button danger" onClick={() => deleteProfile(profile)} aria-label="删除任务"><Trash2 size={15} /></button></div></div>)}</div> : <div className="accounts-empty"><ListTodo size={21} /><strong>还没有任务配置</strong><span>在左侧表单创建第一个任务。</span></div>}
+      </section>
+    </div>
+    <section className="module-list" style={{ marginTop: 16 }}>
+      <div className="panel-heading"><div><h2>运行记录</h2><span>最近 {runs.length} 次</span></div><button className="bare-button" onClick={() => void load()}><RefreshCw size={16} /></button></div>
+      {runs.length ? <div className="remote-list">{runs.slice(0, 20).map((run) => <div className="remote-row" key={run.id}><div className="remote-main"><div className="remote-title"><strong>{run.name}</strong><span className="status-pill status-clean">{run.status}</span><span>{run.exitCode !== undefined ? `退出码 ${run.exitCode}` : ""}</span></div><p>{run.command} · {run.startedAt}</p><code className="run-output">{run.output.slice(0, 300) || "（无输出）"}</code></div></div>)}</div> : <div className="accounts-empty"><ListTodo size={22} /><strong>还没有运行记录</strong><span>运行任务后这里会显示输出。</span></div>}
+    </section>
+  </div>;
+}
+
+function BackupsWorkspace({ projects }: { projects: Project[] }) {
+  const bridge = getDesktopBridge();
+  const [backups, setBackups] = useState<BackupRecord[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    if (!bridge) return;
+    setBackups(await bridge.listBackups());
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const createBackup = async () => {
+    if (!bridge || !selectedProjectId) return;
+    const project = projects.find((item) => item.id === selectedProjectId);
+    if (!project) return;
+    setBusy(true);
+    try {
+      const targetDirectory = await bridge.selectDirectory();
+      if (!targetDirectory) return;
+      const record = await bridge.createBackup({ projectId: project.id, projectName: project.name, sourcePath: project.path, targetDirectory });
+      setNotice(record.status === "ok" ? `备份完成：${record.archivePath}` : `备份失败：${record.error}`);
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "备份失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restoreBackup = async (backup: BackupRecord) => {
+    if (!bridge) return;
+    if (!window.confirm("恢复会解压到您选择的空目录。确定继续吗？")) return;
+    setBusy(true);
+    try {
+      const targetDirectory = await bridge.selectDirectory();
+      if (!targetDirectory) return;
+      await bridge.restoreBackup({ archivePath: backup.archivePath, targetDirectory });
+      setNotice("恢复完成，可到「我的项目」导入该目录");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "恢复失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <div className="module-page">
+    <div className="module-hero"><div className="module-icon"><Archive size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />RECOVERY</div><h1>备份中心</h1><p>将项目打包为 ZIP（含 .git），可在新目录完整恢复。</p></div></div>
+    {notice && <div className="toast"><Check size={16} />{notice}</div>}
+    <div className="remote-toolbar"><label className="account-select"><span>选择要备份的项目</span><select value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}><option value="">选择项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label><button className="button primary" onClick={createBackup} disabled={busy || !selectedProjectId}><Archive size={15} />{busy ? "处理中..." : "备份到目录"}</button></div>
+    <section className="remote-list-panel"><div className="panel-heading"><div><h2>备份记录</h2><span>{backups.length} 条</span></div><button className="bare-button" onClick={() => void load()}><RefreshCw size={16} /></button></div>{backups.length ? <div className="remote-list">{backups.map((backup) => <div className="remote-row" key={backup.id}><div className="remote-main"><div className="remote-title"><strong>{backup.projectName}</strong><span className={`status-pill ${backup.status === "ok" ? "status-clean" : "status-conflicted"}`}>{backup.status === "ok" ? "成功" : "失败"}</span></div><p>{backup.archivePath}</p><div className="remote-meta"><span><HardDrive size={12} />{backup.sizeBytes > 0 ? formatBytes(backup.sizeBytes) : "—"}</span><span>{backup.createdAt}</span>{backup.error && <code>{backup.error.slice(0, 120)}</code>}</div></div>{backup.status === "ok" && <button className="button secondary compact-button" onClick={() => restoreBackup(backup)} disabled={busy}>恢复</button>}</div>)}</div> : <div className="accounts-empty"><Archive size={22} /><strong>还没有备份</strong><span>选择项目并点击「备份到目录」。</span></div>}</section>
+  </div>;
+}
+
+function LogsWorkspace() {
+  const bridge = getDesktopBridge();
+  const [records, setRecords] = useState<OperationRecord[]>([]);
+  const [notice, setNotice] = useState("");
+
+  const load = async () => {
+    if (!bridge) return;
+    setRecords(await bridge.listOperationRecords());
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const clear = async () => {
+    if (!bridge) return;
+    if (!window.confirm("清空全部操作记录？")) return;
+    await bridge.clearOperationRecords();
+    setNotice("操作记录已清空");
+    await load();
+  };
+
+  const resultMeta: Record<OperationRecord["result"], { label: string; className: string }> = {
+    ok: { label: "成功", className: "status-clean" },
+    failed: { label: "失败", className: "status-conflicted" },
+  };
+
+  return <div className="module-page">
+    <div className="module-hero"><div className="module-icon"><Clock3 size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />SYSTEM</div><h1>操作记录</h1><p>查看应用执行过的 Git 操作、任务与结果。</p></div><button className="button secondary" onClick={clear}><Trash2 size={15} />清空记录</button></div>
+    {notice && <div className="toast"><Check size={16} />{notice}</div>}
+    <section className="remote-list-panel"><div className="panel-heading"><div><h2>最近操作</h2><span>{records.length} 条</span></div><button className="bare-button" onClick={() => void load()}><RefreshCw size={16} /></button></div>{records.length ? <div className="remote-list">{records.map((record) => { const meta = resultMeta[record.result]; return <div className="remote-row" key={record.id}><div className="remote-main"><div className="remote-title"><strong>{record.operation}</strong><span className={`status-pill ${meta.className}`}>{meta.label}</span></div><p>{record.projectPath}</p><code className="run-output">{record.detail.slice(0, 300) || "（无详情）"}</code><small>{record.createdAt}</small></div></div>; })}</div> : <div className="accounts-empty"><Clock3 size={22} /><strong>还没有操作记录</strong><span>Git 操作会自动记录到这里。</span></div>}</section>
+  </div>;
 }
 
 export default App;
