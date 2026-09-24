@@ -9,6 +9,7 @@ import type {
   CommitResult,
   CreateAccountInput,
   CreateBranchInput,
+  CreateTagInput,
   DeleteBranchInput,
   FileDiffRequest,
   GitOperation,
@@ -20,6 +21,7 @@ import type {
   Project,
   RemoteRepositoryWriteInput,
   RevertCommitInput,
+  SetRemoteUrlInput,
   SwitchBranchInput,
   TaskProfile,
   TaskRun,
@@ -31,7 +33,9 @@ import {
   cloneRepository,
   commitChanges,
   createBranch,
+  createTag,
   deleteBranch,
+  deleteTag,
   getDiskSize,
   getEnvironmentStatus,
   getFileDiff,
@@ -41,11 +45,13 @@ import {
   listBranches,
   listChangedFiles,
   listCommitHistory,
+  listTags,
   moveProject,
   readProjectReadme,
   revertCommit,
   runGitOperation,
   scanDirectoryForRepositories,
+  setRemoteUrl,
   stageFiles,
   switchBranch,
   unstageFiles,
@@ -141,6 +147,18 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   );
   ipcMain.handle("projects:fileDiff", (_event, input: unknown) =>
     getFileDiff(requireFileDiffRequest(input)),
+  );
+  ipcMain.handle("projects:setRemoteUrl", (_event, input: unknown) =>
+    setRemoteUrl(requireSetRemoteUrlInput(input)),
+  );
+  ipcMain.handle("git:tags", (_event, projectPath: unknown) =>
+    listTags(requireString(projectPath, "项目路径")),
+  );
+  ipcMain.handle("git:createTag", (_event, input: unknown) =>
+    createTag(requireCreateTagInput(input)),
+  );
+  ipcMain.handle("git:deleteTag", (_event, projectPath: unknown, name: unknown) =>
+    deleteTag(requireString(projectPath, "项目路径"), requireString(name, "标签名")),
   );
   ipcMain.handle("projects:gitOperation", (_event, projectPath: unknown, operation: unknown) =>
     recordGitOperation(projectPath, operation),
@@ -303,6 +321,7 @@ function requireAppSettings(value: unknown): AppSettings {
     gitPath: typeof candidate.gitPath === "string" ? candidate.gitPath : "",
     defaultProjectDirectory: typeof candidate.defaultProjectDirectory === "string" ? candidate.defaultProjectDirectory : "",
     defaultBackupDirectory: typeof candidate.defaultBackupDirectory === "string" ? candidate.defaultBackupDirectory : "",
+    backupExcludePatterns: typeof candidate.backupExcludePatterns === "string" ? candidate.backupExcludePatterns : "",
   };
 }
 
@@ -336,6 +355,30 @@ function requireFileDiffRequest(value: unknown): FileDiffRequest {
   return {
     path: requireString(candidate.path, "项目路径"),
     file: requireString(candidate.file, "文件路径"),
+  };
+}
+
+function requireSetRemoteUrlInput(value: unknown): SetRemoteUrlInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("远程地址参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    path: requireString(candidate.path, "项目路径"),
+    url: requireString(candidate.url, "远程地址"),
+    remote: typeof candidate.remote === "string" && candidate.remote.trim().length > 0 ? candidate.remote.trim() : undefined,
+  };
+}
+
+function requireCreateTagInput(value: unknown): CreateTagInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("创建标签参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    path: requireString(candidate.path, "项目路径"),
+    name: requireString(candidate.name, "标签名"),
+    message: typeof candidate.message === "string" ? candidate.message : undefined,
   };
 }
 

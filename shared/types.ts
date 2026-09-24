@@ -274,6 +274,7 @@ export type AppSettings = {
   gitPath: string;
   defaultProjectDirectory: string;
   defaultBackupDirectory: string;
+  backupExcludePatterns: string;
 };
 
 export type MoveProjectInput = {
@@ -301,6 +302,26 @@ export type RepositoryDiscoveryItem = {
 export type FileDiffRequest = {
   path: string;
   file: string;
+};
+
+export type SetRemoteUrlInput = {
+  path: string;
+  url: string;
+  remote?: string;
+};
+
+export type GitTag = {
+  name: string;
+  commit: string;
+  shortCommit: string;
+  createdAt: string;
+  message?: string;
+};
+
+export type CreateTagInput = {
+  path: string;
+  name: string;
+  message?: string;
 };
 
 export type DesktopBridge = {
@@ -355,4 +376,8 @@ export type DesktopBridge = {
   scanDirectoryForRepositories(path: string): Promise<RepositoryDiscoveryItem[]>;
   getFileDiff(input: FileDiffRequest): Promise<string>;
   getRunningTaskOutput(runId: string): Promise<string>;
+  setRemoteUrl(input: SetRemoteUrlInput): Promise<void>;
+  listTags(path: string): Promise<GitTag[]>;
+  createTag(input: CreateTagInput): Promise<void>;
+  deleteTag(path: string, name: string): Promise<void>;
 };

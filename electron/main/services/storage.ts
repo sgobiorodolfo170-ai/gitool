@@ -589,6 +589,7 @@ export function loadSettings(): AppSettings {
     gitPath: values.get("gitPath") ?? "",
     defaultProjectDirectory: values.get("defaultProjectDirectory") ?? "",
     defaultBackupDirectory: values.get("defaultBackupDirectory") ?? "",
+    backupExcludePatterns: values.get("backupExcludePatterns") ?? "",
   };
 }
 
@@ -603,6 +604,7 @@ export function saveSettings(settings: AppSettings): void {
     statement.run("gitPath", settings.gitPath);
     statement.run("defaultProjectDirectory", settings.defaultProjectDirectory);
     statement.run("defaultBackupDirectory", settings.defaultBackupDirectory);
+    statement.run("backupExcludePatterns", settings.backupExcludePatterns);
     connection.exec("COMMIT");
   } catch (error) {
     connection.exec("ROLLBACK");

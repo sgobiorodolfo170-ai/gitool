@@ -11,12 +11,14 @@ import type {
   CommitRequest,
   CommitResult,
   CreateBranchInput,
+  CreateTagInput,
   DeleteBranchInput,
   EnvironmentStatus,
   FileDiffRequest,
   GitOperation,
   GitOperationResult,
   GitSnapshot,
+  GitTag,
   InitRepositoryInput,
   LocalProjectInspection,
   MoveProjectInput,
@@ -25,6 +27,7 @@ import type {
   ReadmeResult,
   RepositoryDiscoveryItem,
   RevertCommitInput,
+  SetRemoteUrlInput,
   SwitchBranchInput,
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
@@ -132,6 +135,70 @@ export async function getFileDiff(input: FileDiffRequest): Promise<string> {
   }
   const diff = result.output.trim();
   return diff.length > 0 ? diff : "该文件没有未暂存的差异。";
+}
+
+export async function setRemoteUrl(input: SetRemoteUrlInput): Promise<void> {
+  assertDirectory(input.path);
+  const url = input.url.trim();
+  const remote = input.remote?.trim() || "origin";
+  if (!/^[a-zA-Z0-9_.-]+$/.test(remote)) {
+    throw new Error("远程名称不合法");
+  }
+  const httpsPattern = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+  const sshPattern = /^[^@\s]+@[^:\s]+:.+$/;
+  if (!httpsPattern.test(url) && !sshPattern.test(url)) {
+    throw new Error("远程地址仅支持 HTTPS 或 SSH 格式");
+  }
+  const remotesOutput = await runGit(input.path, ["remote"]).catch(() => "");
+  const hasRemote = remotesOutput.split(/\r?\n/).includes(remote);
+  const result = hasRemote
+    ? await runGitProcess(input.path, ["remote", "set-url", remote, url])
+    : await runGitProcess(input.path, ["remote", "add", remote, url]);
+  if (!result.success) {
+    throw new Error(result.output || "设置远程地址失败");
+  }
+}
+
+export async function listTags(projectPath: string): Promise<GitTag[]> {
+  assertDirectory(projectPath);
+  const output = await runGit(
+    projectPath,
+    ["tag", "-l", "--sort=-creatordate", '--format=%(refname:short)%x1e%(objectname:short)%x1e%(creatordate:iso8601)%x1e%(contents:subject)'],
+  ).catch(() => "");
+  const tags: GitTag[] = [];
+  for (const line of output.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [name, shortCommit, createdAt, message = ""] = line.split("\x1e");
+    if (!name) continue;
+    tags.push({ name, commit: shortCommit, shortCommit, createdAt, message: message || undefined });
+  }
+  return tags;
+}
+
+export async function createTag(input: CreateTagInput): Promise<void> {
+  assertDirectory(input.path);
+  const name = input.name.trim();
+  if (!/^[A-Za-z0-9._\/-]+$/.test(name)) {
+    throw new Error("标签名只能包含字母、数字、点、下划线、斜杠和连字符");
+  }
+  const message = input.message?.trim() ?? "";
+  const result = message.length > 0
+    ? await runGitProcess(input.path, ["tag", "-a", name, "-m", message])
+    : await runGitProcess(input.path, ["tag", name]);
+  if (!result.success) {
+    throw new Error(result.output || "创建标签失败");
+  }
+}
+
+export async function deleteTag(projectPath: string, name: string): Promise<void> {
+  assertDirectory(projectPath);
+  if (!name.trim()) {
+    throw new Error("标签名不能为空");
+  }
+  const result = await runGitProcess(projectPath, ["tag", "-d", name.trim()]);
+  if (!result.success) {
+    throw new Error(result.output || "删除标签失败");
+  }
 }
 
 export async function getProjectSnapshot(projectPath: string): Promise<GitSnapshot> {

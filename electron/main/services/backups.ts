@@ -3,7 +3,7 @@ import { readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import type { BackupCreateInput, BackupRecord, BackupRestoreInput } from "../../../shared/types";
-import { insertBackup } from "./storage";
+import { insertBackup, loadSettings } from "./storage";
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 64 * 1024 * 1024;
@@ -33,11 +33,17 @@ export async function createBackup(input: BackupCreateInput): Promise<BackupReco
   };
 
   try {
-    await execFileAsync(
-      "tar",
-      ["-a", "-c", "-f", archivePath, "-C", parentDirectory, "--exclude", ".git/*", folderName],
-      { windowsHide: true, maxBuffer: MAX_BUFFER },
-    );
+    const settings = loadSettings();
+    const args = ["-a", "-c", "-f", archivePath, "-C", parentDirectory, "--exclude", ".git/*"];
+    const patterns = settings.backupExcludePatterns
+      .split(/[,\n;]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (patterns.length > 0) {
+      args.push("--exclude", patterns.join(","));
+    }
+    args.push(folderName);
+    await execFileAsync("tar", args, { windowsHide: true, maxBuffer: MAX_BUFFER });
     record.sizeBytes = statSync(archivePath).size;
     insertBackup(record);
     return record;

@@ -36,7 +36,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Account, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, Workspace } from "./types";
+import type { Account, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, Workspace } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 import { loadProjects, saveProjects } from "./lib/projects";
 
@@ -1336,13 +1336,18 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [history, setHistory] = useState<CommitEntry[]>([]);
   const [commitMessage, setCommitMessage] = useState("");
-  const [tab, setTab] = useState<"changes" | "branches" | "history">("changes");
+  const [tab, setTab] = useState<"changes" | "branches" | "history" | "tags">("changes");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [output, setOutput] = useState("");
   const [newBranchName, setNewBranchName] = useState("");
   const [diffFor, setDiffFor] = useState<string | null>(null);
   const [diffText, setDiffText] = useState("");
+  const [tags, setTags] = useState<GitTag[]>([]);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagMessage, setNewTagMessage] = useState("");
+  const [remoteUrl, setRemoteUrl] = useState("");
+  const [showRemoteEditor, setShowRemoteEditor] = useState(false);
 
   const bridge = getDesktopBridge();
 
@@ -1393,16 +1398,75 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
     }
   };
 
+  const loadTags = async () => {
+    if (!bridge) return;
+    setLoading(true);
+    try {
+      setTags(await bridge.listTags(projectPath));
+    } catch {
+      setTags([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateRemoteUrl = async () => {
+    if (!bridge || !remoteUrl.trim()) return;
+    setBusy(true);
+    try {
+      await bridge.setRemoteUrl({ path: projectPath, url: remoteUrl.trim() });
+      setOutput("远程地址已更新");
+      setShowRemoteEditor(false);
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "更新远程地址失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addTag = async () => {
+    if (!bridge || !newTagName.trim()) return;
+    setBusy(true);
+    try {
+      await bridge.createTag({ path: projectPath, name: newTagName.trim(), message: newTagMessage.trim() || undefined });
+      setOutput(`标签 ${newTagName.trim()} 已创建`);
+      setNewTagName("");
+      setNewTagMessage("");
+      await loadTags();
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "创建标签失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeTag = async (name: string) => {
+    if (!bridge) return;
+    if (!window.confirm(`删除标签 ${name}？`)) return;
+    setBusy(true);
+    try {
+      await bridge.deleteTag(projectPath, name);
+      setOutput(`标签 ${name} 已删除`);
+      await loadTags();
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "删除标签失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const refreshActive = () => {
     if (tab === "changes") void loadChangedFiles();
     if (tab === "branches") void loadBranches();
     if (tab === "history") void loadHistory();
+    if (tab === "tags") void loadTags();
   };
 
   useEffect(() => {
     setChangedFiles([]);
     setBranches([]);
     setHistory([]);
+    setTags([]);
     setOutput("");
     setCommitMessage("");
     refreshActive();
@@ -1439,6 +1503,25 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
       }
     } catch (error) {
       setOutput(error instanceof Error ? error.message : "提交失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stageAllResolved = async () => {
+    if (!bridge) return;
+    const unresolved = changedFiles.filter((file) => file.status === "conflicted" && !file.staged);
+    if (unresolved.length === 0) {
+      setOutput("没有待暂存的冲突文件");
+      return;
+    }
+    setBusy(true);
+    try {
+      await bridge.stageFiles(projectPath, unresolved.map((file) => file.path));
+      setOutput(`已暂存 ${unresolved.length} 个已解决的冲突文件`);
+      await loadChangedFiles();
+    } catch (error) {
+      setOutput(error instanceof Error ? error.message : "暂存失败");
     } finally {
       setBusy(false);
     }
@@ -1504,12 +1587,15 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
   };
 
   return <div className="git-actions-panel">
-    <div className="analysis-heading"><div><span>Git 操作</span><small>提交、分支与历史</small></div><button className="bare-button" onClick={refreshActive} aria-label="刷新 Git 状态"><RefreshCw size={14} className={loading ? "spin" : ""} /></button></div>
+    <div className="analysis-heading"><div><span>Git 操作</span><small>提交、分支、历史、标签与远程</small></div><button className="bare-button" onClick={refreshActive} aria-label="刷新 Git 状态"><RefreshCw size={14} className={loading ? "spin" : ""} /></button></div>
     <div className="git-tabs">
       <button className={tab === "changes" ? "active" : ""} onClick={() => setTab("changes")}>变更 {changedFiles.length > 0 ? `(${changedFiles.length})` : ""}</button>
       <button className={tab === "branches" ? "active" : ""} onClick={() => setTab("branches")}>分支</button>
       <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>历史 {history.length > 0 ? `(${history.length})` : ""}</button>
+      <button className={tab === "tags" ? "active" : ""} onClick={() => setTab("tags")}>标签 {tags.length > 0 ? `(${tags.length})` : ""}</button>
     </div>
+    <div className="remote-url-row"><button className="bare-button" onClick={() => setShowRemoteEditor((current) => !current)}><GitBranch size={12} />远程地址{showRemoteEditor ? " · 编辑中" : ""}</button></div>
+    {showRemoteEditor && <div className="remote-url-editor"><input value={remoteUrl} onChange={(event) => setRemoteUrl(event.target.value)} placeholder="https://github.com/owner/repo.git 或 git@host:owner/repo.git" /><button className="button secondary compact-button" onClick={updateRemoteUrl} disabled={busy || !remoteUrl.trim()}>{busy ? "保存中..." : "保存"}</button></div>}
 
     {tab === "changes" && <div className="git-tab-content">
       {(() => {
@@ -1520,6 +1606,7 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
             <p>拉取/合并产生冲突，已停止自动操作。请逐个解决冲突后暂存并提交。</p>
             <div className="conflict-files">{conflictedFiles.map((file) => <code key={file.path}>{file.path}</code>)}</div>
             <ol className="conflict-steps"><li>打开冲突文件，保留需要的改动（`&lt;&lt;&lt;&lt;&lt;&lt;&lt;` 到 `&gt;&gt;&gt;&gt;&gt;&gt;&gt;` 之间的内容）</li><li>删除冲突标记</li><li>回到此面板勾选暂存该文件</li><li>填写提交信息完成合并</li></ol>
+            <button className="button secondary compact-button conflict-resolve-button" onClick={stageAllResolved} disabled={busy}>暂存已解决的文件（{conflictedFiles.filter((file) => !file.staged).length}）</button>
           </div>;
         }
         return changedFiles.length === 0 ? <div className="git-empty">{loading ? "正在读取变更..." : "工作区干净，没有待提交的变更。"}</div> : <div className="change-list">{changedFiles.map((file) => <div className="change-row" key={`${file.path}-${file.staged}`}><label className="change-check"><input type="checkbox" checked={file.staged} disabled={busy} onChange={() => toggleStage(file)} /><span className={`change-status ${file.staged ? "staged" : ""}`}>{changeStatusMeta[file.status].label}</span></label><code className="change-path" onClick={() => loadDiff(file.path)} title="点击查看差异">{file.path}</code></div>)}</div>;
@@ -1536,6 +1623,11 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
 
     {tab === "history" && <div className="git-tab-content">
       {history.length === 0 ? <div className="git-empty">{loading ? "正在读取提交历史..." : "还没有提交"}</div> : <div className="history-list">{history.map((entry) => <div className="history-row" key={entry.hash}><div className="history-main"><div className="history-title"><strong>{entry.subject}</strong><code>{entry.shortHash}</code></div><small>{entry.author} · {formatCommitDate(entry.date)}</small></div><button className="bare-button" onClick={() => revert(entry.hash)} disabled={busy} title="生成反向提交">回退</button></div>)}</div>}
+    </div>}
+
+    {tab === "tags" && <div className="git-tab-content">
+      {tags.length === 0 ? <div className="git-empty">{loading ? "正在读取标签..." : "还没有标签"}</div> : <div className="tag-list">{tags.map((tag) => <div className="tag-row" key={tag.name}><div className="tag-main"><strong>{tag.name}</strong><small>{tag.shortCommit}{tag.message ? ` · ${tag.message}` : ""}</small></div><button className="bare-button danger" onClick={() => removeTag(tag.name)} disabled={busy}>删除</button></div>)}</div>}
+      <div className="tag-create"><input value={newTagName} onChange={(event) => setNewTagName(event.target.value)} placeholder="标签名称（如 v0.1.0）" /><input value={newTagMessage} onChange={(event) => setNewTagMessage(event.target.value)} placeholder="标签说明（可选）" /><button className="button secondary compact-button" onClick={addTag} disabled={busy || !newTagName.trim()}>创建</button></div>
     </div>}
 
     {output && <div className="git-output"><pre>{output}</pre><button className="bare-button" onClick={() => setOutput("")} aria-label="关闭输出">关闭</button></div>}
@@ -1833,7 +1925,8 @@ function BackupsWorkspace({ projects }: { projects: Project[] }) {
     if (!project) return;
     setBusy(true);
     try {
-      const targetDirectory = await bridge.selectDirectory();
+      const settings = await bridge.loadSettings().catch(() => null);
+      const targetDirectory = await bridge.selectDirectory(settings?.defaultBackupDirectory || undefined);
       if (!targetDirectory) return;
       const record = await bridge.createBackup({ projectId: project.id, projectName: project.name, sourcePath: project.path, targetDirectory });
       setNotice(record.status === "ok" ? `备份完成：${record.archivePath}` : `备份失败：${record.error}`);
@@ -1903,7 +1996,7 @@ function LogsWorkspace() {
 
 function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | null }) {
   const bridge = getDesktopBridge();
-  const [settings, setSettings] = useState<{ gitPath: string; defaultProjectDirectory: string; defaultBackupDirectory: string }>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "" });
+  const [settings, setSettings] = useState<{ gitPath: string; defaultProjectDirectory: string; defaultBackupDirectory: string; backupExcludePatterns: string }>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "", backupExcludePatterns: "" });
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -1947,7 +2040,7 @@ function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | n
         <div className="panel-heading"><div><h2>应用设置</h2><span>保存到本地数据库</span></div><Settings2 size={16} /></div>
         <div className="form-body">
           {settingsRows.map((row) => <label key={row.key}>{row.label}<div className="setting-row"><input value={row.value} onChange={(event) => setSettings((current) => ({ ...current, [row.key]: event.target.value }))} placeholder={row.placeholder} />{row.key !== "gitPath" && <button type="button" className="button secondary compact-button" onClick={() => pickDirectory(row.key)}>选择</button>}</div><small className="setting-hint">{row.hint}</small></label>)}
-          <button className="button primary form-submit" disabled={busy}>保存设置</button>
+          <label>备份排除规则<textarea className="commit-message" value={settings.backupExcludePatterns} onChange={(event) => setSettings((current) => ({ ...current, backupExcludePatterns: event.target.value }))} placeholder="每行一个，如 node_modules  dist .next（备份时排除的相对路径）" rows={3} /></label>          <button className="button primary form-submit" disabled={busy}>保存设置</button>
         </div>
       </form>
       <section className="account-list-panel">

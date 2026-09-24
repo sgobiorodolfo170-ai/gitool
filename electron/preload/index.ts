@@ -13,6 +13,7 @@ import type {
   EnvironmentStatus,
   GitOperationResult,
   GitSnapshot,
+  GitTag,
   LocalProjectInspection,
   MoveProjectInput,
   MoveProjectResult,
@@ -99,6 +100,10 @@ const bridge: DesktopBridge = {
   scanDirectoryForRepositories: (path) => invoke<RepositoryDiscoveryItem[]>("projects:scanDirectory", path),
   getFileDiff: (input) => invoke<string>("projects:fileDiff", input),
   getRunningTaskOutput: (runId) => invoke<string>("tasks:getRunningOutput", runId),
+  setRemoteUrl: (input) => invoke<void>("projects:setRemoteUrl", input),
+  listTags: (path) => invoke<GitTag[]>("git:tags", path),
+  createTag: (input) => invoke<void>("git:createTag", input),
+  deleteTag: (path, name) => invoke<void>("git:deleteTag", path, name),
 };
 
 contextBridge.exposeInMainWorld("gitool", bridge);
