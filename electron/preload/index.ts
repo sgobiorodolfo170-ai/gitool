@@ -6,14 +6,17 @@ import type {
   BackupRecord,
   BranchInfo,
   ChangeFile,
+  CloneProgressEvent,
   CloneRepositoryResult,
   CommitEntry,
   CommitResult,
+  CompareResult,
   DesktopBridge,
   EnvironmentStatus,
   GitOperationResult,
   GitSnapshot,
   GitTag,
+  ListVersionsResult,
   LocalProjectInspection,
   MoveProjectInput,
   MoveProjectResult,
@@ -58,6 +61,15 @@ const bridge: DesktopBridge = {
   runGitOperation: (path, operation) =>
     invoke<GitOperationResult>("projects:gitOperation", path, operation),
   cloneRepository: (input) => invoke<CloneRepositoryResult>("projects:clone", input),
+  onCloneProgress: (callback) => {
+    const listener = (_event: unknown, payload: unknown) => {
+      callback(payload as CloneProgressEvent);
+    };
+    ipcRenderer.on("git:cloneProgress", listener);
+    return () => {
+      ipcRenderer.removeListener("git:cloneProgress", listener);
+    };
+  },
   listChangedFiles: (path) => invoke<ChangeFile[]>("git:changedFiles", path),
   stageFiles: (path, files) => invoke<void>("git:stageFiles", path, files),
   unstageFiles: (path, files) => invoke<void>("git:unstageFiles", path, files),
@@ -104,6 +116,8 @@ const bridge: DesktopBridge = {
   listTags: (path) => invoke<GitTag[]>("git:tags", path),
   createTag: (input) => invoke<void>("git:createTag", input),
   deleteTag: (path, name) => invoke<void>("git:deleteTag", path, name),
+  listVersions: (path) => invoke<ListVersionsResult>("git:listVersions", path),
+  compareVersions: (input) => invoke<CompareResult>("git:compareVersions", input),
 };
 
 contextBridge.exposeInMainWorld("gitool", bridge);

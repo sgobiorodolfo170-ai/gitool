@@ -124,6 +124,15 @@ export type CloneRepositoryResult = {
   path: string;
 };
 
+export type CloneProgressEvent = {
+  runId: string;
+  percent: number;
+  phase: string;
+  output: string;
+  done: boolean;
+  success: boolean;
+};
+
 export type ChangeFileStatus = "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted";
 
 export type ChangeFile = {
@@ -324,6 +333,26 @@ export type CreateTagInput = {
   message?: string;
 };
 
+export type CompareRequest = {
+  path: string;
+  base: string;
+  head: string;
+};
+
+export type CompareResult = {
+  success: boolean;
+  output: string;
+  changedFiles: string[];
+  insertions: number;
+  deletions: number;
+};
+
+export type ListVersionsResult = {
+  commits: CommitEntry[];
+  branches: BranchInfo[];
+  tags: GitTag[];
+};
+
 export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
   selectDirectory(defaultPath?: string): Promise<string | null>;
@@ -338,6 +367,7 @@ export type DesktopBridge = {
   readProjectReadme(path: string): Promise<ReadmeResult>;
   runGitOperation(path: string, operation: GitOperation): Promise<GitOperationResult>;
   cloneRepository(input: CloneRepositoryInput): Promise<CloneRepositoryResult>;
+  onCloneProgress(callback: (event: CloneProgressEvent) => void): () => void;
   listChangedFiles(path: string): Promise<ChangeFile[]>;
   stageFiles(path: string, files: string[]): Promise<void>;
   unstageFiles(path: string, files: string[]): Promise<void>;
@@ -380,4 +410,6 @@ export type DesktopBridge = {
   listTags(path: string): Promise<GitTag[]>;
   createTag(input: CreateTagInput): Promise<void>;
   deleteTag(path: string, name: string): Promise<void>;
+  listVersions(path: string): Promise<ListVersionsResult>;
+  compareVersions(input: CompareRequest): Promise<CompareResult>;
 };

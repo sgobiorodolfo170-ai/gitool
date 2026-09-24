@@ -7,6 +7,7 @@ import type {
   CloneRepositoryResult,
   CommitRequest,
   CommitResult,
+  CompareRequest,
   CreateAccountInput,
   CreateBranchInput,
   CreateTagInput,
@@ -32,6 +33,7 @@ import { openInEditor, openInTerminal } from "./services/openers";
 import {
   cloneRepository,
   commitChanges,
+  compareVersions,
   createBranch,
   createTag,
   deleteBranch,
@@ -46,6 +48,7 @@ import {
   listChangedFiles,
   listCommitHistory,
   listTags,
+  listVersions,
   moveProject,
   readProjectReadme,
   revertCommit,
@@ -159,6 +162,12 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   );
   ipcMain.handle("git:deleteTag", (_event, projectPath: unknown, name: unknown) =>
     deleteTag(requireString(projectPath, "项目路径"), requireString(name, "标签名")),
+  );
+  ipcMain.handle("git:listVersions", (_event, projectPath: unknown) =>
+    listVersions(requireString(projectPath, "项目路径")),
+  );
+  ipcMain.handle("git:compareVersions", (_event, input: unknown) =>
+    compareVersions(requireCompareRequest(input)),
   );
   ipcMain.handle("projects:gitOperation", (_event, projectPath: unknown, operation: unknown) =>
     recordGitOperation(projectPath, operation),
@@ -379,6 +388,18 @@ function requireCreateTagInput(value: unknown): CreateTagInput {
     path: requireString(candidate.path, "项目路径"),
     name: requireString(candidate.name, "标签名"),
     message: typeof candidate.message === "string" ? candidate.message : undefined,
+  };
+}
+
+function requireCompareRequest(value: unknown): CompareRequest {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("版本对比参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    path: requireString(candidate.path, "项目路径"),
+    base: requireString(candidate.base, "基线版本"),
+    head: requireString(candidate.head, "目标版本"),
   };
 }
 

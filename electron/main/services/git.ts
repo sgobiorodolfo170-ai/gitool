@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
@@ -10,6 +10,8 @@ import type {
   CommitEntry,
   CommitRequest,
   CommitResult,
+  CompareRequest,
+  CompareResult,
   CreateBranchInput,
   CreateTagInput,
   DeleteBranchInput,
@@ -20,6 +22,7 @@ import type {
   GitSnapshot,
   GitTag,
   InitRepositoryInput,
+  ListVersionsResult,
   LocalProjectInspection,
   MoveProjectInput,
   MoveProjectResult,
@@ -31,6 +34,7 @@ import type {
   SwitchBranchInput,
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
+import { notifyRenderer } from "./events";
 import { getAccount } from "./storage";
 
 const execFileAsync = promisify(execFile);
@@ -199,6 +203,59 @@ export async function deleteTag(projectPath: string, name: string): Promise<void
   if (!result.success) {
     throw new Error(result.output || "删除标签失败");
   }
+}
+
+export async function listVersions(projectPath: string): Promise<ListVersionsResult> {
+  assertDirectory(projectPath);
+  const [commits, branches, tags] = await Promise.all([
+    listCommitHistory(projectPath, 100),
+    listBranches(projectPath),
+    listTags(projectPath),
+  ]);
+  return { commits, branches, tags };
+}
+
+export async function compareVersions(input: CompareRequest): Promise<CompareResult> {
+  assertDirectory(input.path);
+  const base = input.base.trim();
+  const head = input.head.trim();
+  if (!base || !head) {
+    throw new Error("请提供对比的基线版本和目标版本");
+  }
+  const result = await runGitProcess(input.path, ["diff", "--stat", base + ".." + head]);
+  if (!result.success) {
+    throw new Error(result.output || "对比失败");
+  }
+  const stat = result.output.trim();
+
+  const changedFiles = stat
+    .split(/\r?\n/)
+    .filter((line) => line.includes("|"))
+    .map((line) => line.split("|")[0].trim())
+    .filter(Boolean);
+
+  const numStat = await runGitProcess(input.path, ["diff", "--numstat", base + ".." + head]);
+  let insertions = 0;
+  let deletions = 0;
+  if (numStat.success) {
+    for (const line of numStat.output.split(/\r?\n/)) {
+      const parts = line.split("\t");
+      if (parts.length >= 2) {
+        const added = Number(parts[0]);
+        const removed = Number(parts[1]);
+        if (Number.isFinite(added)) insertions += added;
+        if (Number.isFinite(removed)) deletions += removed;
+      }
+    }
+  }
+
+  return {
+    success: true,
+    output: stat,
+    changedFiles,
+    insertions,
+    deletions,
+  };
 }
 
 export async function getProjectSnapshot(projectPath: string): Promise<GitSnapshot> {
@@ -551,28 +608,59 @@ export async function cloneRepository(
   }
   args.push(url, targetPath);
 
-  try {
-    await execFileAsync("git", args, {
+  const runId = `clone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const emitProgress = (percent: number, phase: string, output: string, done: boolean, success: boolean) => {
+    notifyRenderer("git:cloneProgress", { runId, percent, phase, output, done, success });
+  };
+
+  return new Promise<CloneRepositoryResult>((resolve) => {
+    const child = spawn("git", args, {
       cwd: dirname(targetPath),
       windowsHide: true,
-      maxBuffer: MAX_BUFFER,
       env: {
         ...process.env,
         GIT_TERMINAL_PROMPT: "0",
         GITOOL_ASKPASS_TOKEN: token,
       },
     });
-    return { success: true, output: "克隆完成。", path: targetPath };
-  } catch (error) {
-    if (existsSync(targetPath)) {
-      rmSync(targetPath, { recursive: true, force: true });
-    }
-    return {
-      success: false,
-      output: gitErrorOutput(error),
-      path: targetPath,
-    };
+    let accumulated = "";
+    child.stdout?.on("data", (chunk) => {
+      accumulated += chunk.toString();
+      emitProgress(parseCloneProgress(accumulated), "拉取对象", accumulated.slice(-400), false, false);
+    });
+    child.stderr?.on("data", (chunk) => {
+      accumulated += chunk.toString();
+      emitProgress(parseCloneProgress(accumulated), "拉取对象", accumulated.slice(-400), false, false);
+    });
+    child.on("error", (error) => {
+      emitProgress(0, "失败", error.message, true, false);
+      if (existsSync(targetPath)) {
+        rmSync(targetPath, { recursive: true, force: true });
+      }
+      resolve({ success: false, output: error.message, path: targetPath });
+    });
+    child.on("close", (code) => {
+      if (code === 0) {
+        emitProgress(100, "完成", "克隆完成。", true, true);
+        resolve({ success: true, output: "克隆完成。", path: targetPath });
+      } else {
+        emitProgress(100, "失败", accumulated.slice(-400), true, false);
+        if (existsSync(targetPath)) {
+          rmSync(targetPath, { recursive: true, force: true });
+        }
+        resolve({ success: false, output: accumulated.trim() || "克隆失败", path: targetPath });
+      }
+    });
+  });
+}
+
+function parseCloneProgress(output: string): number {
+  const match = output.match(/(\d+)\s*%/);
+  if (!match) {
+    return 0;
   }
+  const percent = Number(match[1]);
+  return Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
 }
 
 function assertCloneUrl(url: string): void {
@@ -762,12 +850,6 @@ function countFiles(directory: string): number {
     }
   }
   return count;
-}
-
-function gitErrorOutput(error: unknown): string {
-  const failure = error as { stdout?: string; stderr?: string; message?: string };
-  const detail = [failure.stdout, failure.stderr].filter((item): item is string => Boolean(item)).join("\n").trim();
-  return detail.length > 0 ? detail : failure.message ?? "克隆失败";
 }
 
 function errorMessage(error: unknown): string {
