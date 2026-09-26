@@ -106,6 +106,7 @@ const bridge: DesktopBridge = {
   restoreBackup: (input) => invoke<void>("backups:restore", input),
   listOperationRecords: () => invoke<OperationRecord[]>("operations:list"),
   clearOperationRecords: () => invoke<void>("operations:clear"),
+  exportOperationRecords: (directory) => invoke<string>("operations:export", directory),
   loadSettings: () => invoke<AppSettings>("settings:load"),
   saveSettings: (settings: AppSettings) => invoke<void>("settings:save", settings),
   moveProject: (input: MoveProjectInput) => invoke<MoveProjectResult>("projects:move", input),

@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { app } from "electron";
@@ -514,6 +514,28 @@ export function insertOperationRecord(record: OperationRecord): void {
 export function clearOperationRecords(): void {
   const connection = openDatabase();
   connection.exec("DELETE FROM operation_records");
+}
+
+export function exportOperationRecords(directory: string): string {
+  const records = listOperationRecords();
+  const fileName = `gitool-operations-${new Date().toISOString().slice(0, 10)}.csv`;
+  const filePath = join(directory, fileName);
+  const header = "id,operation,projectId,projectPath,result,createdAt,detail\n";
+  const rows = records.map((record) => [
+    record.id,
+    csvEscape(record.operation),
+    record.projectId,
+    csvEscape(record.projectPath),
+    record.result,
+    record.createdAt,
+    csvEscape(record.detail),
+  ].join(",")).join("\n");
+  writeFileSync(filePath, header + rows + "\n", { encoding: "utf8" });
+  return filePath;
+}
+
+function csvEscape(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function rowToTaskProfile(row: SqlRow): TaskProfile {

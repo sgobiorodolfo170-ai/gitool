@@ -78,6 +78,7 @@ import {
 import {
   clearOperationRecords,
   deleteTaskProfile,
+  exportOperationRecords,
   insertOperationRecord,
   insertTaskRun,
   listBackups,
@@ -272,6 +273,9 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
 
   ipcMain.handle("operations:list", () => listOperationRecords());
   ipcMain.handle("operations:clear", () => clearOperationRecords());
+  ipcMain.handle("operations:export", (_event, directory: unknown) =>
+    exportOperationRecords(requireString(directory, "导出目录")),
+  );
   ipcMain.handle("operations:record", (_event, record: unknown) => {
     insertOperationRecord(requireOperationRecord(record));
   });

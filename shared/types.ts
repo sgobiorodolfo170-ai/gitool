@@ -413,6 +413,7 @@ export type DesktopBridge = {
   restoreBackup(input: BackupRestoreInput): Promise<void>;
   listOperationRecords(): Promise<OperationRecord[]>;
   clearOperationRecords(): Promise<void>;
+  exportOperationRecords(directory: string): Promise<string>;
   loadSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<void>;
   moveProject(input: MoveProjectInput): Promise<MoveProjectResult>;
