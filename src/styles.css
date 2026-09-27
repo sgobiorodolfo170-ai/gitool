@@ -25,6 +25,16 @@ button { border: 0; cursor: pointer; }
 .workspace-menu-item.action:hover { color: #eef8f3; }
 .workspace-menu-item.action.danger:hover { color: #ff9d9d; background: rgba(255, 99, 99, .1); }
 .workspace-menu-divider { height: 1px; margin: 5px 2px; background: #294047; }
+.workspace-menu-form { padding: 4px; }
+.workspace-menu-form input { width: 100%; min-height: 32px; padding: 0 9px; border: 1px solid #2e4148; border-radius: 7px; background: #10202a; color: #eef8f3; font-size: 12px; outline: none; }
+.workspace-menu-form input:focus { border-color: #3d6b6b; }
+.workspace-menu-form-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 7px; }
+.workspace-menu-form-actions button { min-height: 26px; padding: 0 11px; border-radius: 7px; font-size: 11px; cursor: pointer; }
+.workspace-menu-form-actions button[type="button"] { color: #a9bbbc; background: transparent; border: 1px solid #2e4148; }
+.workspace-menu-form-actions button[type="button"]:hover { color: #eef8f3; background: #20343c; }
+.workspace-menu-form-actions button[type="submit"] { color: #19312d; background: #a5dcc9; border: 1px solid transparent; font-weight: 600; }
+.workspace-menu-form-actions button[type="submit"]:hover { background: #c1ecdd; }
+.workspace-menu-form-actions button[type="submit"]:disabled { opacity: .45; cursor: not-allowed; }
 .workspace-avatar, .profile-avatar, .top-avatar { display: grid; place-items: center; border-radius: 7px; color: #19312d; background: #efd4a0; font-weight: 700; }
 .workspace-avatar { width: 27px; height: 27px; font-size: 12px; }
 .workspace-copy { flex: 1; min-width: 0; }
