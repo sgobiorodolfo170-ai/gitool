@@ -11,7 +11,20 @@ button { border: 0; cursor: pointer; }
 .brand-mark { display: grid; place-items: center; width: 31px; height: 31px; color: #15232b; background: #b8e6d5; border-radius: 9px; }
 .brand-lockup strong { display: block; font-size: 16px; letter-spacing: -.02em; }
 .brand-lockup span { display: block; margin-top: 2px; color: #82979c; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
-.workspace-switcher { display: flex; align-items: center; gap: 10px; padding: 9px 10px; margin-bottom: 24px; border: 1px solid #2b3b42; border-radius: 9px; background: #1c2d35; }
+.workspace-switcher { display: flex; align-items: center; gap: 10px; padding: 9px 10px; margin-bottom: 24px; border: 1px solid #2b3b42; border-radius: 9px; background: #1c2d35; position: relative; cursor: pointer; user-select: none; }
+.workspace-switcher > svg { color: #6e858a; }
+.workspace-menu { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 50; padding: 6px; border: 1px solid #2e4148; border-radius: 10px; background: #16262d; box-shadow: 0 12px 30px rgba(0, 0, 0, .45); }
+.workspace-menu-header { padding: 6px 9px 7px; color: #6e858a; font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
+.workspace-menu-item { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 9px; margin: 1px 0; color: #a9bbbc; background: transparent; border-radius: 7px; text-align: left; font-size: 12px; cursor: pointer; }
+.workspace-menu-item span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-menu-item:hover { color: #eef8f3; background: #20343c; }
+.workspace-menu-item.active { color: #daf4eb; background: #285048; }
+.workspace-menu-item.active svg { flex: none; }
+.workspace-menu-item.action { color: #9db3b3; font-weight: 600; }
+.workspace-menu-item.action svg { color: #6e858a; }
+.workspace-menu-item.action:hover { color: #eef8f3; }
+.workspace-menu-item.action.danger:hover { color: #ff9d9d; background: rgba(255, 99, 99, .1); }
+.workspace-menu-divider { height: 1px; margin: 5px 2px; background: #294047; }
 .workspace-avatar, .profile-avatar, .top-avatar { display: grid; place-items: center; border-radius: 7px; color: #19312d; background: #efd4a0; font-weight: 700; }
 .workspace-avatar { width: 27px; height: 27px; font-size: 12px; }
 .workspace-copy { flex: 1; min-width: 0; }

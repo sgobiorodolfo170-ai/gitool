@@ -95,7 +95,23 @@ export type Project = {
 
 export type ProjectFilter = "all" | "favorite" | "attention";
 
-export type Workspace = "overview" | "projects" | "remotes" | "accounts" | "tasks" | "backups" | "logs" | "settings";
+export type AppView = "overview" | "projects" | "remotes" | "accounts" | "tasks" | "backups" | "logs" | "settings";
+
+export type WorkspaceEntity = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateWorkspaceInput = {
+  name: string;
+};
+
+export type RenameWorkspaceInput = {
+  id: string;
+  name: string;
+};
 
 export type LocalProjectInspection = {
   path: string;
@@ -392,8 +408,12 @@ export type DesktopBridge = {
   deleteBranch(input: DeleteBranchInput): Promise<void>;
   listCommitHistory(path: string): Promise<CommitEntry[]>;
   revertCommit(input: RevertCommitInput): Promise<GitOperationResult>;
-  loadProjects(): Promise<Project[]>;
-  saveProjects(projects: Project[]): Promise<void>;
+  loadProjects(workspaceId: string): Promise<Project[]>;
+  saveProjects(workspaceId: string, projects: Project[]): Promise<void>;
+  listWorkspaces(): Promise<WorkspaceEntity[]>;
+  createWorkspace(input: CreateWorkspaceInput): Promise<WorkspaceEntity>;
+  renameWorkspace(input: RenameWorkspaceInput): Promise<void>;
+  deleteWorkspace(id: string): Promise<void>;
   loadAccounts(): Promise<Account[]>;
   createAccount(input: CreateAccountInput): Promise<Account>;
   testAccount(accountId: string): Promise<AccountTestResult>;

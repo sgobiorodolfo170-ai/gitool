@@ -30,6 +30,7 @@ import type {
   RepositoryDiscoveryItem,
   TaskProfile,
   TaskRun,
+  WorkspaceEntity,
 } from "../../shared/types";
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
@@ -81,8 +82,12 @@ const bridge: DesktopBridge = {
   deleteBranch: (input) => invoke<void>("git:deleteBranch", input),
   listCommitHistory: (path) => invoke<CommitEntry[]>("git:history", path),
   revertCommit: (input) => invoke<GitOperationResult>("git:revert", input),
-  loadProjects: () => invoke<Project[]>("projects:load"),
-  saveProjects: (projects) => invoke<void>("projects:save", projects),
+  loadProjects: (workspaceId) => invoke<Project[]>("projects:load", workspaceId),
+  saveProjects: (workspaceId, projects) => invoke<void>("projects:save", workspaceId, projects),
+  listWorkspaces: () => invoke<WorkspaceEntity[]>("workspaces:list"),
+  createWorkspace: (input) => invoke<WorkspaceEntity>("workspaces:create", input),
+  renameWorkspace: (input) => invoke<void>("workspaces:rename", input),
+  deleteWorkspace: (id) => invoke<void>("workspaces:delete", id),
   loadAccounts: () => invoke<Account[]>("accounts:load"),
   createAccount: (input) => invoke<Account>("accounts:create", input),
   testAccount: (accountId) => invoke<AccountTestResult>("accounts:test", accountId),

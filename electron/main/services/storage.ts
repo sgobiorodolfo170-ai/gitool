@@ -2,36 +2,99 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { app } from "electron";
-import type { Account, AppSettings, BackupRecord, CreateAccountInput, OperationRecord, Project, RemoteProvider, TaskProfile, TaskRun } from "../../../shared/types";
+import type { Account, AppSettings, BackupRecord, CreateAccountInput, CreateWorkspaceInput, OperationRecord, Project, RemoteProvider, RenameWorkspaceInput, TaskProfile, TaskRun, WorkspaceEntity } from "../../../shared/types";
 import { deleteCredential, saveCredential } from "./credentials";
 
 type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
 
 let database: DatabaseSync | null = null;
 
-export function loadProjects(): Project[] {
+const DEFAULT_WORKSPACE_ID = "default";
+
+export function listWorkspaces(): WorkspaceEntity[] {
+  const connection = openDatabase();
+  const rows = connection
+    .prepare(`SELECT id, name, createdAt, updatedAt FROM workspaces ORDER BY createdAt ASC, name ASC`)
+    .all() as unknown as SqlRow[];
+  return rows.map(rowToWorkspace);
+}
+
+export function createWorkspace(input: CreateWorkspaceInput): WorkspaceEntity {
+  const name = input.name.trim();
+  if (name.length === 0) {
+    throw new Error("工作区名称不能为空");
+  }
+  const now = new Date().toISOString();
+  const workspace: WorkspaceEntity = {
+    id: `ws-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const connection = openDatabase();
+  connection
+    .prepare(`INSERT INTO workspaces (id, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)`)
+    .run(workspace.id, workspace.name, workspace.createdAt, workspace.updatedAt);
+  return workspace;
+}
+
+export function renameWorkspace(input: RenameWorkspaceInput): void {
+  const name = input.name.trim();
+  if (name.length === 0) {
+    throw new Error("工作区名称不能为空");
+  }
+  const connection = openDatabase();
+  const existing = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(input.id) as SqlRow | undefined;
+  if (!existing) {
+    throw new Error("工作区不存在");
+  }
+  connection.prepare("UPDATE workspaces SET name = ?, updatedAt = ? WHERE id = ?").run(name, new Date().toISOString(), input.id);
+}
+
+export function deleteWorkspace(id: string): void {
+  const connection = openDatabase();
+  const count = Number(
+    (connection.prepare("SELECT COUNT(*) AS total FROM workspaces").get() as SqlRow).total,
+  );
+  if (count <= 1) {
+    throw new Error("至少保留一个工作区，无法删除最后一个工作区");
+  }
+  const existing = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(id) as SqlRow | undefined;
+  if (!existing) {
+    throw new Error("工作区不存在");
+  }
+  const projectCount = Number(
+    (connection.prepare("SELECT COUNT(*) AS total FROM projects WHERE workspaceId = ?").get(id) as SqlRow).total,
+  );
+  if (projectCount > 0) {
+    throw new Error(`该工作区还有 ${projectCount} 个项目，请先清空或移动项目后再删除`);
+  }
+  connection.prepare("DELETE FROM workspaces WHERE id = ?").run(id);
+}
+
+export function loadProjects(workspaceId: string): Project[] {
   const connection = openDatabase();
   const rows = connection
     .prepare(
       `SELECT id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
               files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias
-       FROM projects ORDER BY favorite DESC, updatedAt DESC, name ASC`,
+       FROM projects WHERE workspaceId = ? ORDER BY favorite DESC, updatedAt DESC, name ASC`,
     )
-    .all() as unknown as SqlRow[];
+    .all(workspaceId) as unknown as SqlRow[];
 
   return rows.map(rowToProject);
 }
 
-export function saveProjects(projects: Project[]): void {
+export function saveProjects(workspaceId: string, projects: Project[]): void {
   const connection = openDatabase();
   connection.exec("BEGIN");
   try {
-    connection.exec("DELETE FROM projects");
+    connection.prepare("DELETE FROM projects WHERE workspaceId = ?").run(workspaceId);
     const statement = connection.prepare(
       `INSERT INTO projects
        (id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
-        files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, workspaceId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const project of projects) {
       statement.run(
@@ -53,6 +116,7 @@ export function saveProjects(projects: Project[]): void {
         project.updatedAt,
         project.diskSizeBytes ?? 0,
         project.alias ?? null,
+        workspaceId,
       );
     }
     connection.exec("COMMIT");
@@ -207,7 +271,14 @@ function openDatabase(): DatabaseSync {
       summary TEXT NOT NULL,
       updatedAt TEXT NOT NULL,
       diskSizeBytes INTEGER NOT NULL DEFAULT 0,
-      alias TEXT
+      alias TEXT,
+      workspaceId TEXT NOT NULL DEFAULT 'default'
+    );
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY NOT NULL,
@@ -272,8 +343,31 @@ function openDatabase(): DatabaseSync {
     );
   `);
   migrationEnsureProjectColumns(connection);
+  migrationEnsureWorkspaceColumns(connection);
+  seedDefaultWorkspace(connection);
   database = connection;
   return connection;
+}
+
+function migrationEnsureWorkspaceColumns(connection: DatabaseSync): void {
+  const columns = connection
+    .prepare("PRAGMA table_info(projects)")
+    .all() as unknown as Array<Record<string, unknown>>;
+  if (!columns.some((column) => column.name === "workspaceId")) {
+    connection.exec(`ALTER TABLE projects ADD COLUMN workspaceId TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE_ID}'`);
+  }
+  connection.exec("CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspaceId)");
+}
+
+function seedDefaultWorkspace(connection: DatabaseSync): void {
+  const count = connection.prepare("SELECT COUNT(*) AS total FROM workspaces").get() as SqlRow;
+  if (Number(count.total) > 0) {
+    return;
+  }
+  const now = new Date().toISOString();
+  connection
+    .prepare(`INSERT INTO workspaces (id, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)`)
+    .run(DEFAULT_WORKSPACE_ID, "个人工作区", now, now);
 }
 
 function migrationEnsureProjectColumns(connection: DatabaseSync): void {
@@ -308,6 +402,15 @@ function rowToProject(row: SqlRow): Project {
     updatedAt: String(row.updatedAt),
     diskSizeBytes: Number(row.diskSizeBytes ?? 0),
     alias: row.alias === null || row.alias === undefined ? undefined : String(row.alias),
+  };
+}
+
+function rowToWorkspace(row: SqlRow): WorkspaceEntity {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
   };
 }
 

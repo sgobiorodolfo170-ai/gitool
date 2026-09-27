@@ -36,12 +36,13 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Account, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, Workspace } from "./types";
+import type { Account, AppView, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, WorkspaceEntity } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 import { loadProjects, saveProjects } from "./lib/projects";
+import { DEFAULT_WORKSPACE_ID, createWorkspace as createWorkspaceLocal, deleteWorkspace as deleteWorkspaceLocal, listWorkspaces as listWorkspacesLocal, renameWorkspace as renameWorkspaceLocal } from "./lib/workspaces";
 
 type NavItem = {
-  id: Workspace;
+  id: AppView;
   label: string;
   icon: typeof LayoutDashboard;
   count?: string;
@@ -106,10 +107,13 @@ function buildNavGroups(counts: { projects: number; remotes: number; accounts: n
 }
 
 const LAST_IMPORT_DIRECTORY_KEY = "gitool.lastImportDirectory";
+const ACTIVE_WORKSPACE_KEY = "gitool.activeWorkspace";
 
 function App() {
-  const [workspace, setWorkspace] = useState<Workspace>("overview");
-  const [projects, setProjects] = useState<Project[]>(() => isDesktopRuntime() ? [] : loadProjects());
+  const [workspace, setWorkspace] = useState<AppView>("overview");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceEntity[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<ProjectFilter>("all");
   const [search, setSearch] = useState("");
@@ -148,10 +152,18 @@ function App() {
     if (isDesktopRuntime()) {
       const bridge = requireDesktopBridge();
       void Promise.all([
-        bridge.loadProjects(),
+        bridge.listWorkspaces(),
         bridge.environment(),
         bridge.loadAccounts(),
-      ]).then(([storedProjects, environmentStatus, storedAccounts]) => {
+      ]).then(async ([loadedWorkspaces, environmentStatus, storedAccounts]) => {
+        if (cancelled) return;
+        setWorkspaces(loadedWorkspaces);
+        const lastActive = window.localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+        const workspaceId = loadedWorkspaces.some((item) => item.id === lastActive)
+          ? lastActive!
+          : (loadedWorkspaces[0]?.id ?? DEFAULT_WORKSPACE_ID);
+        setActiveWorkspaceId(workspaceId);
+        const storedProjects = await bridge.loadProjects(workspaceId);
         if (cancelled) return;
         setProjects(storedProjects);
         setSelectedId(storedProjects[0]?.id ?? "");
@@ -162,6 +174,14 @@ function App() {
         if (!cancelled) setNotice("无法读取本地工作区数据");
       });
     } else {
+      const loadedWorkspaces = listWorkspacesLocal();
+      const lastActive = window.localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+      const workspaceId = loadedWorkspaces.some((item) => item.id === lastActive)
+        ? lastActive!
+        : (loadedWorkspaces[0]?.id ?? DEFAULT_WORKSPACE_ID);
+      setWorkspaces(loadedWorkspaces);
+      setActiveWorkspaceId(workspaceId);
+      setProjects(loadProjects(workspaceId));
       setEnvironment({ git_available: true, git_version: "浏览器预览", platform: "web" });
     }
 
@@ -188,9 +208,84 @@ function App() {
   const updateProjects = (nextProjects: Project[]) => {
     setProjects(nextProjects);
     if (isDesktopRuntime()) {
-      void requireDesktopBridge().saveProjects(nextProjects);
+      void requireDesktopBridge().saveProjects(activeWorkspaceId, nextProjects);
     } else {
-      saveProjects(nextProjects);
+      saveProjects(activeWorkspaceId, nextProjects);
+    }
+  };
+
+  const switchWorkspace = async (id: string) => {
+    if (id === activeWorkspaceId) return;
+    setActiveWorkspaceId(id);
+    window.localStorage.setItem(ACTIVE_WORKSPACE_KEY, id);
+    try {
+      const stored = isDesktopRuntime()
+        ? await requireDesktopBridge().loadProjects(id)
+        : loadProjects(id);
+      setProjects(stored);
+    } catch {
+      setProjects([]);
+    }
+    setSelectedId("");
+    setFilter("all");
+    setSearch("");
+    setTagFilter("");
+    setOperationOutput(null);
+    setAnalysis(null);
+    setWorkspace("overview");
+  };
+
+  const createWorkspace = async (name: string) => {
+    try {
+      const created = isDesktopRuntime()
+        ? await requireDesktopBridge().createWorkspace({ name })
+        : createWorkspaceLocal({ name });
+      setWorkspaces((current) => [...current, created]);
+      setNotice(`工作区「${created.name}」已创建`);
+      window.setTimeout(() => setNotice(null), 3000);
+      return created;
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "创建工作区失败");
+      window.setTimeout(() => setNotice(null), 3000);
+      return null;
+    }
+  };
+
+  const renameWorkspace = async (id: string, name: string) => {
+    try {
+      if (isDesktopRuntime()) {
+        await requireDesktopBridge().renameWorkspace({ id, name });
+      } else {
+        renameWorkspaceLocal({ id, name });
+      }
+      setWorkspaces((current) => current.map((item) => item.id === id ? { ...item, name, updatedAt: new Date().toISOString() } : item));
+      setNotice("工作区已重命名");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "重命名失败");
+    } finally {
+      window.setTimeout(() => setNotice(null), 3000);
+    }
+  };
+
+  const deleteWorkspace = async (id: string) => {
+    try {
+      if (isDesktopRuntime()) {
+        await requireDesktopBridge().deleteWorkspace(id);
+      } else {
+        deleteWorkspaceLocal(id);
+      }
+      setWorkspaces((current) => current.filter((item) => item.id !== id));
+      if (activeWorkspaceId === id) {
+        const remaining = workspaces.find((item) => item.id !== id);
+        if (remaining) {
+          void switchWorkspace(remaining.id);
+        }
+      }
+      setNotice("工作区已删除");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "删除失败");
+    } finally {
+      window.setTimeout(() => setNotice(null), 3000);
     }
   };
 
@@ -722,14 +817,28 @@ function App() {
           </div>
         </div>
 
-        <div className="workspace-switcher">
-          <div className="workspace-avatar">L</div>
-          <div className="workspace-copy">
-            <span>个人工作区</span>
-            <small>本地模式</small>
-          </div>
-          <ChevronDown size={15} />
-        </div>
+        <WorkspaceSwitcher
+          workspaces={workspaces}
+          activeId={activeWorkspaceId}
+          onSwitch={switchWorkspace}
+          onCreate={() => {
+            const name = window.prompt("新建工作区名称", "新工作区");
+            if (name && name.trim()) {
+              void createWorkspace(name.trim());
+            }
+          }}
+          onRename={(workspace) => {
+            const name = window.prompt("重命名工作区", workspace.name);
+            if (name && name.trim() && name.trim() !== workspace.name) {
+              void renameWorkspace(workspace.id, name.trim());
+            }
+          }}
+          onDelete={(workspace) => {
+            if (window.confirm(`删除工作区「${workspace.name}」？若其中有项目将无法删除。`)) {
+              void deleteWorkspace(workspace.id);
+            }
+          }}
+        />
 
         <nav className="sidebar-nav" aria-label="主导航">
           {buildNavGroups({ projects: projects.length, remotes: remoteRepositories.length, accounts: accounts.length, tasks: projects.filter((project) => project.tags.includes("building")).length }).map((group) => (
@@ -754,18 +863,6 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <div className="sync-card">
-            <div className="sync-card-top">
-              <span className="online-dot" />
-              <span>本地环境正常</span>
-              <ShieldCheck size={15} />
-            </div>
-            <p>{environment?.git_version ?? "正在检测 Git"} · {environment?.platform === "web" ? "浏览器预览" : "Windows x64"}</p>
-          </div>
-          <button className="nav-item settings-item" onClick={() => setWorkspace("settings")}>
-            <Settings2 size={17} />
-            <span>设置</span>
-          </button>
           <div className="profile-row">
             <div className="profile-avatar">L</div>
             <div className="profile-copy"><strong>Local workspace</strong><span>离线优先</span></div>
@@ -851,8 +948,8 @@ function projectFromSnapshot(project: Project, snapshot: GitSnapshot): Project {
   };
 }
 
-function workspaceLabel(workspace: Workspace) {
-  const labels: Record<Workspace, string> = {
+function workspaceLabel(workspace: AppView) {
+  const labels: Record<AppView, string> = {
     overview: "总览",
     projects: "我的项目",
     remotes: "远程仓库",
@@ -865,6 +962,69 @@ function workspaceLabel(workspace: Workspace) {
   return labels[workspace];
 }
 
+function WorkspaceSwitcher({ workspaces, activeId, onSwitch, onCreate, onRename, onDelete }: {
+  workspaces: WorkspaceEntity[];
+  activeId: string;
+  onSwitch: (id: string) => void;
+  onCreate: () => void;
+  onRename: (workspace: WorkspaceEntity) => void;
+  onDelete: (workspace: WorkspaceEntity) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const active = workspaces.find((item) => item.id === activeId);
+
+  useEffect(() => {
+    const onMouseDown = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onMouseDown);
+    return () => window.removeEventListener("mousedown", onMouseDown);
+  }, []);
+
+  return (
+    <div className="workspace-switcher" ref={ref} onClick={() => setOpen((current) => !current)}>
+      <div className="workspace-avatar">L</div>
+      <div className="workspace-copy">
+        <span>{active?.name ?? "工作区"}</span>
+        <small>本地模式</small>
+      </div>
+      <ChevronDown size={15} />
+      {open && (
+        <div className="workspace-menu" onClick={(event) => event.stopPropagation()}>
+          <div className="workspace-menu-header">工作区</div>
+          {workspaces.map((item) => (
+            <button
+              className={`workspace-menu-item ${item.id === activeId ? "active" : ""}`}
+              key={item.id}
+              onClick={() => { setOpen(false); onSwitch(item.id); }}
+            >
+              <span>{item.name}</span>
+              {item.id === activeId && <Check size={14} />}
+            </button>
+          ))}
+          <div className="workspace-menu-divider" />
+          <button className="workspace-menu-item action" onClick={() => { setOpen(false); onCreate(); }}>
+            <Plus size={14} />新建工作区
+          </button>
+          {active && (
+            <>
+              <button className="workspace-menu-item action" onClick={() => { setOpen(false); onRename(active); }}>
+                <PenLine size={14} />重命名
+              </button>
+              <button className="workspace-menu-item action danger" onClick={() => { setOpen(false); onDelete(active); }}>
+                <Trash2 size={14} />删除工作区
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type ProjectsWorkspaceProps = {
   projects: Project[];
   filteredProjects: Project[];
@@ -874,7 +1034,7 @@ type ProjectsWorkspaceProps = {
   tagFilter: string;
   allTags: string[];
   isImporting: boolean;
-  workspace: Workspace;
+  workspace: AppView;
   onFilterChange: (filter: ProjectFilter) => void;
   onSearchChange: (search: string) => void;
   onTagFilterChange: (tag: string) => void;
@@ -1925,8 +2085,8 @@ function RemoteRepositoriesWorkspace({ accounts, repositories, selectedAccountId
   </div>;
 }
 
-      function ModuleWorkspace({ workspace, onImport }: { workspace: Exclude<Workspace, "overview" | "projects">; onImport: () => void }) {
-  const content: Record<Exclude<Workspace, "overview" | "projects">, { eyebrow: string; title: string; description: string; icon: React.ReactNode; items: string[] }> = {
+      function ModuleWorkspace({ workspace, onImport }: { workspace: Exclude<AppView, "overview" | "projects">; onImport: () => void }) {
+  const content: Record<Exclude<AppView, "overview" | "projects">, { eyebrow: string; title: string; description: string; icon: React.ReactNode; items: string[] }> = {
     remotes: { eyebrow: "REMOTE HUB", title: "远程仓库", description: "连接 GitHub、Gitee 与 GitLab，统一浏览远程项目。", icon: <Cloud size={21} />, items: ["GitHub · 6 个仓库", "Gitee · 4 个仓库", "GitLab · 2 个仓库"] },
     accounts: { eyebrow: "CREDENTIALS", title: "账号与令牌", description: "账号元数据留在本地，令牌由 Windows 凭据管理器保护。", icon: <KeyRound size={21} />, items: ["本地工作区 · 未连接远程账号", "Personal Access Token · 已准备", "OAuth · 等待授权"] },
     tasks: { eyebrow: "TASK RUNNER", title: "任务中心", description: "把构建、运行和打包命令放到同一个可追踪的入口。", icon: <ListTodo size={21} />, items: ["gitool · npm run dev · 运行中", "atlas-api · cargo test · 22 分钟前", "northstar-web · pnpm build · 昨天"] },

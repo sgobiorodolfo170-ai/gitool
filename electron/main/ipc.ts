@@ -12,6 +12,7 @@ import type {
   CreateAccountInput,
   CreateBranchInput,
   CreateTagInput,
+  CreateWorkspaceInput,
   DeleteBranchInput,
   FileDiffRequest,
   GitOperation,
@@ -22,6 +23,7 @@ import type {
   OperationRecord,
   Project,
   RemoteRepositoryWriteInput,
+  RenameWorkspaceInput,
   RevertCommitInput,
   SetRemoteUrlInput,
   SwitchBranchInput,
@@ -70,9 +72,13 @@ import {
 } from "./services/providers";
 import {
   createAccount,
+  createWorkspace,
   deleteAccount,
+  deleteWorkspace,
+  listWorkspaces,
   loadAccounts,
   loadProjects,
+  renameWorkspace,
   saveProjects,
 } from "./services/storage";
 import {
@@ -208,9 +214,22 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   ipcMain.handle("git:revert", (_event, input: unknown) =>
     revertCommit(requireRevertCommitInput(input)),
   );
-  ipcMain.handle("projects:load", () => loadProjects());
-  ipcMain.handle("projects:save", (_event, projects: unknown) =>
-    saveProjects(requireProjects(projects)),
+  ipcMain.handle("projects:load", (_event, workspaceId: unknown) =>
+    loadProjects(requireString(workspaceId, "工作区 ID")),
+  );
+  ipcMain.handle("projects:save", (_event, workspaceId: unknown, projects: unknown) =>
+    saveProjects(requireString(workspaceId, "工作区 ID"), requireProjects(projects)),
+  );
+
+  ipcMain.handle("workspaces:list", () => listWorkspaces());
+  ipcMain.handle("workspaces:create", (_event, input: unknown) =>
+    createWorkspace(requireCreateWorkspaceInput(input)),
+  );
+  ipcMain.handle("workspaces:rename", (_event, input: unknown) =>
+    renameWorkspace(requireRenameWorkspaceInput(input)),
+  );
+  ipcMain.handle("workspaces:delete", (_event, id: unknown) =>
+    deleteWorkspace(requireString(id, "工作区 ID")),
   );
 
   ipcMain.handle("accounts:load", () => loadAccounts());
@@ -594,6 +613,27 @@ function requireProjectStatus(value: unknown): Project["status"] {
     return value;
   }
   return "clean";
+}
+
+function requireCreateWorkspaceInput(value: unknown): CreateWorkspaceInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("工作区数据格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    name: requireString(candidate.name, "工作区名称"),
+  };
+}
+
+function requireRenameWorkspaceInput(value: unknown): RenameWorkspaceInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("工作区数据格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  return {
+    id: requireString(candidate.id, "工作区 ID"),
+    name: requireString(candidate.name, "工作区名称"),
+  };
 }
 
 function requireCreateAccountInput(value: unknown): CreateAccountInput {
