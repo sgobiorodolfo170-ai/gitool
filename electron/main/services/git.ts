@@ -167,14 +167,23 @@ export async function listTags(projectPath: string): Promise<GitTag[]> {
   assertDirectory(projectPath);
   const output = await runGit(
     projectPath,
-    ["tag", "-l", "--sort=-creatordate", '--format=%(refname:short)%x1e%(objectname:short)%x1e%(creatordate:iso8601)%x1e%(contents:subject)'],
+    ["for-each-ref", "refs/tags", "--sort=-creatordate", '--format=%(refname:short)\n%(objectname:short)\n%(creatordate:iso8601-strict)\n%(contents:subject)'],
   ).catch(() => "");
+  const lines = output.split(/\r?\n/);
   const tags: GitTag[] = [];
-  for (const line of output.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    const [name, shortCommit, createdAt, message = ""] = line.split("\x1e");
+  for (let index = 0; index + 3 < lines.length; index += 4) {
+    const name = lines[index].trim();
+    const shortCommit = lines[index + 1].trim();
+    const createdAt = lines[index + 2].trim();
+    const message = lines[index + 3].trim();
     if (!name) continue;
-    tags.push({ name, commit: shortCommit, shortCommit, createdAt, message: message || undefined });
+    tags.push({
+      name,
+      commit: shortCommit,
+      shortCommit,
+      createdAt,
+      message: message || undefined,
+    });
   }
   return tags;
 }
