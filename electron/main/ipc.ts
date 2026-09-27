@@ -612,6 +612,7 @@ function requireProject(value: unknown, index: number): Project {
     updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : "",
     diskSizeBytes: typeof candidate.diskSizeBytes === "number" ? candidate.diskSizeBytes : 0,
     alias: typeof candidate.alias === "string" && candidate.alias.trim().length > 0 ? candidate.alias.trim() : undefined,
+    webUrl: typeof candidate.webUrl === "string" && candidate.webUrl.trim().length > 0 ? candidate.webUrl.trim() : undefined,
   };
 }
 

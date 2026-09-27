@@ -83,6 +83,13 @@ const remoteProviderLabels: Record<RemoteProvider, string> = {
   gitlab: "GitLab",
 };
 
+function remoteProjectMatch(project: Project, repository: RemoteRepository): boolean {
+  if (project.webUrl && repository.webUrl && project.webUrl === repository.webUrl) {
+    return true;
+  }
+  return project.provider === repository.provider && project.name === repository.name;
+}
+
 function buildNavGroups(counts: { projects: number; remotes: number; accounts: number; tasks: number }): { label: string; items: NavItem[] }[] {
   return [
     {
@@ -300,7 +307,47 @@ function App() {
   };
 
   const toggleFavorite = (projectId: string) => {
+    const target = projects.find((project) => project.id === projectId);
+    if (target && target.path === "" && target.favorite) {
+      updateProjects(projects.filter((project) => project.id !== projectId));
+      return;
+    }
     updateProjects(projects.map((project) => (project.id === projectId ? { ...project, favorite: !project.favorite } : project)));
+  };
+
+  const toggleRemoteFavorite = (repository: RemoteRepository) => {
+    const match = projects.find((project) => remoteProjectMatch(project, repository));
+    if (match) {
+      if (match.path === "") {
+        updateProjects(projects.filter((project) => project.id !== match.id));
+      } else {
+        updateProjects(projects.map((project) => project.id === match.id ? { ...project, favorite: !project.favorite } : project));
+      }
+      return;
+    }
+    const now = new Date().toISOString();
+    const favoriteProject: Project = {
+      id: `fav:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
+      name: repository.name,
+      path: "",
+      provider: repository.provider,
+      branch: repository.defaultBranch || "main",
+      status: "clean",
+      commit: "未克隆",
+      favorite: true,
+      tags: ["remote", "favorite"],
+      files: 0,
+      syncLabel: "未克隆",
+      language: "未克隆",
+      languageColor: "#8b97a8",
+      summary: repository.description || "远程收藏项目，尚未克隆到本地。",
+      updatedAt: now,
+      diskSizeBytes: 0,
+      webUrl: repository.webUrl,
+    };
+    updateProjects([favoriteProject, ...projects]);
+    setNotice(`已收藏「${repository.fullName}」，可在我的项目中查看`);
+    window.setTimeout(() => setNotice(null), 3000);
   };
 
   const addAccount = async (input: { provider: RemoteProvider; displayName: string; username: string; token: string }) => {
@@ -441,8 +488,15 @@ function App() {
           summary: repository.description || "从远程平台克隆的项目。",
           updatedAt: snapshot?.updated_at ?? "刚刚",
           diskSizeBytes,
+          webUrl: repository.webUrl,
         };
-        updateProjects([newProject, ...projects]);
+        const favoriteStub = projects.find((project) => project.path === "" && project.webUrl === repository.webUrl && project.favorite);
+        if (favoriteStub) {
+          newProject.favorite = true;
+          updateProjects([newProject, ...projects.filter((project) => project.id !== favoriteStub.id)]);
+        } else {
+          updateProjects([newProject, ...projects]);
+        }
         setSelectedId(newProject.id);
         setWorkspace("projects");
         setNotice("仓库克隆完成，已加入我的项目");
@@ -894,6 +948,7 @@ function App() {
               onRefresh={refreshProjects}
               onImport={importProject}
               onClone={cloneRemoteRepository}
+              onToggleRemoteFavorite={toggleRemoteFavorite}
             />
           ) : workspace === "projects" ? (
             <ProjectsWorkspace
@@ -1123,36 +1178,17 @@ type ProjectsWorkspaceProps = {
   analysis: ProjectAnalysis | null;
 };
 
-const FAVORITE_REPOS_KEY = "gitool.favoriteRemoteRepositories";
-
-function RemoteRepositorySearch({ onClone, cloningRepositoryId, defaultAccountId }: { onClone: (repository: RemoteRepository) => void | Promise<void>; cloningRepositoryId: string | null; defaultAccountId: string }) {
+function RemoteRepositorySearch({ projects, onClone, cloningRepositoryId, defaultAccountId, onToggleFavorite }: { projects: Project[]; onClone: (repository: RemoteRepository) => void | Promise<void>; cloningRepositoryId: string | null; defaultAccountId: string; onToggleFavorite: (repository: RemoteRepository) => void }) {
   const bridge = getDesktopBridge();
   const [provider, setProvider] = useState<"github" | "gitee">("github");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<RemoteRepository[]>([]);
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem(FAVORITE_REPOS_KEY);
-      const parsed: unknown = stored ? JSON.parse(stored) : [];
-      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-    } catch {
-      return [];
-    }
-  });
 
-  const favoriteKey = (repository: RemoteRepository) => `${repository.provider}:${repository.fullName}`;
-
-  const toggleFavorite = (repository: RemoteRepository, event: React.MouseEvent) => {
-    event.stopPropagation();
-    const key = favoriteKey(repository);
-    setFavorites((current) => {
-      const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key];
-      localStorage.setItem(FAVORITE_REPOS_KEY, JSON.stringify(next));
-      return next;
-    });
-  };
+  const isFavorite = (repository: RemoteRepository) => (
+    projects.some((project) => remoteProjectMatch(project, repository) && project.favorite)
+  );
 
   const openRepository = (repository: RemoteRepository, event?: React.MouseEvent) => {
     event?.stopPropagation();
@@ -1206,7 +1242,7 @@ function RemoteRepositorySearch({ onClone, cloningRepositoryId, defaultAccountId
       </form>
       {notice && <div className="repo-search-notice">{notice}</div>}
       {results.length > 0 && <div className="remote-list">{results.map((repository) => {
-        const isFavorite = favorites.includes(favoriteKey(repository));
+        const favorite = isFavorite(repository);
         return (
           <div className="remote-row repo-search-row" key={repository.id} onClick={(event) => openRepository(repository, event)}>
             <div className="remote-main">
@@ -1215,7 +1251,7 @@ function RemoteRepositorySearch({ onClone, cloningRepositoryId, defaultAccountId
               <div className="remote-meta"><span>{repository.provider === "github" ? <Github size={12} /> : <Cloud size={12} />}{repository.provider}</span><span>{repository.defaultBranch}</span>{repository.updatedAt && <span>{repository.updatedAt.slice(0, 10)}</span>}</div>
             </div>
             <div className="remote-actions">
-              <button className={`icon-button favorite-button ${isFavorite ? "active" : ""}`} onClick={(event) => toggleFavorite(repository, event)} aria-label={isFavorite ? "取消收藏" : "收藏项目"}><Star size={16} fill={isFavorite ? "currentColor" : "none"} /></button>
+              <button className={`icon-button favorite-button ${favorite ? "active" : ""}`} onClick={(event) => { event.stopPropagation(); onToggleFavorite(repository); }} aria-label={favorite ? "取消收藏" : "收藏项目"}><Star size={16} fill={favorite ? "currentColor" : "none"} /></button>
               <button className="button secondary compact-button" onClick={(event) => { event.stopPropagation(); void onClone(repository); }} disabled={cloningRepositoryId !== null}><ArrowDownToLine size={13} />{cloningRepositoryId === repository.id ? "克隆中..." : "克隆"}</button>
             </div>
           </div>
@@ -1236,9 +1272,10 @@ type OverviewWorkspaceProps = {
   onRefresh: () => void | Promise<void>;
   onImport: () => void;
   onClone: (repository: RemoteRepository) => void | Promise<void>;
+  onToggleRemoteFavorite: (repository: RemoteRepository) => void;
 };
 
-function OverviewWorkspace({ projects, selectedProject, isImporting, isRefreshing, cloningRepositoryId, defaultAccountId, onSelect, onRefresh, onImport, onClone }: OverviewWorkspaceProps) {
+function OverviewWorkspace({ projects, selectedProject, isImporting, isRefreshing, cloningRepositoryId, defaultAccountId, onSelect, onRefresh, onImport, onClone, onToggleRemoteFavorite }: OverviewWorkspaceProps) {
   const attentionCount = projects.filter((project) => project.status !== "clean").length;
   const favoriteCount = projects.filter((project) => project.favorite).length;
   const providerCount = new Set(projects.map((project) => project.provider)).size;
@@ -1267,7 +1304,7 @@ function OverviewWorkspace({ projects, selectedProject, isImporting, isRefreshin
         <MetricCard label="连接平台" value={providerCount.toString()} detail="远程与本地" icon={<Cloud size={18} />} tone="blue" />
       </section>
 
-      <RemoteRepositorySearch onClone={onClone} cloningRepositoryId={cloningRepositoryId} defaultAccountId={defaultAccountId} />
+      <RemoteRepositorySearch projects={projects} onClone={onClone} cloningRepositoryId={cloningRepositoryId} defaultAccountId={defaultAccountId} onToggleFavorite={onToggleRemoteFavorite} />
 
       <AttentionPanel projects={projects} selectedId={selectedProject?.id} onSelect={onSelect} />
 
@@ -1452,7 +1489,7 @@ function ProjectRow({ project, selected, bulkSelected, onToggleBulk, onSelect, o
   return <div className={`project-row ${selected ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""}`} role="button" tabIndex={0} onClick={onSelect} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(); } }}>
     <label className="bulk-check" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={bulkSelected} onChange={onToggleBulk} aria-label="选择项目" /></label>
     <div className="project-type-icon" style={{ color: project.languageColor }}><ProviderIcon size={18} /></div>
-    <div className="project-row-main"><div className="project-name-line"><strong>{project.alias || project.name}</strong><span className="provider-name">{providerLabels[project.provider]}</span></div><p>{project.path}</p><div className="project-row-meta"><span className={`status-pill ${status.className}`}><span className="status-dot" />{project.syncLabel}</span><span><GitBranch size={12} />{project.branch}</span><span><HardDrive size={12} />{project.diskSizeBytes > 0 ? formatBytes(project.diskSizeBytes) : "—"}</span>{dormant && <span className="status-pill status-behind"><span className="status-dot" />休眠</span>}</div></div>
+    <div className="project-row-main"><div className="project-name-line"><strong>{project.alias || project.name}</strong><span className="provider-name">{providerLabels[project.provider]}</span></div><p>{project.path || "未克隆（远程收藏）"}</p><div className="project-row-meta"><span className={`status-pill ${status.className}`}><span className="status-dot" />{project.syncLabel}</span><span><GitBranch size={12} />{project.branch}</span><span><HardDrive size={12} />{project.diskSizeBytes > 0 ? formatBytes(project.diskSizeBytes) : "—"}</span>{dormant && <span className="status-pill status-behind"><span className="status-dot" />休眠</span>}</div></div>
     <button className={`favorite-button ${project.favorite ? "active" : ""}`} onClick={(event) => { event.stopPropagation(); onToggleFavorite(); }} aria-label={project.favorite ? "取消收藏" : "收藏项目"}><Star size={16} fill={project.favorite ? "currentColor" : "none"} /></button>
   </div>;
 }
@@ -1554,6 +1591,19 @@ function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onMoveProje
       setActionMessage(error instanceof Error ? error.message : "生成摘要失败");
     }
   };
+
+  if (project.path === "") {
+    return <aside className="detail-panel">
+      <div className="detail-top"><div className="detail-provider"><ProviderIcon size={16} />{providerLabels[project.provider]}</div><button className={`favorite-button ${project.favorite ? "active" : ""}`} onClick={onToggleFavorite} aria-label={project.favorite ? "取消收藏" : "收藏项目"}><Star size={17} fill={project.favorite ? "currentColor" : "none"} /></button></div>
+      <div className="detail-title"><div className="large-project-icon" style={{ color: project.languageColor }}><Github size={25} /></div><div><h2>{project.name}</h2><p>尚未克隆到本地</p></div></div>
+      <div className="detail-status-row"><span className="status-pill status-behind"><span className="status-dot" />未克隆</span></div>
+      <p className="detail-summary">{project.summary || "远程收藏项目。可打开仓库网页查看，或先克隆到本地。"}</p>
+      <div className="detail-actions">
+        {project.webUrl && <button className="button secondary compact-button" onClick={() => { if (bridge) void bridge.openExternal(project.webUrl!); }}><ExternalLink size={14} />打开仓库网页</button>}
+        <button className="button secondary compact-button" onClick={onToggleFavorite}><Star size={14} fill="none" />取消收藏</button>
+      </div>
+    </aside>;
+  }
 
   return <aside className="detail-panel">
     <div className="detail-top"><div className="detail-provider"><ProviderIcon size={16} />{providerLabels[project.provider]}</div><button className={`favorite-button ${project.favorite ? "active" : ""}`} onClick={onToggleFavorite} aria-label={project.favorite ? "取消收藏" : "收藏项目"}><Star size={17} fill={project.favorite ? "currentColor" : "none"} /></button></div>

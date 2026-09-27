@@ -77,7 +77,7 @@ export function loadProjects(workspaceId: string): Project[] {
   const rows = connection
     .prepare(
       `SELECT id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
-              files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias
+              files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl
        FROM projects WHERE workspaceId = ? ORDER BY favorite DESC, updatedAt DESC, name ASC`,
     )
     .all(workspaceId) as unknown as SqlRow[];
@@ -93,8 +93,8 @@ export function saveProjects(workspaceId: string, projects: Project[]): void {
     const statement = connection.prepare(
       `INSERT INTO projects
        (id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
-        files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, workspaceId)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl, workspaceId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const project of projects) {
       statement.run(
@@ -116,6 +116,7 @@ export function saveProjects(workspaceId: string, projects: Project[]): void {
         project.updatedAt,
         project.diskSizeBytes ?? 0,
         project.alias ?? null,
+        project.webUrl ?? null,
         workspaceId,
       );
     }
@@ -272,6 +273,7 @@ function openDatabase(): DatabaseSync {
       updatedAt TEXT NOT NULL,
       diskSizeBytes INTEGER NOT NULL DEFAULT 0,
       alias TEXT,
+      webUrl TEXT,
       workspaceId TEXT NOT NULL DEFAULT 'default'
     );
     CREATE TABLE IF NOT EXISTS workspaces (
@@ -380,6 +382,9 @@ function migrationEnsureProjectColumns(connection: DatabaseSync): void {
   if (!columns.some((column) => column.name === "alias")) {
     connection.exec("ALTER TABLE projects ADD COLUMN alias TEXT");
   }
+  if (!columns.some((column) => column.name === "webUrl")) {
+    connection.exec("ALTER TABLE projects ADD COLUMN webUrl TEXT");
+  }
 }
 
 function rowToProject(row: SqlRow): Project {
@@ -402,6 +407,7 @@ function rowToProject(row: SqlRow): Project {
     updatedAt: String(row.updatedAt),
     diskSizeBytes: Number(row.diskSizeBytes ?? 0),
     alias: row.alias === null || row.alias === undefined ? undefined : String(row.alias),
+    webUrl: row.webUrl === null || row.webUrl === undefined ? undefined : String(row.webUrl),
   };
 }
 

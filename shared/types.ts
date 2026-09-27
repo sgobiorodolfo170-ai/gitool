@@ -92,6 +92,7 @@ export type Project = {
   updatedAt: string;
   diskSizeBytes: number;
   alias?: string;
+  webUrl?: string;
 };
 
 export type ProjectFilter = "all" | "favorite" | "attention";
