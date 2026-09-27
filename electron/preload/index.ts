@@ -94,6 +94,8 @@ const bridge: DesktopBridge = {
   deleteAccount: (accountId) => invoke<void>("accounts:delete", accountId),
   loadRemoteRepositories: (accountId) =>
     invoke<RemoteRepository[]>("remoteRepositories:load", accountId),
+  searchRemoteRepositories: (input) =>
+    invoke<RemoteRepository[]>("remoteRepositories:search", input),
   createRemoteRepository: (input) =>
     invoke<RemoteRepositoryMutationResult>("remoteRepositories:create", input),
   updateRemoteRepository: (input) =>

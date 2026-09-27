@@ -289,6 +289,13 @@ function App() {
     }
   };
 
+  const openProjectDetail = (id: string) => {
+    setSelectedId(id);
+    setOperationOutput(null);
+    setAnalysis(null);
+    setWorkspace("projects");
+  };
+
   const toggleFavorite = (projectId: string) => {
     updateProjects(projects.map((project) => (project.id === projectId ? { ...project, favorite: !project.favorite } : project)));
   };
@@ -872,7 +879,19 @@ function App() {
         </header>
 
         <div className="content-scroll">
-          {workspace === "overview" || workspace === "projects" ? (
+          {workspace === "overview" ? (
+            <OverviewWorkspace
+              projects={projects}
+              selectedProject={selectedProject}
+              isImporting={isImporting}
+              isRefreshing={isRefreshing}
+              cloningRepositoryId={cloningRepositoryId}
+              onSelect={openProjectDetail}
+              onRefresh={refreshProjects}
+              onImport={importProject}
+              onClone={cloneRemoteRepository}
+            />
+          ) : workspace === "projects" ? (
             <ProjectsWorkspace
               projects={projects}
               filteredProjects={filteredProjects}
@@ -901,7 +920,6 @@ function App() {
               onAnalyzeProject={analyzeProject}
               isAnalyzing={isAnalyzing}
               analysis={analysis}
-              workspace={workspace}
             />
           ) : workspace === "accounts" ? (
             <AccountsWorkspace accounts={accounts} accountBusyId={accountBusyId} onAdd={addAccount} onTest={testAccount} onDelete={deleteAccount} />
@@ -1080,7 +1098,6 @@ type ProjectsWorkspaceProps = {
   tagFilter: string;
   allTags: string[];
   isImporting: boolean;
-  workspace: AppView;
   onFilterChange: (filter: ProjectFilter) => void;
   onSearchChange: (search: string) => void;
   onTagFilterChange: (tag: string) => void;
@@ -1102,6 +1119,125 @@ type ProjectsWorkspaceProps = {
   analysis: ProjectAnalysis | null;
 };
 
+function RemoteRepositorySearch({ onClone, cloningRepositoryId }: { onClone: (repository: RemoteRepository) => void | Promise<void>; cloningRepositoryId: string | null }) {
+  const bridge = getDesktopBridge();
+  const [provider, setProvider] = useState<"github" | "gitee">("github");
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<RemoteRepository[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!query.trim()) return;
+    if (!bridge) {
+      setNotice("浏览器预览不支持搜索远程仓库，请使用桌面版");
+      return;
+    }
+    setSearching(true);
+    setNotice(null);
+    try {
+      const found = await bridge.searchRemoteRepositories({ provider, query: query.trim() });
+      setResults(found);
+      if (found.length === 0) {
+        setNotice("没有找到匹配的项目");
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "搜索失败");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  return (
+    <section className="repo-search-panel">
+      <div className="panel-heading"><div><h2>远程项目搜索</h2><span>在 GitHub / Gitee 上检索开源项目</span></div><Github size={16} /></div>
+      <form className="repo-search-bar" onSubmit={(event) => { void submit(event); }}>
+        <select value={provider} onChange={(event) => setProvider(event.target.value as "github" | "gitee")} aria-label="平台">
+          <option value="github">github</option>
+          <option value="gitee">gitee</option>
+        </select>
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入关键词，如 git gui" />
+        <button className="button secondary compact-button" type="submit" disabled={searching || !query.trim()}><Search size={14} />{searching ? "搜索中..." : "搜索"}</button>
+      </form>
+      {notice && <div className="repo-search-notice">{notice}</div>}
+      {results.length > 0 && <div className="remote-list">{results.map((repository) => (
+        <div className="remote-row" key={repository.id}>
+          <div className="remote-main">
+            <div className="remote-title"><strong>{repository.fullName}</strong>{repository.visibility === "public" || repository.visibility === "unknown" ? <span className="status-pill status-clean"><span className="status-dot" />公开</span> : <span className="status-pill status-behind"><span className="status-dot" />私有</span>}</div>
+            <p>{repository.description || "（无描述）"}</p>
+            <div className="remote-meta"><span>{repository.provider === "github" ? <Github size={12} /> : <Cloud size={12} />}{repository.provider}</span><span>{repository.defaultBranch}</span>{repository.updatedAt && <span>{repository.updatedAt.slice(0, 10)}</span>}</div>
+          </div>
+          <div className="remote-actions">
+            <button className="button secondary compact-button" onClick={() => onClone(repository)} disabled={cloningRepositoryId !== null}><ArrowDownToLine size={13} />{cloningRepositoryId === repository.id ? "克隆中..." : "克隆"}</button>
+          </div>
+        </div>
+      ))}</div>}
+    </section>
+  );
+}
+
+type OverviewWorkspaceProps = {
+  projects: Project[];
+  selectedProject?: Project;
+  isImporting: boolean;
+  isRefreshing: boolean;
+  cloningRepositoryId: string | null;
+  onSelect: (id: string) => void;
+  onRefresh: () => void | Promise<void>;
+  onImport: () => void;
+  onClone: (repository: RemoteRepository) => void | Promise<void>;
+};
+
+function OverviewWorkspace({ projects, selectedProject, isImporting, isRefreshing, cloningRepositoryId, onSelect, onRefresh, onImport, onClone }: OverviewWorkspaceProps) {
+  const attentionCount = projects.filter((project) => project.status !== "clean").length;
+  const favoriteCount = projects.filter((project) => project.favorite).length;
+  const providerCount = new Set(projects.map((project) => project.provider)).size;
+  const recentProjects = useMemo(() => (
+    [...projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 6)
+  ), [projects]);
+
+  return (
+    <div className="workspace-page">
+      <div className="page-heading">
+        <div>
+          <div className="eyebrow"><span className="eyebrow-line" />工作区状态</div>
+          <h1>早上好，Leo</h1>
+          <p>这里是你今天的开发现场。</p>
+        </div>
+        <div className="heading-actions">
+          <button className="button secondary" onClick={onRefresh} disabled={isRefreshing}><RefreshCw size={15} className={isRefreshing ? "spin" : ""} />{isRefreshing ? "刷新中..." : "刷新状态"}</button>
+          <button className="button primary" onClick={onImport}><Plus size={16} />{isImporting ? "导入中..." : "导入项目"}</button>
+        </div>
+      </div>
+
+      <section className="metric-grid" aria-label="工作区指标">
+        <MetricCard label="全部项目" value={projects.length.toString()} detail="本地已登记" icon={<FolderGit2 size={18} />} tone="teal" />
+        <MetricCard label="需要关注" value={attentionCount.toString().padStart(2, "0")} detail="有待处理变更" icon={<CircleAlert size={18} />} tone="coral" />
+        <MetricCard label="已收藏" value={favoriteCount.toString().padStart(2, "0")} detail="快速访问项目" icon={<Star size={18} />} tone="yellow" />
+        <MetricCard label="连接平台" value={providerCount.toString()} detail="远程与本地" icon={<Cloud size={18} />} tone="blue" />
+      </section>
+
+      <RemoteRepositorySearch onClone={onClone} cloningRepositoryId={cloningRepositoryId} />
+
+      <AttentionPanel projects={projects} selectedId={selectedProject?.id} onSelect={onSelect} />
+
+      <section className="overview-recent">
+        <div className="panel-heading"><div><h2>最近更新</h2><span>{recentProjects.length} 个项目</span></div><button className="bare-button" onClick={() => onSelect("")}>查看全部</button></div>
+        {recentProjects.length ? <div className="overview-recent-list">{recentProjects.map((project) => {
+          const ProviderIcon = providerIcons[project.provider];
+          const status = statusMeta[project.status];
+          return <button className="overview-recent-item" key={project.id} onClick={() => onSelect(project.id)}>
+            <div className="project-type-icon" style={{ color: project.languageColor }}><ProviderIcon size={16} /></div>
+            <div className="overview-recent-copy"><strong>{project.alias || project.name}</strong><span>{project.path}</span></div>
+            <span className={`status-pill ${status.className}`}><span className="status-dot" />{project.syncLabel}</span>
+          </button>;
+        })}</div> : <div className="accounts-empty"><FolderGit2 size={22} /><strong>还没有项目</strong><span>点击右上角「导入项目」添加第一个 Git 仓库。</span></div>}
+      </section>
+    </div>
+  );
+}
+
 function ProjectsWorkspace({
   projects,
   filteredProjects,
@@ -1111,7 +1247,6 @@ function ProjectsWorkspace({
   tagFilter,
   allTags,
   isImporting,
-  workspace,
   onFilterChange,
   onSearchChange,
   onTagFilterChange,
@@ -1134,7 +1269,6 @@ function ProjectsWorkspace({
 }: ProjectsWorkspaceProps) {
   const attentionCount = projects.filter((project) => project.status !== "clean").length;
   const favoriteCount = projects.filter((project) => project.favorite).length;
-  const providerCount = new Set(projects.map((project) => project.provider)).size;
   const searchRef = useRef<HTMLInputElement>(null);
   const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
 
@@ -1165,7 +1299,7 @@ function ProjectsWorkspace({
 
   useEffect(() => {
     setSelectedBulkIds([]);
-  }, [filter, workspace]);
+  }, [filter]);
 
   const toggleBulk = (id: string) => {
     setSelectedBulkIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]);
@@ -1185,9 +1319,9 @@ function ProjectsWorkspace({
     <div className="workspace-page">
       <div className="page-heading">
         <div>
-          <div className="eyebrow"><span className="eyebrow-line" />{workspace === "overview" ? "工作区状态" : "项目目录"}</div>
-          <h1>{workspace === "overview" ? "早上好，Leo" : "我的项目"}</h1>
-          <p>{workspace === "overview" ? "这里是你今天的开发现场。" : "集中查看本地项目、远程关联与工作区状态。"}</p>
+          <div className="eyebrow"><span className="eyebrow-line" />项目目录</div>
+          <h1>我的项目</h1>
+          <p>集中查看本地项目、远程关联与工作区状态。</p>
         </div>
         <div className="heading-actions">
           <button className="button secondary" onClick={onRefresh} disabled={isRefreshing}><RefreshCw size={15} className={isRefreshing ? "spin" : ""} />{isRefreshing ? "刷新中..." : "刷新状态"}</button>
@@ -1196,15 +1330,6 @@ function ProjectsWorkspace({
           <button className="button primary" onClick={onImport}><Plus size={16} />{isImporting ? "导入中..." : "导入项目"}</button>
         </div>
       </div>
-
-      <section className="metric-grid" aria-label="工作区指标">
-        <MetricCard label="全部项目" value={projects.length.toString()} detail="本地已登记" icon={<FolderGit2 size={18} />} tone="teal" />
-        <MetricCard label="需要关注" value={attentionCount.toString().padStart(2, "0")} detail="有待处理变更" icon={<CircleAlert size={18} />} tone="coral" />
-        <MetricCard label="已收藏" value={favoriteCount.toString().padStart(2, "0")} detail="快速访问项目" icon={<Star size={18} />} tone="yellow" />
-        <MetricCard label="连接平台" value={providerCount.toString()} detail="远程与本地" icon={<Cloud size={18} />} tone="blue" />
-      </section>
-
-      {workspace === "overview" && <AttentionPanel projects={projects} selectedId={selectedProject?.id} onSelect={onSelect} />}
 
       <div className="section-toolbar">
         <div className="filter-tabs">
@@ -2463,6 +2588,8 @@ function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | n
     setNotice("AI API Key 已从凭据管理器删除");
   };
 
+  const [activeTab, setActiveTab] = useState<"app" | "ai" | "env">("app");
+
   const settingsRows = [
     { key: "gitPath" as const, label: "Git 可执行文件路径", value: settings.gitPath, placeholder: "留空则使用系统 PATH 中的 git", hint: "例如 C:\\Program Files\\Git\\cmd\\git.exe" },
     { key: "defaultProjectDirectory" as const, label: "默认项目目录", value: settings.defaultProjectDirectory, placeholder: "新建/导入项目时的默认位置", hint: "留空则不指定" },
@@ -2470,22 +2597,39 @@ function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | n
   ];
 
   return <div className="module-page">
-    <div className="module-hero"><div className="module-icon"><Settings2 size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />SYSTEM</div><h1>设置</h1><p>配置 Git 路径、默认目录与应用环境信息。</p></div><button className="button primary" onClick={save} disabled={busy}><Check size={15} />{busy ? "保存中..." : "保存设置"}</button></div>
+    <div className="module-hero"><div className="module-icon"><Settings2 size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />SYSTEM</div><h1>设置</h1><p>配置 Git 路径、默认目录与应用环境信息。</p></div></div>
     {notice && <div className="toast"><Check size={16} />{notice}</div>}
-    <div className="accounts-grid">
-      <form className="account-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+    <div className="settings-tabs">
+      <button className={`settings-tab ${activeTab === "app" ? "active" : ""}`} onClick={() => setActiveTab("app")}>应用设置</button>
+      <button className={`settings-tab ${activeTab === "ai" ? "active" : ""}`} onClick={() => setActiveTab("ai")}>AI 摘要服务</button>
+      <button className={`settings-tab ${activeTab === "env" ? "active" : ""}`} onClick={() => setActiveTab("env")}>环境信息</button>
+    </div>
+
+    {activeTab === "app" && (
+      <form className="account-form settings-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <div className="panel-heading"><div><h2>应用设置</h2><span>保存到本地数据库</span></div><Settings2 size={16} /></div>
         <div className="form-body">
           {settingsRows.map((row) => <label key={row.key}>{row.label}<div className="setting-row"><input value={row.value} onChange={(event) => setSettings((current) => ({ ...current, [row.key]: event.target.value }))} placeholder={row.placeholder} />{row.key !== "gitPath" && <button type="button" className="button secondary compact-button" onClick={() => pickDirectory(row.key)}>选择</button>}</div><small className="setting-hint">{row.hint}</small></label>)}
           <label>备份排除规则<textarea className="commit-message" value={settings.backupExcludePatterns} onChange={(event) => setSettings((current) => ({ ...current, backupExcludePatterns: event.target.value }))} placeholder="每行一个，如 node_modules  dist .next（备份时排除的相对路径）" rows={3} /></label>
-          <div className="setting-section-label"><Sparkles size={13} />AI 摘要服务（OpenAI 兼容）</div>
+          <button className="button primary form-submit" disabled={busy}>{busy ? "保存中..." : "保存设置"}</button>
+        </div>
+      </form>
+    )}
+
+    {activeTab === "ai" && (
+      <form className="account-form settings-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+        <div className="panel-heading"><div><h2>AI 摘要服务</h2><span>OpenAI 兼容接口</span></div><Sparkles size={16} /></div>
+        <div className="form-body">
           <label>API Key（安全存储）{hasAiKey || settings.aiApiKeyConfigured ? <span className="status-pill status-clean setting-value"><span className="status-dot" />已配置</span> : <span className="status-pill status-behind setting-value"><span className="status-dot" />未配置</span>}<div className="secret-input"><input type="password" value={aiKeyInput} onChange={(event) => setAiKeyInput(event.target.value)} placeholder={hasAiKey || settings.aiApiKeyConfigured ? "输入新 Key 可覆盖，或留空保留" : "输入 API Key"} /><button type="button" onClick={removeAiKey} disabled={!hasAiKey && !settings.aiApiKeyConfigured}>清除</button></div><small className="setting-hint">Key 存入 Windows 凭据管理器，不写入 SQLite；也可用环境变量 GITOOL_AI_API_KEY</small></label>
           <label>模型<input value={settings.aiModel} onChange={(event) => setSettings((current) => ({ ...current, aiModel: event.target.value }))} placeholder="例如 gpt-3.5-turbo / deepseek-chat" /></label>
           <label>接口地址（Base URL）<input value={settings.aiBaseUrl} onChange={(event) => setSettings((current) => ({ ...current, aiBaseUrl: event.target.value }))} placeholder="例如 https://api.openai.com/v1（可空）" /></label>
-                    <button className="button primary form-submit" disabled={busy}>保存设置</button>
+          <button className="button primary form-submit" disabled={busy}>{busy ? "保存中..." : "保存设置"}</button>
         </div>
       </form>
-      <section className="account-list-panel">
+    )}
+
+    {activeTab === "env" && (
+      <section className="account-list-panel settings-form">
         <div className="panel-heading"><div><h2>环境信息</h2><span>本地运行环境</span></div><span className="secure-label"><ShieldCheck size={13} />安全</span></div>
         <div className="form-body">
           <label>Git 可用性<span className="status-pill status-clean setting-value"><span className="status-dot" />{environment?.git_available ? "可用" : "不可用"}</span></label>
@@ -2494,7 +2638,7 @@ function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | n
           <label>数据目录<div className="setting-value mono">%APPDATA%\Gitool</div></label>
         </div>
       </section>
-    </div>
+    )}
   </div>;
 }
 

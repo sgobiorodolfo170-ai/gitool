@@ -23,6 +23,7 @@ import type {
   OperationRecord,
   Project,
   RemoteRepositoryWriteInput,
+  RemoteRepositorySearchInput,
   RenameWorkspaceInput,
   RevertCommitInput,
   SetRemoteUrlInput,
@@ -67,6 +68,7 @@ import {
   createRemoteRepository,
   deleteRemoteRepository,
   loadRemoteRepositories,
+  searchRemoteRepositories,
   testAccount,
   updateRemoteRepository,
 } from "./services/providers";
@@ -257,6 +259,10 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
       requireString(repositoryId, "仓库 ID"),
     ),
   );
+  ipcMain.handle("remoteRepositories:search", (_event, input: unknown) => {
+    const { provider, query } = requireRemoteRepositorySearchInput(input);
+    return searchRemoteRepositories(provider, query);
+  });
 
   ipcMain.handle("tasks:listProfiles", () => listTaskProfiles());
   ipcMain.handle("tasks:saveProfile", (_event, input: unknown) =>
@@ -733,6 +739,21 @@ function requireRevertCommitInput(value: unknown): RevertCommitInput {
   return {
     path: requireString(candidate.path, "项目路径"),
     hash: requireString(candidate.hash, "提交哈希"),
+  };
+}
+
+function requireRemoteRepositorySearchInput(value: unknown): RemoteRepositorySearchInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("搜索参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  const provider = candidate.provider;
+  if (provider !== "github" && provider !== "gitee") {
+    throw new Error("仅支持搜索 GitHub 与 Gitee 平台");
+  }
+  return {
+    provider,
+    query: requireString(candidate.query, "搜索关键词"),
   };
 }
 

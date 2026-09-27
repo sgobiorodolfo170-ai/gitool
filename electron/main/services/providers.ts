@@ -7,7 +7,7 @@ import type {
   RemoteRepositoryWriteInput,
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
-import { getAccount, updateAccount } from "./storage";
+import { getAccount, loadAccounts, updateAccount } from "./storage";
 
 type ProviderEndpoint = {
   url: string;
@@ -115,8 +115,71 @@ export async function loadRemoteRepositories(accountId: string): Promise<RemoteR
   }
 
   return payload
-    .map((item) => parseRepository(account, item))
+    .map((item) => parseRepository(account.provider, account.id, item))
     .filter((repository): repository is RemoteRepository => repository !== null);
+}
+
+export async function searchRemoteRepositories(
+  provider: "github" | "gitee",
+  query: string,
+): Promise<RemoteRepository[]> {
+  const account = loadAccounts().find((item) => item.provider === provider) ?? null;
+  const token = account ? readCredential(account.credentialRef) : "";
+  const endpoint = getSearchEndpoint(provider, query);
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint.url, {
+      headers: {
+        Accept: "application/json",
+        ...(token.length > 0 ? { [endpoint.header]: `${endpoint.prefix}${token}` } : {}),
+      },
+    });
+  } catch (error) {
+    throw new Error(`搜索远程仓库失败：${errorMessage(error)}`);
+  }
+
+  if (!response.ok) {
+    const hint = token.length === 0 ? "（未配置账号，建议先在「账号与令牌」添加该平台账号）" : "";
+    throw new Error(`平台返回 HTTP ${response.status}${hint}`);
+  }
+
+  const payload: unknown = await response.json().catch(() => null);
+  return extractSearchItems(payload)
+    .map((item) => parseRepository(provider, account?.id ?? "", item))
+    .filter((repository): repository is RemoteRepository => repository !== null);
+}
+
+function getSearchEndpoint(provider: "github" | "gitee", query: string): ProviderEndpoint {
+  const q = encodeURIComponent(query);
+  if (provider === "github") {
+    return {
+      url: `https://api.github.com/search/repositories?q=${q}&per_page=20&sort=stars&order=desc`,
+      header: "Authorization",
+      prefix: "Bearer ",
+    };
+  }
+  return {
+    url: `https://gitee.com/api/v5/search/repositories?q=${q}&per_page=20`,
+    header: "Authorization",
+    prefix: "token ",
+  };
+}
+
+function extractSearchItems(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (typeof payload === "object" && payload !== null) {
+    const value = payload as Record<string, unknown>;
+    if (Array.isArray(value.items)) {
+      return value.items;
+    }
+    if (Array.isArray(value.repositories)) {
+      return value.repositories;
+    }
+  }
+  return [];
 }
 
 export async function createRemoteRepository(
@@ -147,7 +210,7 @@ export async function createRemoteRepository(
     const detail = payload ? extractErrorMessage(payload) : `平台返回 HTTP ${response.status}`;
     throw new Error(`创建远程仓库失败：${detail}`);
   }
-  const repository = parseRepository(account, payload);
+  const repository = parseRepository(account.provider, account.id, payload);
   return {
     success: true,
     message: `远程仓库 ${repository?.fullName ?? input.name} 创建成功`,
@@ -192,7 +255,7 @@ export async function updateRemoteRepository(
     const detail = payload ? extractErrorMessage(payload) : `平台返回 HTTP ${response.status}`;
     throw new Error(`修改远程仓库失败：${detail}`);
   }
-  const repository = parseRepository(account, payload);
+  const repository = parseRepository(account.provider, account.id, payload);
   return {
     success: true,
     message: `远程仓库 ${repository?.fullName ?? current.fullName} 已更新`,
@@ -258,7 +321,7 @@ async function findRepository(
     return null;
   }
   return payload
-    .map((item) => parseRepository(account, item))
+    .map((item) => parseRepository(account.provider, account.id, item))
     .find((repository) => repository !== null && repository.id === repositoryId) ?? null;
 }
 
@@ -383,7 +446,12 @@ function extractErrorMessage(payload: unknown): string {
   return "未知错误";
 }
 
-function parseRepository(account: Account, item: unknown): RemoteRepository | null {  if (typeof item !== "object" || item === null) {
+function parseRepository(
+  provider: RemoteProvider,
+  accountId: string,
+  item: unknown,
+): RemoteRepository | null {
+  if (typeof item !== "object" || item === null) {
     return null;
   }
   const value = item as Record<string, unknown>;
@@ -407,9 +475,9 @@ function parseRepository(account: Account, item: unknown): RemoteRepository | nu
     firstString(value, ["full_name", "path_with_namespace"]) ?? `${owner ?? ""}/${name}`;
 
   return {
-    id: value.id === undefined ? `${account.id}-${name}` : String(value.id),
-    accountId: account.id,
-    provider: account.provider,
+    id: value.id === undefined ? `${accountId}-${name}` : String(value.id),
+    accountId,
+    provider,
     owner: owner ?? namespace ?? "",
     name,
     fullName,

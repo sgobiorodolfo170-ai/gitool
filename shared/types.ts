@@ -221,6 +221,11 @@ export type RemoteRepositoryWriteInput = {
   init: boolean;
 };
 
+export type RemoteRepositorySearchInput = {
+  provider: "github" | "gitee";
+  query: string;
+};
+
 export type RemoteRepositoryMutationResult = {
   success: boolean;
   message: string;
@@ -419,6 +424,7 @@ export type DesktopBridge = {
   testAccount(accountId: string): Promise<AccountTestResult>;
   deleteAccount(accountId: string): Promise<void>;
   loadRemoteRepositories(accountId: string): Promise<RemoteRepository[]>;
+  searchRemoteRepositories(input: RemoteRepositorySearchInput): Promise<RemoteRepository[]>;
   createRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
   updateRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
   deleteRemoteRepository(accountId: string, repositoryId: string): Promise<RemoteRepositoryMutationResult>;
