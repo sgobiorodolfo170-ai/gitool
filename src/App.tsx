@@ -1387,6 +1387,8 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
   const [compareHead, setCompareHead] = useState("");
   const [compareResult, setCompareResult] = useState<{ changedFiles: string[]; insertions: number; deletions: number; output: string } | null>(null);
   const [timelineMode, setTimelineMode] = useState(false);
+  const [allBranches, setAllBranches] = useState<BranchInfo[]>([]);
+  const [allTags, setAllTags] = useState<GitTag[]>([]);
 
   const bridge = getDesktopBridge();
 
@@ -1446,6 +1448,18 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
       setTags([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadVersions = async () => {
+    if (!bridge) return;
+    try {
+      const versions = await bridge.listVersions(projectPath);
+      setAllBranches(versions.branches);
+      setAllTags(versions.tags);
+    } catch {
+      setAllBranches([]);
+      setAllTags([]);
     }
   };
 
@@ -1510,7 +1524,10 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
   const refreshActive = () => {
     if (tab === "changes") void loadChangedFiles();
     if (tab === "branches") void loadBranches();
-    if (tab === "history") void loadHistory();
+    if (tab === "history") {
+      void loadHistory();
+      void loadVersions();
+    }
     if (tab === "tags") void loadTags();
   };
 
@@ -1677,10 +1694,20 @@ function GitActionsPanel({ projectPath }: { projectPath: string }) {
       <div className="history-toolbar"><button className={`bare-button history-toggle ${timelineMode ? "active" : ""}`} onClick={() => setTimelineMode((value) => !value)}><GitCommitHorizontal size={12} />{timelineMode ? "列表" : "时间线"}</button></div>
       {history.length === 0 ? <div className="git-empty">{loading ? "正在读取提交历史..." : "还没有提交"}</div> : timelineMode ? renderTimeline(history, busy, revert) : <div className="history-list">{history.map((entry) => <div className="history-row" key={entry.hash}><div className="history-main"><div className="history-title"><strong>{entry.subject}</strong><code>{entry.shortHash}</code></div><small>{entry.author} · {formatCommitDate(entry.date)}</small></div><button className="bare-button" onClick={() => revert(entry.hash)} disabled={busy} title="生成反向提交">回退</button></div>)}</div>}
       <div className="compare-section">
-        <div className="compare-heading"><GitCommitHorizontal size={13} />版本对比</div>
+        <div className="compare-heading"><GitCommitHorizontal size={13} />版本对比（提交 / 分支 / 标签）</div>
         <div className="compare-inputs">
-          <select value={compareBase} onChange={(event) => setCompareBase(event.target.value)}><option value="">基线版本</option>{history.slice(0, 20).map((entry) => <option value={entry.hash} key={`b-${entry.hash}`}>{entry.shortHash} · {entry.subject.slice(0, 24)}</option>)}</select>
-          <select value={compareHead} onChange={(event) => setCompareHead(event.target.value)}><option value="">目标版本</option>{history.slice(0, 20).map((entry) => <option value={entry.hash} key={`h-${entry.hash}`}>{entry.shortHash} · {entry.subject.slice(0, 24)}</option>)}</select>
+          <select value={compareBase} onChange={(event) => setCompareBase(event.target.value)}>
+            <option value="">基线版本</option>
+            <optgroup label="分支">{allBranches.map((branch) => <option value={branch.name} key={`b-br-${branch.name}`}>{branch.name}</option>)}</optgroup>
+            <optgroup label="标签">{allTags.map((tag) => <option value={tag.name} key={`b-tg-${tag.name}`}>{tag.name}</option>)}</optgroup>
+            <optgroup label="提交">{history.slice(0, 20).map((entry) => <option value={entry.hash} key={`b-cm-${entry.hash}`}>{entry.shortHash} · {entry.subject.slice(0, 24)}</option>)}</optgroup>
+          </select>
+          <select value={compareHead} onChange={(event) => setCompareHead(event.target.value)}>
+            <option value="">目标版本</option>
+            <optgroup label="分支">{allBranches.map((branch) => <option value={branch.name} key={`h-br-${branch.name}`}>{branch.name}</option>)}</optgroup>
+            <optgroup label="标签">{allTags.map((tag) => <option value={tag.name} key={`h-tg-${tag.name}`}>{tag.name}</option>)}</optgroup>
+            <optgroup label="提交">{history.slice(0, 20).map((entry) => <option value={entry.hash} key={`h-cm-${entry.hash}`}>{entry.shortHash} · {entry.subject.slice(0, 24)}</option>)}</optgroup>
+          </select>
           <button className="button secondary compact-button" onClick={runCompare} disabled={busy || !compareBase || !compareHead}>{busy ? "对比中..." : "对比"}</button>
         </div>
         {compareResult && <div className="compare-result"><div className="compare-stats"><span>变更文件 {compareResult.changedFiles.length}</span><span className="compare-add">+{compareResult.insertions}</span><span className="compare-del">-{compareResult.deletions}</span></div>{compareResult.changedFiles.slice(0, 10).map((file) => <code key={file}>{file}</code>)}</div>}
