@@ -715,6 +715,7 @@ export function loadSettings(): AppSettings {
     defaultProjectDirectory: values.get("defaultProjectDirectory") ?? "",
     defaultBackupDirectory: values.get("defaultBackupDirectory") ?? "",
     backupExcludePatterns: values.get("backupExcludePatterns") ?? "",
+    defaultSearchAccountId: values.get("defaultSearchAccountId") ?? "",
     aiApiKeyConfigured: values.get("aiApiKeyConfigured") === "1",
     aiModel: values.get("aiModel") ?? "",
     aiBaseUrl: values.get("aiBaseUrl") ?? "",
@@ -733,6 +734,7 @@ export function saveSettings(settings: AppSettings): void {
     statement.run("defaultProjectDirectory", settings.defaultProjectDirectory);
     statement.run("defaultBackupDirectory", settings.defaultBackupDirectory);
     statement.run("backupExcludePatterns", settings.backupExcludePatterns);
+    statement.run("defaultSearchAccountId", settings.defaultSearchAccountId);
     statement.run("aiApiKeyConfigured", settings.aiApiKeyConfigured ? "1" : "0");
     statement.run("aiModel", settings.aiModel);
     statement.run("aiBaseUrl", settings.aiBaseUrl);

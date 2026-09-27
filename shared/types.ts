@@ -68,6 +68,7 @@ export type RemoteRepository = {
   defaultBranch: string;
   httpsUrl: string;
   sshUrl?: string;
+  webUrl?: string;
   archived: boolean;
   updatedAt: string;
 };
@@ -224,6 +225,7 @@ export type RemoteRepositoryWriteInput = {
 export type RemoteRepositorySearchInput = {
   provider: "github" | "gitee";
   query: string;
+  accountId?: string;
 };
 
 export type RemoteRepositoryMutationResult = {
@@ -305,6 +307,7 @@ export type AppSettings = {
   defaultProjectDirectory: string;
   defaultBackupDirectory: string;
   backupExcludePatterns: string;
+  defaultSearchAccountId: string;
   aiApiKeyConfigured: boolean;
   aiModel: string;
   aiBaseUrl: string;

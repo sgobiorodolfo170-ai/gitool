@@ -36,7 +36,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Account, AppView, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, WorkspaceEntity } from "./types";
+import type { Account, AppSettings, AppView, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, WorkspaceEntity } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 import { loadProjects, saveProjects } from "./lib/projects";
 import { DEFAULT_WORKSPACE_ID, createWorkspace as createWorkspaceLocal, deleteWorkspace as deleteWorkspaceLocal, listWorkspaces as listWorkspacesLocal, renameWorkspace as renameWorkspaceLocal } from "./lib/workspaces";
@@ -114,6 +114,7 @@ function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceEntity[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<ProjectFilter>("all");
   const [search, setSearch] = useState("");
@@ -155,9 +156,11 @@ function App() {
         bridge.listWorkspaces(),
         bridge.environment(),
         bridge.loadAccounts(),
-      ]).then(async ([loadedWorkspaces, environmentStatus, storedAccounts]) => {
+        bridge.loadSettings(),
+      ]).then(async ([loadedWorkspaces, environmentStatus, storedAccounts, storedSettings]) => {
         if (cancelled) return;
         setWorkspaces(loadedWorkspaces);
+        setAppSettings(storedSettings);
         const lastActive = window.localStorage.getItem(ACTIVE_WORKSPACE_KEY);
         const workspaceId = loadedWorkspaces.some((item) => item.id === lastActive)
           ? lastActive!
@@ -886,6 +889,7 @@ function App() {
               isImporting={isImporting}
               isRefreshing={isRefreshing}
               cloningRepositoryId={cloningRepositoryId}
+              defaultAccountId={appSettings?.defaultSearchAccountId ?? ""}
               onSelect={openProjectDetail}
               onRefresh={refreshProjects}
               onImport={importProject}
@@ -932,7 +936,7 @@ function App() {
           ) : workspace === "logs" ? (
             <LogsWorkspace />
           ) : workspace === "settings" ? (
-            <SettingsWorkspace environment={environment} />
+            <SettingsWorkspace environment={environment} accounts={accounts} onSettingsChange={(next) => setAppSettings(next)} />
           ) : (
             <ModuleWorkspace workspace={workspace} onImport={importProject} />
           )}
@@ -1119,13 +1123,49 @@ type ProjectsWorkspaceProps = {
   analysis: ProjectAnalysis | null;
 };
 
-function RemoteRepositorySearch({ onClone, cloningRepositoryId }: { onClone: (repository: RemoteRepository) => void | Promise<void>; cloningRepositoryId: string | null }) {
+const FAVORITE_REPOS_KEY = "gitool.favoriteRemoteRepositories";
+
+function RemoteRepositorySearch({ onClone, cloningRepositoryId, defaultAccountId }: { onClone: (repository: RemoteRepository) => void | Promise<void>; cloningRepositoryId: string | null; defaultAccountId: string }) {
   const bridge = getDesktopBridge();
   const [provider, setProvider] = useState<"github" | "gitee">("github");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<RemoteRepository[]>([]);
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem(FAVORITE_REPOS_KEY);
+      const parsed: unknown = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const favoriteKey = (repository: RemoteRepository) => `${repository.provider}:${repository.fullName}`;
+
+  const toggleFavorite = (repository: RemoteRepository, event: React.MouseEvent) => {
+    event.stopPropagation();
+    const key = favoriteKey(repository);
+    setFavorites((current) => {
+      const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key];
+      localStorage.setItem(FAVORITE_REPOS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const openRepository = (repository: RemoteRepository, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    const url = repository.webUrl || repository.httpsUrl;
+    if (!url) return;
+    if (!bridge) {
+      setNotice("浏览器预览不支持打开外部链接，请使用桌面版");
+      return;
+    }
+    void bridge.openExternal(url).catch((error) => {
+      setNotice(error instanceof Error ? error.message : "打开链接失败");
+    });
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1137,7 +1177,11 @@ function RemoteRepositorySearch({ onClone, cloningRepositoryId }: { onClone: (re
     setSearching(true);
     setNotice(null);
     try {
-      const found = await bridge.searchRemoteRepositories({ provider, query: query.trim() });
+      const found = await bridge.searchRemoteRepositories({
+        provider,
+        query: query.trim(),
+        accountId: defaultAccountId || undefined,
+      });
       setResults(found);
       if (found.length === 0) {
         setNotice("没有找到匹配的项目");
@@ -1151,7 +1195,7 @@ function RemoteRepositorySearch({ onClone, cloningRepositoryId }: { onClone: (re
 
   return (
     <section className="repo-search-panel">
-      <div className="panel-heading"><div><h2>远程项目搜索</h2><span>在 GitHub / Gitee 上检索开源项目</span></div><Github size={16} /></div>
+      <div className="panel-heading"><div><h2>远程项目搜索</h2><span>在 GitHub / Gitee 上检索开源项目，单击行打开项目网页</span></div><Github size={16} /></div>
       <form className="repo-search-bar" onSubmit={(event) => { void submit(event); }}>
         <select value={provider} onChange={(event) => setProvider(event.target.value as "github" | "gitee")} aria-label="平台">
           <option value="github">github</option>
@@ -1161,18 +1205,22 @@ function RemoteRepositorySearch({ onClone, cloningRepositoryId }: { onClone: (re
         <button className="button secondary compact-button" type="submit" disabled={searching || !query.trim()}><Search size={14} />{searching ? "搜索中..." : "搜索"}</button>
       </form>
       {notice && <div className="repo-search-notice">{notice}</div>}
-      {results.length > 0 && <div className="remote-list">{results.map((repository) => (
-        <div className="remote-row" key={repository.id}>
-          <div className="remote-main">
-            <div className="remote-title"><strong>{repository.fullName}</strong>{repository.visibility === "public" || repository.visibility === "unknown" ? <span className="status-pill status-clean"><span className="status-dot" />公开</span> : <span className="status-pill status-behind"><span className="status-dot" />私有</span>}</div>
-            <p>{repository.description || "（无描述）"}</p>
-            <div className="remote-meta"><span>{repository.provider === "github" ? <Github size={12} /> : <Cloud size={12} />}{repository.provider}</span><span>{repository.defaultBranch}</span>{repository.updatedAt && <span>{repository.updatedAt.slice(0, 10)}</span>}</div>
+      {results.length > 0 && <div className="remote-list">{results.map((repository) => {
+        const isFavorite = favorites.includes(favoriteKey(repository));
+        return (
+          <div className="remote-row repo-search-row" key={repository.id} onClick={(event) => openRepository(repository, event)}>
+            <div className="remote-main">
+              <div className="remote-title"><strong>{repository.fullName}</strong>{repository.visibility === "public" || repository.visibility === "unknown" ? <span className="status-pill status-clean"><span className="status-dot" />公开</span> : <span className="status-pill status-behind"><span className="status-dot" />私有</span>}</div>
+              <p>{repository.description || "（无描述）"}</p>
+              <div className="remote-meta"><span>{repository.provider === "github" ? <Github size={12} /> : <Cloud size={12} />}{repository.provider}</span><span>{repository.defaultBranch}</span>{repository.updatedAt && <span>{repository.updatedAt.slice(0, 10)}</span>}</div>
+            </div>
+            <div className="remote-actions">
+              <button className={`icon-button favorite-button ${isFavorite ? "active" : ""}`} onClick={(event) => toggleFavorite(repository, event)} aria-label={isFavorite ? "取消收藏" : "收藏项目"}><Star size={16} fill={isFavorite ? "currentColor" : "none"} /></button>
+              <button className="button secondary compact-button" onClick={(event) => { event.stopPropagation(); void onClone(repository); }} disabled={cloningRepositoryId !== null}><ArrowDownToLine size={13} />{cloningRepositoryId === repository.id ? "克隆中..." : "克隆"}</button>
+            </div>
           </div>
-          <div className="remote-actions">
-            <button className="button secondary compact-button" onClick={() => onClone(repository)} disabled={cloningRepositoryId !== null}><ArrowDownToLine size={13} />{cloningRepositoryId === repository.id ? "克隆中..." : "克隆"}</button>
-          </div>
-        </div>
-      ))}</div>}
+        );
+      })}</div>}
     </section>
   );
 }
@@ -1183,13 +1231,14 @@ type OverviewWorkspaceProps = {
   isImporting: boolean;
   isRefreshing: boolean;
   cloningRepositoryId: string | null;
+  defaultAccountId: string;
   onSelect: (id: string) => void;
   onRefresh: () => void | Promise<void>;
   onImport: () => void;
   onClone: (repository: RemoteRepository) => void | Promise<void>;
 };
 
-function OverviewWorkspace({ projects, selectedProject, isImporting, isRefreshing, cloningRepositoryId, onSelect, onRefresh, onImport, onClone }: OverviewWorkspaceProps) {
+function OverviewWorkspace({ projects, selectedProject, isImporting, isRefreshing, cloningRepositoryId, defaultAccountId, onSelect, onRefresh, onImport, onClone }: OverviewWorkspaceProps) {
   const attentionCount = projects.filter((project) => project.status !== "clean").length;
   const favoriteCount = projects.filter((project) => project.favorite).length;
   const providerCount = new Set(projects.map((project) => project.provider)).size;
@@ -1218,7 +1267,7 @@ function OverviewWorkspace({ projects, selectedProject, isImporting, isRefreshin
         <MetricCard label="连接平台" value={providerCount.toString()} detail="远程与本地" icon={<Cloud size={18} />} tone="blue" />
       </section>
 
-      <RemoteRepositorySearch onClone={onClone} cloningRepositoryId={cloningRepositoryId} />
+      <RemoteRepositorySearch onClone={onClone} cloningRepositoryId={cloningRepositoryId} defaultAccountId={defaultAccountId} />
 
       <AttentionPanel projects={projects} selectedId={selectedProject?.id} onSelect={onSelect} />
 
@@ -2539,9 +2588,9 @@ function LogsWorkspace() {
   </div>;
 }
 
-function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | null }) {
+function SettingsWorkspace({ environment, accounts, onSettingsChange }: { environment: EnvironmentStatus | null; accounts: Account[]; onSettingsChange: (settings: AppSettings) => void }) {
   const bridge = getDesktopBridge();
-  const [settings, setSettings] = useState<{ gitPath: string; defaultProjectDirectory: string; defaultBackupDirectory: string; backupExcludePatterns: string; aiApiKeyConfigured: boolean; aiModel: string; aiBaseUrl: string }>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "", backupExcludePatterns: "", aiApiKeyConfigured: false, aiModel: "", aiBaseUrl: "" });
+  const [settings, setSettings] = useState<AppSettings>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "", backupExcludePatterns: "", defaultSearchAccountId: "", aiApiKeyConfigured: false, aiModel: "", aiBaseUrl: "" });
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [aiKeyInput, setAiKeyInput] = useState("");
@@ -2571,6 +2620,7 @@ function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | n
         setAiKeyInput("");
       }
       await bridge.saveSettings({ ...settings, aiApiKeyConfigured: hasAiKey || Boolean(aiKeyInput.trim()) });
+      onSettingsChange({ ...settings, aiApiKeyConfigured: hasAiKey || Boolean(aiKeyInput.trim()) });
       setNotice("设置已保存");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "保存失败");
@@ -2609,6 +2659,7 @@ function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | n
       <form className="account-form settings-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <div className="panel-heading"><div><h2>应用设置</h2><span>保存到本地数据库</span></div><Settings2 size={16} /></div>
         <div className="form-body">
+          <label>默认搜索账号<select value={settings.defaultSearchAccountId} onChange={(event) => setSettings((current) => ({ ...current, defaultSearchAccountId: event.target.value }))}><option value="">自动选择</option>{accounts.map((account) => <option value={account.id} key={account.id}>{providerLabels[account.provider]} · {account.displayName}{account.username ? `（${account.username}）` : ""}</option>)}</select><small className="setting-hint">总览页的 GitHub / Gitee 项目搜索将优先使用该账号的令牌</small></label>
           {settingsRows.map((row) => <label key={row.key}>{row.label}<div className="setting-row"><input value={row.value} onChange={(event) => setSettings((current) => ({ ...current, [row.key]: event.target.value }))} placeholder={row.placeholder} />{row.key !== "gitPath" && <button type="button" className="button secondary compact-button" onClick={() => pickDirectory(row.key)}>选择</button>}</div><small className="setting-hint">{row.hint}</small></label>)}
           <label>备份排除规则<textarea className="commit-message" value={settings.backupExcludePatterns} onChange={(event) => setSettings((current) => ({ ...current, backupExcludePatterns: event.target.value }))} placeholder="每行一个，如 node_modules  dist .next（备份时排除的相对路径）" rows={3} /></label>
           <button className="button primary form-submit" disabled={busy}>{busy ? "保存中..." : "保存设置"}</button>

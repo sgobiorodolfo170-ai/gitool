@@ -122,8 +122,22 @@ export async function loadRemoteRepositories(accountId: string): Promise<RemoteR
 export async function searchRemoteRepositories(
   provider: "github" | "gitee",
   query: string,
+  accountId?: string,
 ): Promise<RemoteRepository[]> {
-  const account = loadAccounts().find((item) => item.provider === provider) ?? null;
+  let account: Account | null = null;
+  if (accountId) {
+    try {
+      const candidate = getAccount(accountId);
+      if (candidate.provider === provider) {
+        account = candidate;
+      }
+    } catch {
+      account = null;
+    }
+  }
+  if (!account) {
+    account = loadAccounts().find((item) => item.provider === provider) ?? null;
+  }
   const token = account ? readCredential(account.credentialRef) : "";
   const endpoint = getSearchEndpoint(provider, query);
 
@@ -486,6 +500,7 @@ function parseRepository(
     defaultBranch: firstString(value, ["default_branch"]) ?? "main",
     httpsUrl: firstString(value, ["clone_url", "http_url_to_repo", "html_url"]) ?? "",
     sshUrl: firstString(value, ["ssh_url", "ssh_url_to_repo"]) ?? undefined,
+    webUrl: firstString(value, ["html_url", "html_url_to_repo", "web_url"]) ?? undefined,
     archived: value.archived === true,
     updatedAt: firstString(value, ["updated_at", "last_activity_at"]) ?? "",
   };

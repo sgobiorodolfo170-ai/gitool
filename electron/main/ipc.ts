@@ -260,8 +260,8 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
     ),
   );
   ipcMain.handle("remoteRepositories:search", (_event, input: unknown) => {
-    const { provider, query } = requireRemoteRepositorySearchInput(input);
-    return searchRemoteRepositories(provider, query);
+    const { provider, query, accountId } = requireRemoteRepositorySearchInput(input);
+    return searchRemoteRepositories(provider, query, accountId);
   });
 
   ipcMain.handle("tasks:listProfiles", () => listTaskProfiles());
@@ -372,6 +372,7 @@ function requireAppSettings(value: unknown): AppSettings {
     defaultProjectDirectory: typeof candidate.defaultProjectDirectory === "string" ? candidate.defaultProjectDirectory : "",
     defaultBackupDirectory: typeof candidate.defaultBackupDirectory === "string" ? candidate.defaultBackupDirectory : "",
     backupExcludePatterns: typeof candidate.backupExcludePatterns === "string" ? candidate.backupExcludePatterns : "",
+    defaultSearchAccountId: typeof candidate.defaultSearchAccountId === "string" ? candidate.defaultSearchAccountId : "",
     aiApiKeyConfigured: candidate.aiApiKeyConfigured === true,
     aiModel: typeof candidate.aiModel === "string" ? candidate.aiModel : "",
     aiBaseUrl: typeof candidate.aiBaseUrl === "string" ? candidate.aiBaseUrl : "",
@@ -751,9 +752,14 @@ function requireRemoteRepositorySearchInput(value: unknown): RemoteRepositorySea
   if (provider !== "github" && provider !== "gitee") {
     throw new Error("仅支持搜索 GitHub 与 Gitee 平台");
   }
+  const accountId = candidate.accountId;
+  if (typeof accountId !== "undefined" && typeof accountId !== "string") {
+    throw new Error("账号标识格式不正确");
+  }
   return {
     provider,
     query: requireString(candidate.query, "搜索关键词"),
+    accountId: typeof accountId === "string" && accountId.length > 0 ? accountId : undefined,
   };
 }
 
