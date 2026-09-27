@@ -50,4 +50,4 @@
 ## 4. 建议优先级
 
 - **已全部完成** `docs/frontend-gaps.md` 所列 P0/P1/P2 功能。
-- **已知权衡**：AI API Key 目前存于 SQLite 设置表（functional），按 FR-705 应迁移到 Windows Credential Manager。
+- **✅ 已解决**：AI API Key 已迁移到 Windows Credential Manager（`ai:saveKey`/`deleteKey`/`hasKey`），不再存 SQLite；`openExternal` 已接入「在浏览器打开远程仓库页面」。
