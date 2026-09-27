@@ -1150,7 +1150,7 @@ function ProjectDetail({ project, onToggleFavorite, onUpdateProject, onMoveProje
         `共 ${analysis?.files ?? 0} 个文件、${analysis?.directories ?? 0} 个目录，磁盘约 ${formatBytes(disk)}。`,
       ].filter(Boolean).join("\n");
 
-      const aiConfigured = Boolean(settings?.aiApiKey);
+      const aiConfigured = Boolean(settings?.aiApiKeyConfigured);
       if (aiConfigured) {
         setActionMessage("正在调用 AI 服务生成摘要...");
         const aiResult = await bridge.generateAiSummary({ projectName: project.name, context });
@@ -1831,6 +1831,19 @@ function RemoteRepositoriesWorkspace({ accounts, repositories, selectedAccountId
     await navigator.clipboard.writeText(repository.httpsUrl);
   };
 
+  const openRepositoryPage = async (repository: RemoteRepository) => {
+    const bridge = getDesktopBridge();
+    if (!bridge) {
+      window.alert("浏览器预览无法打开外部链接");
+      return;
+    }
+    try {
+      await bridge.openExternal(repository.httpsUrl.replace(/\.git$/, ""));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "打开仓库页面失败");
+    }
+  };
+
   const openCreate = () => {
     if (!selectedAccountId) {
       window.alert("请先选择一个远程账号");
@@ -1893,7 +1906,7 @@ function RemoteRepositoriesWorkspace({ accounts, repositories, selectedAccountId
   return <div className="module-page remote-page">
     <div className="module-hero"><div className="module-icon"><Cloud size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />REMOTE HUB</div><h1>远程仓库</h1><p>从 GitHub、Gitee 和 GitLab 读取当前账号可访问的仓库。</p></div><div className="heading-actions"><button className="button secondary" onClick={onRefresh} disabled={isLoading || !selectedAccountId}><RefreshCw size={15} className={isLoading ? "spin" : ""} />{isLoading ? "同步中..." : "同步仓库"}</button><button className="button primary" onClick={openCreate} disabled={!selectedAccountId}><Plus size={16} />创建仓库</button></div></div>
     <div className="remote-toolbar"><label className="account-select"><span>远程账号</span><select value={selectedAccountId} onChange={(event) => onAccountChange(event.target.value)}><option value="">选择账号</option>{accounts.map((account) => <option value={account.id} key={account.id}>{account.displayName} · {remoteProviderLabels[account.provider]}</option>)}</select></label><label className="search-box remote-search"><Search size={16} /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="搜索仓库名称或描述" /></label></div>
-    <section className="remote-list-panel"><div className="panel-heading"><div><h2>{activeAccount ? `${activeAccount.displayName} 的仓库` : "远程仓库列表"}</h2><span>{filtered.length} 个结果</span></div>{activeAccount && <span className="provider-chip">{remoteProviderLabels[activeAccount.provider]}</span>}</div>{filtered.length ? <div className="remote-list">{filtered.map((repository) => <div className="remote-row" key={`${repository.accountId}-${repository.id}`}><div className={`account-provider-icon ${repository.provider}`}><span>{remoteProviderLabels[repository.provider].slice(0, 1)}</span></div><div className="remote-main"><div className="remote-title"><strong>{repository.fullName}</strong><span>{repository.visibility}</span>{repository.archived && <span>已归档</span>}</div><p>{repository.description || "暂无仓库描述"}</p><div className="remote-meta"><span><GitBranch size={12} />{repository.defaultBranch}</span><code>{repository.httpsUrl}</code></div>{cloningRepositoryId === repository.id && cloneProgress && <div className="clone-progress"><div className="clone-progress-bar" style={{ width: `${cloneProgress.percent}%` }} /><span>{cloneProgress.phase} {cloneProgress.percent}%</span></div>}</div><div className="remote-actions"><button className="button secondary compact-button" onClick={() => copyCloneUrl(repository)}>复制地址</button><button className="button secondary compact-button" onClick={() => openEdit(repository)}><Settings2 size={13} />编辑</button><button className="icon-button danger" onClick={() => deleteRepository(repository)} aria-label="删除仓库" title="删除仓库"><Trash2 size={16} /></button><button className="icon-button" aria-label="克隆仓库" title="克隆仓库" onClick={() => onClone(repository)} disabled={cloningRepositoryId !== null && cloningRepositoryId !== repository.id}>{cloningRepositoryId === repository.id ? <RefreshCw size={16} className="spin" /> : <ArrowDownToLine size={16} />}</button></div></div>)}</div> : <div className="accounts-empty"><Cloud size={22} /><strong>{accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}</strong><span>{accounts.length ? "选择账号后点击同步仓库。" : "账号令牌将由 Windows 凭据管理器保护。"}</span></div>}</section>
+    <section className="remote-list-panel"><div className="panel-heading"><div><h2>{activeAccount ? `${activeAccount.displayName} 的仓库` : "远程仓库列表"}</h2><span>{filtered.length} 个结果</span></div>{activeAccount && <span className="provider-chip">{remoteProviderLabels[activeAccount.provider]}</span>}</div>{filtered.length ? <div className="remote-list">{filtered.map((repository) => <div className="remote-row" key={`${repository.accountId}-${repository.id}`}><div className={`account-provider-icon ${repository.provider}`}><span>{remoteProviderLabels[repository.provider].slice(0, 1)}</span></div><div className="remote-main"><div className="remote-title"><strong>{repository.fullName}</strong><span>{repository.visibility}</span>{repository.archived && <span>已归档</span>}</div><p>{repository.description || "暂无仓库描述"}</p><div className="remote-meta"><span><GitBranch size={12} />{repository.defaultBranch}</span><code>{repository.httpsUrl}</code></div>{cloningRepositoryId === repository.id && cloneProgress && <div className="clone-progress"><div className="clone-progress-bar" style={{ width: `${cloneProgress.percent}%` }} /><span>{cloneProgress.phase} {cloneProgress.percent}%</span></div>}</div><div className="remote-actions"><button className="icon-button" onClick={() => openRepositoryPage(repository)} aria-label="打开仓库页面" title="在浏览器打开"><ExternalLink size={15} /></button><button className="button secondary compact-button" onClick={() => copyCloneUrl(repository)}>复制地址</button><button className="button secondary compact-button" onClick={() => openEdit(repository)}><Settings2 size={13} />编辑</button><button className="icon-button danger" onClick={() => deleteRepository(repository)} aria-label="删除仓库" title="删除仓库"><Trash2 size={16} /></button><button className="icon-button" aria-label="克隆仓库" title="克隆仓库" onClick={() => onClone(repository)} disabled={cloningRepositoryId !== null && cloningRepositoryId !== repository.id}>{cloningRepositoryId === repository.id ? <RefreshCw size={16} className="spin" /> : <ArrowDownToLine size={16} />}</button></div></div>)}</div> : <div className="accounts-empty"><Cloud size={22} /><strong>{accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}</strong><span>{accounts.length ? "选择账号后点击同步仓库。" : "账号令牌将由 Windows 凭据管理器保护。"}</span></div>}</section>
   {formState && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setFormState(null); }}>
       <div className="modal-panel" role="dialog" aria-modal="true">
         <form onSubmit={submitForm}>
@@ -2197,13 +2210,16 @@ function LogsWorkspace() {
 
 function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | null }) {
   const bridge = getDesktopBridge();
-  const [settings, setSettings] = useState<{ gitPath: string; defaultProjectDirectory: string; defaultBackupDirectory: string; backupExcludePatterns: string; aiApiKey: string; aiModel: string; aiBaseUrl: string }>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "", backupExcludePatterns: "", aiApiKey: "", aiModel: "", aiBaseUrl: "" });
+  const [settings, setSettings] = useState<{ gitPath: string; defaultProjectDirectory: string; defaultBackupDirectory: string; backupExcludePatterns: string; aiApiKeyConfigured: boolean; aiModel: string; aiBaseUrl: string }>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "", backupExcludePatterns: "", aiApiKeyConfigured: false, aiModel: "", aiBaseUrl: "" });
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [aiKeyInput, setAiKeyInput] = useState("");
+  const [hasAiKey, setHasAiKey] = useState(false);
 
   const load = async () => {
     if (!bridge) return;
     setSettings(await bridge.loadSettings());
+    setHasAiKey(await bridge.hasAiApiKey().catch(() => false));
   };
 
   useEffect(() => { void load(); }, []);
@@ -2218,13 +2234,27 @@ function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | n
     if (!bridge) return;
     setBusy(true);
     try {
-      await bridge.saveSettings(settings);
+      if (aiKeyInput.trim()) {
+        await bridge.saveAiApiKey(aiKeyInput.trim());
+        setHasAiKey(true);
+        setAiKeyInput("");
+      }
+      await bridge.saveSettings({ ...settings, aiApiKeyConfigured: hasAiKey || Boolean(aiKeyInput.trim()) });
       setNotice("设置已保存");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "保存失败");
     } finally {
       setBusy(false);
     }
+  };
+
+  const removeAiKey = async () => {
+    if (!bridge) return;
+    if (!window.confirm("删除已保存的 AI API Key？")) return;
+    await bridge.deleteAiApiKey();
+    setHasAiKey(false);
+    setSettings((current) => ({ ...current, aiApiKeyConfigured: false }));
+    setNotice("AI API Key 已从凭据管理器删除");
   };
 
   const settingsRows = [
@@ -2243,7 +2273,7 @@ function SettingsWorkspace({ environment }: { environment: EnvironmentStatus | n
           {settingsRows.map((row) => <label key={row.key}>{row.label}<div className="setting-row"><input value={row.value} onChange={(event) => setSettings((current) => ({ ...current, [row.key]: event.target.value }))} placeholder={row.placeholder} />{row.key !== "gitPath" && <button type="button" className="button secondary compact-button" onClick={() => pickDirectory(row.key)}>选择</button>}</div><small className="setting-hint">{row.hint}</small></label>)}
           <label>备份排除规则<textarea className="commit-message" value={settings.backupExcludePatterns} onChange={(event) => setSettings((current) => ({ ...current, backupExcludePatterns: event.target.value }))} placeholder="每行一个，如 node_modules  dist .next（备份时排除的相对路径）" rows={3} /></label>
           <div className="setting-section-label"><Sparkles size={13} />AI 摘要服务（OpenAI 兼容）</div>
-          <label>API Key<input type="password" value={settings.aiApiKey} onChange={(event) => setSettings((current) => ({ ...current, aiApiKey: event.target.value }))} placeholder="或设置环境变量 GITOOL_AI_API_KEY" /></label>
+          <label>API Key（安全存储）{hasAiKey || settings.aiApiKeyConfigured ? <span className="status-pill status-clean setting-value"><span className="status-dot" />已配置</span> : <span className="status-pill status-behind setting-value"><span className="status-dot" />未配置</span>}<div className="secret-input"><input type="password" value={aiKeyInput} onChange={(event) => setAiKeyInput(event.target.value)} placeholder={hasAiKey || settings.aiApiKeyConfigured ? "输入新 Key 可覆盖，或留空保留" : "输入 API Key"} /><button type="button" onClick={removeAiKey} disabled={!hasAiKey && !settings.aiApiKeyConfigured}>清除</button></div><small className="setting-hint">Key 存入 Windows 凭据管理器，不写入 SQLite；也可用环境变量 GITOOL_AI_API_KEY</small></label>
           <label>模型<input value={settings.aiModel} onChange={(event) => setSettings((current) => ({ ...current, aiModel: event.target.value }))} placeholder="例如 gpt-3.5-turbo / deepseek-chat" /></label>
           <label>接口地址（Base URL）<input value={settings.aiBaseUrl} onChange={(event) => setSettings((current) => ({ ...current, aiBaseUrl: event.target.value }))} placeholder="例如 https://api.openai.com/v1（可空）" /></label>
                     <button className="button primary form-submit" disabled={busy}>保存设置</button>

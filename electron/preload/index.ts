@@ -121,6 +121,9 @@ const bridge: DesktopBridge = {
   listVersions: (path) => invoke<ListVersionsResult>("git:listVersions", path),
   compareVersions: (input) => invoke<CompareResult>("git:compareVersions", input),
   generateAiSummary: (input) => invoke<AiSummaryResult>("ai:generateSummary", input),
+  saveAiApiKey: (secret) => invoke<void>("ai:saveKey", secret),
+  deleteAiApiKey: () => invoke<void>("ai:deleteKey"),
+  hasAiApiKey: () => invoke<boolean>("ai:hasKey"),
 };
 
 contextBridge.exposeInMainWorld("gitool", bridge);

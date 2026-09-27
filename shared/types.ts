@@ -284,7 +284,7 @@ export type AppSettings = {
   defaultProjectDirectory: string;
   defaultBackupDirectory: string;
   backupExcludePatterns: string;
-  aiApiKey: string;
+  aiApiKeyConfigured: boolean;
   aiModel: string;
   aiBaseUrl: string;
 };
@@ -428,4 +428,7 @@ export type DesktopBridge = {
   listVersions(path: string): Promise<ListVersionsResult>;
   compareVersions(input: CompareRequest): Promise<CompareResult>;
   generateAiSummary(input: AiSummaryRequest): Promise<AiSummaryResult>;
+  saveAiApiKey(secret: string): Promise<void>;
+  deleteAiApiKey(): Promise<void>;
+  hasAiApiKey(): Promise<boolean>;
 };

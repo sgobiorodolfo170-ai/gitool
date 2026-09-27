@@ -1,10 +1,13 @@
 import type { AiSummaryRequest, AiSummaryResult } from "../../../shared/types";
+import { deleteCredential, readCredential, saveCredential } from "./credentials";
 import { loadSettings } from "./storage";
+
+const AI_CREDENTIAL_REF = "ai-api-key";
 
 export async function generateAiSummary(input: AiSummaryRequest): Promise<AiSummaryResult> {
   const settings = loadSettings();
   const baseUrl = (settings.aiBaseUrl || "https://api.openai.com/v1").trim().replace(/\/+$/, "");
-  const apiKey = settings.aiApiKey || (process.env.GITOOL_AI_API_KEY ?? "");
+  const apiKey = readStoredApiKey();
   const model = settings.aiModel || "gpt-3.5-turbo";
 
   if (!apiKey) {
@@ -61,6 +64,33 @@ export async function generateAiSummary(input: AiSummaryRequest): Promise<AiSumm
     return { success: false, summary: "", error: "AI 服务响应解析失败" };
   }
   return { success: true, summary: content.trim() };
+}
+
+export function readStoredApiKey(): string {
+  const fromEnv = process.env.GITOOL_AI_API_KEY;
+  if (fromEnv && fromEnv.length > 0) {
+    return fromEnv;
+  }
+  try {
+    return readCredential(AI_CREDENTIAL_REF);
+  } catch {
+    return "";
+  }
+}
+
+export function saveAiApiKey(secret: string): void {
+  if (!secret || secret.trim().length === 0) {
+    throw new Error("AI API Key 不能为空");
+  }
+  saveCredential(AI_CREDENTIAL_REF, secret.trim());
+}
+
+export function deleteAiApiKey(): void {
+  deleteCredential(AI_CREDENTIAL_REF);
+}
+
+export function hasStoredApiKey(): boolean {
+  return readStoredApiKey().length > 0;
 }
 
 function extractContent(payload: Record<string, unknown> | null): string | null {

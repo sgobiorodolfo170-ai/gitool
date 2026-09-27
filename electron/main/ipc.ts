@@ -29,7 +29,7 @@ import type {
   TaskRun,
 } from "../../shared/types";
 import { analyzeProject } from "./services/analysis";
-import { generateAiSummary } from "./services/ai";
+import { deleteAiApiKey, generateAiSummary, hasStoredApiKey, saveAiApiKey } from "./services/ai";
 import { createBackup, restoreBackup } from "./services/backups";
 import { openInEditor, openInTerminal } from "./services/openers";
 import {
@@ -290,6 +290,13 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   ipcMain.handle("ai:generateSummary", (_event, input: unknown) =>
     generateAiSummary(requireAiSummaryRequest(input)),
   );
+  ipcMain.handle("ai:saveKey", (_event, secret: unknown) => {
+    saveAiApiKey(requireString(secret, "AI API Key"));
+  });
+  ipcMain.handle("ai:deleteKey", () => {
+    deleteAiApiKey();
+  });
+  ipcMain.handle("ai:hasKey", () => hasStoredApiKey());
 }
 
 async function recordGitOperation(projectPath: unknown, operation: unknown): Promise<GitOperationResult> {
@@ -340,7 +347,7 @@ function requireAppSettings(value: unknown): AppSettings {
     defaultProjectDirectory: typeof candidate.defaultProjectDirectory === "string" ? candidate.defaultProjectDirectory : "",
     defaultBackupDirectory: typeof candidate.defaultBackupDirectory === "string" ? candidate.defaultBackupDirectory : "",
     backupExcludePatterns: typeof candidate.backupExcludePatterns === "string" ? candidate.backupExcludePatterns : "",
-    aiApiKey: typeof candidate.aiApiKey === "string" ? candidate.aiApiKey : "",
+    aiApiKeyConfigured: candidate.aiApiKeyConfigured === true,
     aiModel: typeof candidate.aiModel === "string" ? candidate.aiModel : "",
     aiBaseUrl: typeof candidate.aiBaseUrl === "string" ? candidate.aiBaseUrl : "",
   };
