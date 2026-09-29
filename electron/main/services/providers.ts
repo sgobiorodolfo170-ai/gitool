@@ -7,7 +7,13 @@ import type {
   RemoteRepositoryWriteInput,
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
-import { getAccount, loadAccounts, updateAccount } from "./storage";
+import {
+  getAccount,
+  loadAccounts,
+  loadRemoteRepositoryCache,
+  saveRemoteRepositoryCache,
+  updateAccount,
+} from "./storage";
 
 type ProviderEndpoint = {
   url: string;
@@ -93,6 +99,32 @@ export async function loadRemoteRepositories(accountId: string): Promise<RemoteR
   const token = readCredential(account.credentialRef);
   const endpoint = REPOSITORY_ENDPOINTS[account.provider];
 
+  let repositories: RemoteRepository[] | null = null;
+  try {
+    repositories = await fetchRemoteRepositories(account, token, endpoint);
+  } catch (error) {
+    const cached = loadRemoteRepositoryCache(accountId);
+    if (cached && cached.length > 0) {
+      throw new Error(`${errorMessage(error)}（已加载本地缓存的 ${cached.length} 个仓库）`);
+    }
+    throw error;
+  }
+
+  if (repositories) {
+    saveRemoteRepositoryCache(accountId, account.provider, repositories);
+  }
+  return repositories ?? loadRemoteRepositoryCache(accountId) ?? [];
+}
+
+export async function loadCachedRemoteRepositories(accountId: string): Promise<RemoteRepository[]> {
+  return loadRemoteRepositoryCache(accountId) ?? [];
+}
+
+async function fetchRemoteRepositories(
+  account: Account,
+  token: string,
+  endpoint: ProviderEndpoint,
+): Promise<RemoteRepository[]> {
   const repositories: RemoteRepository[] = [];
   let pageUrl: string | null = endpoint.url;
 

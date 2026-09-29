@@ -440,6 +440,8 @@ export type DesktopBridge = {
   testAccount(accountId: string): Promise<AccountTestResult>;
   deleteAccount(accountId: string): Promise<void>;
   loadRemoteRepositories(accountId: string): Promise<RemoteRepository[]>;
+  loadCachedRemoteRepositories(accountId: string): Promise<RemoteRepository[]>;
+  getRemoteRepositoryCacheMeta(accountId: string): Promise<{ syncedAt: string } | null>;
   searchRemoteRepositories(input: RemoteRepositorySearchInput): Promise<RemoteRepository[]>;
   createRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
   updateRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;

@@ -68,6 +68,7 @@ import {
 import {
   createRemoteRepository,
   deleteRemoteRepository,
+  loadCachedRemoteRepositories,
   loadRemoteRepositories,
   searchRemoteRepositories,
   testAccount,
@@ -78,6 +79,7 @@ import {
   createWorkspace,
   deleteAccount,
   deleteWorkspace,
+  getRemoteRepositoryCacheMeta,
   listWorkspaces,
   loadAccounts,
   loadProjects,
@@ -250,6 +252,12 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   );
   ipcMain.handle("remoteRepositories:load", (_event, accountId: unknown) =>
     loadRemoteRepositories(requireString(accountId, "账号 ID")),
+  );
+  ipcMain.handle("remoteRepositories:loadCached", (_event, accountId: unknown) =>
+    loadCachedRemoteRepositories(requireString(accountId, "账号 ID")),
+  );
+  ipcMain.handle("remoteRepositories:cacheMeta", (_event, accountId: unknown) =>
+    getRemoteRepositoryCacheMeta(requireString(accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:create", (_event, input: unknown) =>
     createRemoteRepository(requireRemoteRepositoryWriteInput(input)),
