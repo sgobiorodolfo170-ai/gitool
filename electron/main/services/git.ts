@@ -231,11 +231,14 @@ export async function compareVersions(input: CompareRequest): Promise<CompareRes
   if (!base || !head) {
     throw new Error("请提供对比的基线版本和目标版本");
   }
-  const result = await runGitProcess(input.path, ["diff", "--stat", base + ".." + head]);
-  if (!result.success) {
-    throw new Error(result.output || "对比失败");
+  const [statResult, numStatResult] = await Promise.all([
+    runGitProcess(input.path, ["diff", "--stat", `${base}..${head}`]),
+    runGitProcess(input.path, ["diff", "--numstat", `${base}..${head}`]),
+  ]);
+  if (!statResult.success) {
+    throw new Error(statResult.output || "对比失败");
   }
-  const stat = result.output.trim();
+  const stat = statResult.output.trim();
 
   const changedFiles = stat
     .split(/\r?\n/)
@@ -243,11 +246,10 @@ export async function compareVersions(input: CompareRequest): Promise<CompareRes
     .map((line) => line.split("|")[0].trim())
     .filter(Boolean);
 
-  const numStat = await runGitProcess(input.path, ["diff", "--numstat", base + ".." + head]);
   let insertions = 0;
   let deletions = 0;
-  if (numStat.success) {
-    for (const line of numStat.output.split(/\r?\n/)) {
+  if (numStatResult.success) {
+    for (const line of numStatResult.output.split(/\r?\n/)) {
       const parts = line.split("\t");
       if (parts.length >= 2) {
         const added = Number(parts[0]);
@@ -270,10 +272,12 @@ export async function compareVersions(input: CompareRequest): Promise<CompareRes
 export async function getProjectSnapshot(projectPath: string): Promise<GitSnapshot> {
   assertDirectory(projectPath);
 
-  const branchOutput = await runGit(projectPath, ["branch", "--show-current"]);
+  const [branchOutput, statusOutput] = await Promise.all([
+    runGit(projectPath, ["branch", "--show-current"]),
+    runGit(projectPath, ["status", "--porcelain=v1", "--branch"]),
+  ]);
   const branch = branchOutput.length > 0 ? branchOutput : "HEAD detached";
 
-  const statusOutput = await runGit(projectPath, ["status", "--porcelain=v1", "--branch"]);
   const lines = statusOutput.split(/\r?\n/).filter((line) => line.length > 0);
   const branchLine = lines[0] ?? "";
   const changedFiles = lines.slice(1).length;
@@ -309,11 +313,13 @@ export async function getProjectSnapshot(projectPath: string): Promise<GitSnapsh
     }
   }
 
-  const commit = await runGit(projectPath, ["rev-parse", "--short", "HEAD"]).catch(() => "无提交");
-  const files = await runGit(projectPath, ["ls-files", "-co", "--exclude-standard"])
-    .then((output) => output.split(/\r?\n/).filter((line) => line.length > 0).length)
-    .catch(() => 0);
-  const updatedAt = await runGit(projectPath, ["log", "-1", "--format=%cs"]).catch(() => "未提交");
+  const [commit, files, updatedAt] = await Promise.all([
+    runGit(projectPath, ["rev-parse", "--short", "HEAD"]).catch(() => "无提交"),
+    runGit(projectPath, ["ls-files", "-co", "--exclude-standard"])
+      .then((output) => output.split(/\r?\n/).filter((line) => line.length > 0).length)
+      .catch(() => 0),
+    runGit(projectPath, ["log", "-1", "--format=%cs"]).catch(() => "未提交"),
+  ]);
 
   return {
     branch,
@@ -734,14 +740,31 @@ function bracketValue(branchLine: string, key: string): string | null {
   return value.length > 0 ? value : null;
 }
 
+const diskSizeCache = new Map<string, { value: number; at: number }>();
+const DISK_SIZE_CACHE_TTL_MS = 60 * 1000;
+
 export async function getDiskSize(projectPath: string): Promise<number> {
   assertDirectory(projectPath);
+  const cached = diskSizeCache.get(projectPath);
+  if (cached && Date.now() - cached.at < DISK_SIZE_CACHE_TTL_MS) {
+    return cached.value;
+  }
+  const size = await computeDiskSize(projectPath);
+  diskSizeCache.set(projectPath, { value: size, at: Date.now() });
+  return size;
+}
+
+export function invalidateDiskSizeCache(projectPath: string): void {
+  diskSizeCache.delete(projectPath);
+}
+
+async function computeDiskSize(projectPath: string): Promise<number> {
   let total = 0;
   const visited = new Set<string>();
   const stack = [projectPath];
   while (stack.length > 0) {
     const current = stack.pop()!;
-    let realPath;
+    let realPath: string;
     try {
       realPath = realpathSync(current);
     } catch {
@@ -769,8 +792,7 @@ export async function getDiskSize(projectPath: string): Promise<number> {
           }
           stack.push(entryPath);
         } else if (entry.isFile()) {
-          const stats = statSync(entryPath);
-          total += stats.size;
+          total += statSync(entryPath).size;
         }
       } catch {
         // 跳过无法访问的条目

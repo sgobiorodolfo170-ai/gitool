@@ -693,7 +693,7 @@ function App() {
         return;
       }
       const bridge = requireDesktopBridge();
-      const refreshed = await Promise.all(projects.map(async (project) => {
+      const refreshed = await mapWithConcurrency(projects, 4, async (project) => {
         try {
           const snapshot = await bridge.getProjectSnapshot(project.path);
           const disk = await bridge.getDiskSize(project.path).catch(() => 0);
@@ -701,7 +701,7 @@ function App() {
         } catch {
           return project;
         }
-      }));
+      });
       updateProjects(refreshed);
       setNotice("项目状态已刷新");
     } finally {
@@ -1001,6 +1001,24 @@ function App() {
       {notice && <div className="toast"><Check size={16} />{notice}</div>}
     </div>
   );
+}
+
+async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  async function run(): Promise<void> {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= items.length) {
+        return;
+      }
+      results[index] = await worker(items[index]);
+    }
+  }
+  const runners = Array.from({ length: Math.min(limit, items.length) }, () => run());
+  await Promise.all(runners);
+  return results;
 }
 
 function projectFromSnapshot(project: Project, snapshot: GitSnapshot): Project {

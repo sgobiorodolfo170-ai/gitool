@@ -46,7 +46,7 @@ export async function testAccount(accountId: string): Promise<AccountTestResult>
 
   let response: Response;
   try {
-    response = await fetch(endpoint.url, {
+    response = await fetchWithTimeout(endpoint.url, {
       headers: {
         Accept: "application/json",
         [endpoint.header]: `${endpoint.prefix}${token}`,
@@ -93,30 +93,66 @@ export async function loadRemoteRepositories(accountId: string): Promise<RemoteR
   const token = readCredential(account.credentialRef);
   const endpoint = REPOSITORY_ENDPOINTS[account.provider];
 
-  let response: Response;
-  try {
-    response = await fetch(endpoint.url, {
-      headers: {
-        Accept: "application/json",
-        [endpoint.header]: `${endpoint.prefix}${token}`,
-      },
-    });
-  } catch (error) {
-    throw new Error(`读取远程仓库失败：${errorMessage(error)}`);
+  const repositories: RemoteRepository[] = [];
+  let pageUrl: string | null = endpoint.url;
+
+  while (pageUrl) {
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(pageUrl, {
+        headers: {
+          Accept: "application/json",
+          [endpoint.header]: `${endpoint.prefix}${token}`,
+        },
+      });
+    } catch (error) {
+      throw new Error(`读取远程仓库失败：${errorMessage(error)}`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`平台返回 HTTP ${response.status}，请先检查账号连接`);
+    }
+
+    const payload: unknown = await response.json().catch(() => null);
+    if (!Array.isArray(payload)) {
+      throw new Error("远程仓库响应格式不正确");
+    }
+
+    for (const item of payload) {
+      const repository = parseRepository(account.provider, account.id, item);
+      if (repository) {
+        repositories.push(repository);
+      }
+    }
+
+    pageUrl = nextPageUrl(account.provider, response, payload.length);
   }
 
-  if (!response.ok) {
-    throw new Error(`平台返回 HTTP ${response.status}，请先检查账号连接`);
-  }
+  return repositories;
+}
 
-  const payload: unknown = await response.json().catch(() => null);
-  if (!Array.isArray(payload)) {
-    throw new Error("远程仓库响应格式不正确");
+function nextPageUrl(provider: RemoteProvider, response: Response, batchSize: number): string | null {
+  if (batchSize < 100) {
+    return null;
   }
-
-  return payload
-    .map((item) => parseRepository(account.provider, account.id, item))
-    .filter((repository): repository is RemoteRepository => repository !== null);
+  const link = response.headers.get("link");
+  const next = link?.match(/<([^>]+)>\s*;\s*rel="next"/)?.[1];
+  if (next) {
+    return next;
+  }
+  // Gitee 未提供 Link 头时，手动递增 page 参数（避免一次拉取遗漏）。
+  if (provider === "gitee") {
+    try {
+      const url = new URL(response.url);
+      const page = Number(url.searchParams.get("page") ?? "1");
+      url.searchParams.set("page", String(page + 1));
+      url.searchParams.set("per_page", "100");
+      return url.toString();
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export async function searchRemoteRepositories(
@@ -143,7 +179,7 @@ export async function searchRemoteRepositories(
 
   let response: Response;
   try {
-    response = await fetch(endpoint.url, {
+    response = await fetchWithTimeout(endpoint.url, {
       headers: {
         Accept: "application/json",
         ...(token.length > 0 ? { [endpoint.header]: `${endpoint.prefix}${token}` } : {}),
@@ -206,7 +242,7 @@ export async function createRemoteRepository(
 
   let response: Response;
   try {
-    response = await fetch(endpoint.url, {
+    response = await fetchWithTimeout(endpoint.url, {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -251,7 +287,7 @@ export async function updateRemoteRepository(
 
   let response: Response;
   try {
-    response = await fetch(endpoint.url, {
+    response = await fetchWithTimeout(endpoint.url, {
       method: endpoint.method,
       headers: {
         Accept: "application/json",
@@ -291,7 +327,7 @@ export async function deleteRemoteRepository(
   const endpoint = getDeleteEndpoint(account.provider, current.owner, current.name);
   let response: Response;
   try {
-    response = await fetch(endpoint.url, {
+    response = await fetchWithTimeout(endpoint.url, {
       method: "DELETE",
       headers: {
         Accept: "application/json",
@@ -318,7 +354,7 @@ async function findRepository(
   const endpoint = REPOSITORY_ENDPOINTS[account.provider];
   let response: Response;
   try {
-    response = await fetch(endpoint.url, {
+    response = await fetchWithTimeout(endpoint.url, {
       headers: {
         Accept: "application/json",
         [endpoint.header]: `${endpoint.prefix}${token}`,
@@ -518,4 +554,21 @@ function firstString(source: Record<string, unknown>, keys: string[]): string | 
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+const FETCH_TIMEOUT_MS = 15 * 1000;
+
+async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("请求超时，请检查网络连接");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }

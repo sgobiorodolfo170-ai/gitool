@@ -89,14 +89,23 @@ export function saveProjects(workspaceId: string, projects: Project[]): void {
   const connection = openDatabase();
   connection.exec("BEGIN");
   try {
-    connection.prepare("DELETE FROM projects WHERE workspaceId = ?").run(workspaceId);
     const statement = connection.prepare(
       `INSERT INTO projects
        (id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
         files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl, workspaceId)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name, path = excluded.path, provider = excluded.provider,
+        branch = excluded.branch, status = excluded.status, commitHash = excluded.commitHash,
+        favorite = excluded.favorite, tags = excluded.tags, remote = excluded.remote,
+        files = excluded.files, syncLabel = excluded.syncLabel, language = excluded.language,
+        languageColor = excluded.languageColor, summary = excluded.summary,
+        updatedAt = excluded.updatedAt, diskSizeBytes = excluded.diskSizeBytes,
+        alias = excluded.alias, webUrl = excluded.webUrl, workspaceId = excluded.workspaceId`,
     );
+    const ids = new Set<string>();
     for (const project of projects) {
+      ids.add(project.id);
       statement.run(
         project.id,
         project.name,
@@ -119,6 +128,16 @@ export function saveProjects(workspaceId: string, projects: Project[]): void {
         project.webUrl ?? null,
         workspaceId,
       );
+    }
+    // 清理已不在列表中的项目（保留软删除语义）
+    const stale = connection
+      .prepare("SELECT id FROM projects WHERE workspaceId = ?")
+      .all(workspaceId) as unknown as SqlRow[];
+    const deleteStatement = connection.prepare("DELETE FROM projects WHERE id = ? AND workspaceId = ?");
+    for (const row of stale) {
+      if (!ids.has(String(row.id))) {
+        deleteStatement.run(String(row.id), workspaceId);
+      }
     }
     connection.exec("COMMIT");
   } catch (error) {

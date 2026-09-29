@@ -28,23 +28,33 @@ export async function generateAiSummary(input: AiSummaryRequest): Promise<AiSumm
 
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: "你是一个专业的开源项目分析助手，输出精炼、结构化、使用简体中文。" },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.4,
-        max_tokens: 600,
-      }),
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20 * 1000);
+    try {
+      response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: "你是一个专业的开源项目分析助手，输出精炼、结构化、使用简体中文。" },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.4,
+          max_tokens: 600,
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return { success: false, summary: "", error: "AI 服务请求超时，请稍后重试" };
+    }
     return { success: false, summary: "", error: `AI 服务连接失败：${errorMessage(error)}` };
   }
 

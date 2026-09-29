@@ -33,15 +33,29 @@ export async function runTask(profileId: string): Promise<TaskRun> {
   });
   runningTasks.set(run.id, { process: child, output: () => output });
 
-  child.stdout?.on("data", (chunk) => {
+  const appendOutput = (chunk: Buffer | string): void => {
     output += chunk.toString();
+    // 限制内存占用：仅保留最近 256KB 输出
+    if (output.length > 256 * 1024) {
+      output = output.slice(-256 * 1024);
+    }
+  };
+
+  child.stdout?.on("data", (chunk) => {
+    appendOutput(chunk);
   });
   child.stderr?.on("data", (chunk) => {
-    output += chunk.toString();
+    appendOutput(chunk);
   });
 
   const timer = profile.timeoutSeconds > 0
     ? setTimeout(() => {
+        // 超时必须终止进程树，避免子进程残留
+        try {
+          child.kill();
+        } catch {
+          // 进程已退出则忽略
+        }
         runningTasks.delete(run.id);
         run.status = "timedout";
         run.finishedAt = new Date().toISOString();

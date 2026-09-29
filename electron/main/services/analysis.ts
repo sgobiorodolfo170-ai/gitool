@@ -2,6 +2,9 @@ import { readdir, stat } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import type { ProjectAnalysis } from "../../../shared/types";
 
+const analysisCache = new Map<string, { value: ProjectAnalysis; at: number }>();
+const ANALYSIS_CACHE_TTL_MS = 30 * 1000;
+
 const IGNORED_DIRECTORIES = new Set([
   ".git",
   "node_modules",
@@ -50,6 +53,20 @@ const LANGUAGE_MAP: Record<string, { name: string; color: string }> = {
 };
 
 export async function analyzeProject(projectPath: string): Promise<ProjectAnalysis> {
+  const cached = analysisCache.get(projectPath);
+  if (cached && Date.now() - cached.at < ANALYSIS_CACHE_TTL_MS) {
+    return cached.value;
+  }
+  const analysis = await computeAnalysis(projectPath);
+  analysisCache.set(projectPath, { value: analysis, at: Date.now() });
+  return analysis;
+}
+
+export function invalidateAnalysisCache(projectPath: string): void {
+  analysisCache.delete(projectPath);
+}
+
+async function computeAnalysis(projectPath: string): Promise<ProjectAnalysis> {
   const rootStats = await stat(projectPath).catch(() => null);
   if (!rootStats?.isDirectory()) {
     throw new Error("项目路径不存在或不是目录");
