@@ -34,6 +34,7 @@ import type {
 import { analyzeProject } from "./services/analysis";
 import { deleteAiApiKey, generateAiSummary, hasStoredApiKey, saveAiApiKey } from "./services/ai";
 import { createBackup, restoreBackup } from "./services/backups";
+import { detectProjectCommands } from "./services/commandDetection";
 import { openInEditor, openInTerminal } from "./services/openers";
 import {
   cloneRepository,
@@ -146,6 +147,9 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   );
   ipcMain.handle("projects:analyze", (_event, projectPath: unknown) =>
     analyzeProject(requireString(projectPath, "项目路径")),
+  );
+  ipcMain.handle("projects:detectCommands", (_event, projectPath: unknown) =>
+    detectProjectCommands(requireString(projectPath, "项目路径")),
   );
   ipcMain.handle("projects:diskSize", (_event, projectPath: unknown) =>
     getDiskSize(requireString(projectPath, "项目路径")),

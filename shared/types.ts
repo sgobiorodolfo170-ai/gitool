@@ -269,6 +269,18 @@ export type TaskRun = {
   output: string;
 };
 
+export type DetectedCommand = {
+  label: string;
+  command: string;
+  args: string;
+  source: string;
+};
+
+export type DetectCommandsResult = {
+  commands: DetectedCommand[];
+  packageManager: string;
+};
+
 export type BackupRecord = {
   id: string;
   projectId: string;
@@ -461,4 +473,5 @@ export type DesktopBridge = {
   saveAiApiKey(secret: string): Promise<void>;
   deleteAiApiKey(): Promise<void>;
   hasAiApiKey(): Promise<boolean>;
+  detectProjectCommands(path: string): Promise<DetectCommandsResult>;
 };

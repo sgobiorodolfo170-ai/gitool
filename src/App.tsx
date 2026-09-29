@@ -36,7 +36,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Account, AppSettings, AppView, BackupRecord, BranchInfo, ChangeFile, CommitEntry, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, WorkspaceEntity } from "./types";
+import type { Account, AppSettings, AppView, BackupRecord, BranchInfo, ChangeFile, CommitEntry, DetectedCommand, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, WorkspaceEntity } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 import { loadProjects, saveProjects } from "./lib/projects";
 import { DEFAULT_WORKSPACE_ID, createWorkspace as createWorkspaceLocal, deleteWorkspace as deleteWorkspaceLocal, listWorkspaces as listWorkspacesLocal, renameWorkspace as renameWorkspaceLocal } from "./lib/workspaces";
@@ -2395,12 +2395,40 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
   const [draft, setDraft] = useState({ projectId: "", name: "", command: "", args: "", timeoutSeconds: 120 });
   const [runningId, setRunningId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [detectedCommands, setDetectedCommands] = useState<DetectedCommand[]>([]);
+  const [commandCustom, setCommandCustom] = useState(false);
+  const [argsCustom, setArgsCustom] = useState(false);
 
   const load = async () => {
     if (!bridge) return;
     const [loadedProfiles, loadedRuns] = await Promise.all([bridge.listTaskProfiles(), bridge.listTaskRuns()]);
     setProfiles(loadedProfiles);
     setRuns(loadedRuns);
+  };
+
+  const detectCommandsForProject = async (projectId: string) => {
+    if (!bridge || !projectId) {
+      setDetectedCommands([]);
+      return;
+    }
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) {
+      setDetectedCommands([]);
+      return;
+    }
+    try {
+      const result = await bridge.detectProjectCommands(project.path);
+      setDetectedCommands(result.commands);
+    } catch {
+      setDetectedCommands([]);
+    }
+  };
+
+  const handleProjectChange = (projectId: string) => {
+    setDraft((current) => ({ ...current, projectId, command: "", args: "" }));
+    setCommandCustom(true);
+    setArgsCustom(true);
+    void detectCommandsForProject(projectId);
   };
 
   const refreshRunningOutput = async () => {
@@ -2434,6 +2462,20 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
 
   const taskTypeLabel: Record<TaskProfile["taskType"], string> = { build: "构建", run: "运行", package: "打包" };
 
+  const commandOptions = useMemo(() => {
+    const seen = new Map<string, DetectedCommand>();
+    for (const item of detectedCommands) {
+      if (!seen.has(item.command)) {
+        seen.set(item.command, item);
+      }
+    }
+    return [...seen.values()];
+  }, [detectedCommands]);
+
+  const argOptions = useMemo(() => {
+    return detectedCommands.filter((item) => item.command === draft.command);
+  }, [detectedCommands, draft.command]);
+
   const save = async () => {
     if (!bridge || !draft.projectId || !draft.name || !draft.command) return;
     const now = new Date().toISOString();
@@ -2454,6 +2496,9 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
       setNotice("任务已保存");
       setEditing(null);
       setDraft({ projectId: "", name: "", command: "", args: "", timeoutSeconds: 120 });
+      setDetectedCommands([]);
+      setCommandCustom(false);
+      setArgsCustom(false);
       await load();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "保存失败");
@@ -2506,6 +2551,10 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
   const edit = (profile: TaskProfile) => {
     setEditing(profile);
     setDraft({ projectId: profile.projectId, name: profile.name, command: profile.command, args: profile.args, timeoutSeconds: profile.timeoutSeconds });
+    void detectCommandsForProject(profile.projectId);
+    const matched = detectedCommands.find((item) => item.command === profile.command);
+    setCommandCustom(!matched);
+    setArgsCustom(matched ? !matched.args || matched.args !== profile.args : true);
   };
 
   return <div className="module-page">
@@ -2515,10 +2564,10 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
       <form className="account-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <div className="panel-heading"><div><h2>{editing ? `编辑任务 · ${editing.name}` : "新建任务"}</h2><span>命令将在项目目录执行</span></div><ListTodo size={16} /></div>
         <div className="form-body">
-          <label>关联项目<select value={draft.projectId} onChange={(event) => setDraft({ ...draft, projectId: event.target.value })}><option value="">选择项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
+          <label>关联项目<select value={draft.projectId} onChange={(event) => handleProjectChange(event.target.value)}><option value="">选择项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
           <label>任务名称<input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="例如：开发服务器" /></label>
-          <label>命令<input value={draft.command} onChange={(event) => setDraft({ ...draft, command: event.target.value })} placeholder="例如：npm" /></label>
-          <label>参数<input value={draft.args} onChange={(event) => setDraft({ ...draft, args: event.target.value })} placeholder="例如：run dev" /></label>
+          <label>命令{commandOptions.length > 0 && !commandCustom ? <select value={draft.command} onChange={(event) => { const value = event.target.value; if (value === "__custom__") { setCommandCustom(true); return; } setDraft({ ...draft, command: value, args: "" }); setArgsCustom(true); }}><option value="">选择命令</option>{commandOptions.map((item) => <option value={item.command} key={item.command}>{item.command} · {item.source}</option>)}{commandOptions.length > 0 && <option value="__custom__">自定义…</option>}</select> : <div className="secret-input"><input value={draft.command} onChange={(event) => setDraft({ ...draft, command: event.target.value })} placeholder="例如：npm（选择项目后自动读取）" />{commandOptions.length > 0 && <button type="button" onClick={() => setCommandCustom(false)}>选择</button>}</div>}</label>
+          <label>参数{argOptions.length > 0 && !argsCustom && draft.command ? <select value={draft.args} onChange={(event) => { const value = event.target.value; if (value === "__custom__") { setArgsCustom(true); return; } setDraft({ ...draft, args: value }); }}><option value="">选择参数</option>{argOptions.map((item) => <option value={item.args} key={`${item.command}-${item.args}`}>{item.args}</option>)}{argOptions.length > 0 && <option value="__custom__">自定义…</option>}</select> : <div className="secret-input"><input value={draft.args} onChange={(event) => setDraft({ ...draft, args: event.target.value })} placeholder="例如：run dev" />{argOptions.length > 0 && draft.command && <button type="button" onClick={() => setArgsCustom(false)}>选择</button>}</div>}</label>
           <label>超时（秒）<input type="number" value={draft.timeoutSeconds} onChange={(event) => setDraft({ ...draft, timeoutSeconds: Number(event.target.value) || 0 })} /></label>
           <button className="button primary form-submit" disabled={!draft.projectId || !draft.name || !draft.command}>{editing ? "保存修改" : "创建任务"}</button>
         </div>

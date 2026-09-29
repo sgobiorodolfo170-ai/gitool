@@ -13,6 +13,7 @@ import type {
   CommitResult,
   CompareResult,
   DesktopBridge,
+  DetectCommandsResult,
   EnvironmentStatus,
   GitOperationResult,
   GitSnapshot,
@@ -58,6 +59,7 @@ const bridge: DesktopBridge = {
   inspectProject: (path) => invoke<LocalProjectInspection>("projects:inspect", path),
   getProjectSnapshot: (path) => invoke<GitSnapshot>("projects:snapshot", path),
   analyzeProject: (path) => invoke<ProjectAnalysis>("projects:analyze", path),
+  detectProjectCommands: (path) => invoke<DetectCommandsResult>("projects:detectCommands", path),
   getDiskSize: (path) => invoke<number>("projects:diskSize", path),
   readProjectReadme: (path) => invoke<ReadmeResult>("projects:readme", path),
   runGitOperation: (path, operation) =>
