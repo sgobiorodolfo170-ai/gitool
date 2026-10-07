@@ -144,6 +144,12 @@ function App() {
   const [cloningRepositoryId, setCloningRepositoryId] = useState<string | null>(null);
   const [cloneProgress, setCloneProgress] = useState<{ percent: number; phase: string; output: string } | null>(null);
 
+  const defaultDirectoryHint = () => {
+    return appSettings?.defaultProjectDirectory?.trim()
+      || window.localStorage.getItem(LAST_IMPORT_DIRECTORY_KEY)
+      || undefined;
+  };
+
   useEffect(() => {
     if (!isDesktopRuntime()) return;
     const unsubscribe = requireDesktopBridge().onCloneProgress((event) => {
@@ -647,7 +653,7 @@ function App() {
 
   const importProject = async () => {
     const bridge = getDesktopBridge();
-    const lastDirectory = window.localStorage.getItem(LAST_IMPORT_DIRECTORY_KEY) ?? undefined;
+    const lastDirectory = defaultDirectoryHint();
     const path = bridge
       ? await bridge.selectDirectory(lastDirectory)
       : window.prompt("输入本地 Git 仓库路径", "D:/Projects/new-project");
@@ -735,7 +741,7 @@ function App() {
     }
     if (!window.confirm("移动项目会复制整个目录（含 .git）到新位置，并更新本地记录。确定继续吗？")) return;
     const bridge = requireDesktopBridge();
-    const targetDirectory = await bridge.selectDirectory();
+    const targetDirectory = await bridge.selectDirectory(defaultDirectoryHint());
     if (!targetDirectory) return;
     try {
       const result = await bridge.moveProject({ sourcePath: sourceProject.path, targetDirectory });
@@ -759,7 +765,7 @@ function App() {
       return;
     }
     const bridge = requireDesktopBridge();
-    const directory = await bridge.selectDirectory();
+    const directory = await bridge.selectDirectory(defaultDirectoryHint());
     if (!directory) return;
     const projectName = window.prompt("项目名称（用于新建项目目录）", "my-project");
     if (!projectName || !/^[a-zA-Z0-9_-]+$/.test(projectName)) {
@@ -868,7 +874,7 @@ function App() {
       return;
     }
     const bridge = requireDesktopBridge();
-    const directory = await bridge.selectDirectory();
+    const directory = await bridge.selectDirectory(defaultDirectoryHint());
     if (!directory) return;
     try {
       const items = await bridge.scanDirectoryForRepositories(directory);
