@@ -1024,14 +1024,6 @@ function App() {
             </div>
           ))}
         </nav>
-
-        <div className="sidebar-bottom">
-          <div className="profile-row">
-            <div className="profile-avatar">L</div>
-            <div className="profile-copy"><strong>Local workspace</strong><span>离线优先</span></div>
-            <MoreHorizontal size={17} />
-          </div>
-        </div>
       </aside>
 
       <main className="main-area">
