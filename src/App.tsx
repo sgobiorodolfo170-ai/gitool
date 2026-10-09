@@ -357,6 +357,24 @@ function App() {
     window.setTimeout(() => setNotice(null), 3000);
   };
 
+  const deleteProjectFromList = (projectId: string) => {
+    const target = projects.find((project) => project.id === projectId);
+    if (!target) return;
+    const message = target.path === ""
+      ? `确定移除「${target.alias || target.name}」？这是未克隆的远程收藏条目。`
+      : `确定从我的项目中移除「${target.alias || target.name}」？\n项目目录不会被删除，后续可重新导入。`;
+    if (!window.confirm(message)) return;
+    updateProjects(projects.filter((project) => project.id !== projectId));
+    if (selectedId === projectId) {
+      const remaining = projects.filter((project) => project.id !== projectId);
+      setSelectedId(remaining[0]?.id ?? "");
+    }
+    setOperationOutput(null);
+    setAnalysis(null);
+    setNotice("已从我的项目移除");
+    window.setTimeout(() => setNotice(null), 3000);
+  };
+
   const addAccount = async (input: { provider: RemoteProvider; displayName: string; username: string; token: string }) => {
     if (!isDesktopRuntime()) {
       setNotice("账号凭据管理需要使用 Windows 桌面版");
@@ -994,6 +1012,7 @@ function App() {
               onInitRepository={initNewRepository}
               onScanImport={scanDirectoryForImport}
               onImport={importProject}
+              onDeleteProject={deleteProjectFromList}
               onRefresh={refreshProjects}
               isRefreshing={isRefreshing}
               onRunGitOperation={runGitOperation}
@@ -1209,6 +1228,7 @@ type ProjectsWorkspaceProps = {
   onInitRepository: () => void | Promise<void>;
   onScanImport: () => void | Promise<void>;
   onImport: () => void;
+  onDeleteProject: (id: string) => void;
   onRefresh: () => void | Promise<void>;
   isRefreshing: boolean;
   onRunGitOperation: (operation: GitOperation) => void | Promise<void>;
@@ -1385,6 +1405,7 @@ function ProjectsWorkspace({
   onInitRepository,
   onScanImport,
   onImport,
+  onDeleteProject,
   onRefresh,
   isRefreshing,
   onRunGitOperation,
@@ -1474,7 +1495,7 @@ function ProjectsWorkspace({
           <div className="panel-heading"><div><h2>最近项目</h2><span>{filteredProjects.length} 个结果</span></div><div className="panel-heading-actions"><label className="select-all"><input type="checkbox" checked={filteredProjects.length > 0 && selectedBulkIds.length === filteredProjects.length} onChange={toggleAll} /><span>全选</span></label><button className="bare-button" aria-label="更多项目"><MoreHorizontal size={18} /></button></div></div>
           <div className="project-list">
             {filteredProjects.length ? filteredProjects.map((project) => (
-              <ProjectRow key={project.id} project={project} selected={project.id === selectedProject?.id} bulkSelected={selectedBulkIds.includes(project.id)} onToggleBulk={() => toggleBulk(project.id)} onSelect={() => onSelect(project.id)} onToggleFavorite={() => onToggleFavorite(project.id)} />
+              <ProjectRow key={project.id} project={project} selected={project.id === selectedProject?.id} bulkSelected={selectedBulkIds.includes(project.id)} onToggleBulk={() => toggleBulk(project.id)} onSelect={() => onSelect(project.id)} onToggleFavorite={() => onToggleFavorite(project.id)} onDelete={() => onDeleteProject(project.id)} />
             )) : <EmptyProjects onImport={onImport} />}
           </div>
         </div>
@@ -1523,7 +1544,7 @@ function FilterButton({ active, onClick, children }: { active: boolean; onClick:
   return <button className={`filter-button ${active ? "active" : ""}`} onClick={onClick}>{children}</button>;
 }
 
-function ProjectRow({ project, selected, bulkSelected, onToggleBulk, onSelect, onToggleFavorite }: { project: Project; selected: boolean; bulkSelected: boolean; onToggleBulk: () => void; onSelect: () => void; onToggleFavorite: () => void }) {
+function ProjectRow({ project, selected, bulkSelected, onToggleBulk, onSelect, onToggleFavorite, onDelete }: { project: Project; selected: boolean; bulkSelected: boolean; onToggleBulk: () => void; onSelect: () => void; onToggleFavorite: () => void; onDelete: () => void }) {
   const ProviderIcon = providerIcons[project.provider];
   const status = statusMeta[project.status];
   const dormant = isDormant(project);
@@ -1531,6 +1552,7 @@ function ProjectRow({ project, selected, bulkSelected, onToggleBulk, onSelect, o
     <label className="bulk-check" onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={bulkSelected} onChange={onToggleBulk} aria-label="选择项目" /></label>
     <div className="project-type-icon" style={{ color: project.languageColor }}><ProviderIcon size={18} /></div>
     <div className="project-row-main"><div className="project-name-line"><strong>{project.alias || project.name}</strong><span className="provider-name">{providerLabels[project.provider]}</span></div><p>{project.path || "未克隆（远程收藏）"}</p><div className="project-row-meta"><span className={`status-pill ${status.className}`}><span className="status-dot" />{project.syncLabel}</span><span><GitBranch size={12} />{project.branch}</span><span><HardDrive size={12} />{project.diskSizeBytes > 0 ? formatBytes(project.diskSizeBytes) : "—"}</span>{dormant && <span className="status-pill status-behind"><span className="status-dot" />休眠</span>}</div></div>
+    <button className="icon-button danger" onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label="从我的项目移除"><Trash2 size={16} /></button>
     <button className={`favorite-button ${project.favorite ? "active" : ""}`} onClick={(event) => { event.stopPropagation(); onToggleFavorite(); }} aria-label={project.favorite ? "取消收藏" : "收藏项目"}><Star size={16} fill={project.favorite ? "currentColor" : "none"} /></button>
   </div>;
 }
