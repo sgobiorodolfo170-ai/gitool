@@ -91,7 +91,7 @@ function remoteProjectMatch(project: Project, repository: RemoteRepository): boo
   return project.provider === repository.provider && project.name === repository.name;
 }
 
-function buildNavGroups(counts: { projects: number; remotes: number; accounts: number; tasks: number }): { label: string; items: NavItem[] }[] {
+function buildNavGroups(counts: { projects: number; remotes: number; tasks: number }): { label: string; items: NavItem[] }[] {
   return [
     {
       label: "工作区",
@@ -104,7 +104,6 @@ function buildNavGroups(counts: { projects: number; remotes: number; accounts: n
     {
       label: "工具",
       items: [
-        { id: "accounts", label: "账号与令牌", icon: KeyRound, count: counts.accounts > 0 ? String(counts.accounts) : undefined },
         { id: "tasks", label: "任务中心", icon: ListTodo, count: counts.tasks > 0 ? String(counts.tasks) : undefined },
         { id: "backups", label: "备份中心", icon: Archive },
         { id: "logs", label: "操作记录", icon: Clock3 },
@@ -1000,7 +999,7 @@ function App() {
         />
 
         <nav className="sidebar-nav" aria-label="主导航">
-          {buildNavGroups({ projects: projects.length, remotes: remoteRepositories.length, accounts: accounts.length, tasks: projects.filter((project) => project.tags.includes("building")).length }).map((group) => (
+          {buildNavGroups({ projects: projects.length, remotes: remoteRepositories.length, tasks: projects.filter((project) => project.tags.includes("building")).length }).map((group) => (
             <div className="nav-group" key={group.label}>
               <span className="nav-group-label">{group.label}</span>
               {group.items.map((item) => {
@@ -1086,8 +1085,6 @@ function App() {
               isAnalyzing={isAnalyzing}
               analysis={analysis}
             />
-          ) : workspace === "accounts" ? (
-            <AccountsWorkspace accounts={accounts} accountBusyId={accountBusyId} onAdd={addAccount} onTest={testAccount} onDelete={deleteAccount} />
           ) : workspace === "remotes" ? (
             <RemoteRepositoriesWorkspace accounts={accounts} repositories={remoteRepositories} projects={projects} selectedAccountId={selectedAccountId} syncTime={remoteSyncTime} search={remoteSearch} isLoading={isLoadingRemotes} cloningRepositoryId={cloningRepositoryId} cloneProgress={cloneProgress} onAccountChange={(accountId) => { setSelectedAccountId(accountId); setRemoteRepositories([]); void loadRemoteRepositories(accountId, { silent: true }); }} onSearchChange={setRemoteSearch} onRefresh={() => loadRemoteRepositories()} onClone={cloneRemoteRepository} onMutate={mutateRemoteRepository} onToggleFavorite={toggleRemoteFavorite} onToggleWatch={toggleRemoteWatch} />
           ) : workspace === "tasks" ? (
@@ -1097,7 +1094,7 @@ function App() {
           ) : workspace === "logs" ? (
             <LogsWorkspace />
           ) : workspace === "settings" ? (
-            <SettingsWorkspace environment={environment} accounts={accounts} onSettingsChange={(next) => setAppSettings(next)} />
+            <SettingsWorkspace environment={environment} accounts={accounts} accountBusyId={accountBusyId} onAdd={addAccount} onTest={testAccount} onDelete={deleteAccount} onSettingsChange={(next) => setAppSettings(next)} />
           ) : (
             <ModuleWorkspace workspace={workspace} onImport={importProject} />
           )}
@@ -1144,7 +1141,6 @@ function workspaceLabel(workspace: AppView) {
     overview: "总览",
     projects: "我的项目",
     remotes: "远程仓库",
-    accounts: "账号与令牌",
     tasks: "任务中心",
     backups: "备份中心",
     logs: "设置与记录",
@@ -2349,20 +2345,17 @@ function AccountsWorkspace({ accounts, accountBusyId, onAdd, onTest, onDelete }:
     setIsSaving(false);
   };
 
-  return <div className="module-page accounts-page">
-    <div className="module-hero"><div className="module-icon"><KeyRound size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />CREDENTIALS</div><h1>账号与令牌</h1><p>连接远程平台，令牌只保存到 Windows 凭据管理器。</p></div></div>
-    <div className="accounts-grid">
-      <form className="account-form" onSubmit={submit}>
-        <div className="panel-heading"><div><h2>添加远程账号</h2><span>输入令牌后自动读取用户名</span></div><ShieldCheck size={16} /></div>
-        <div className="form-body">
-          <label>托管平台<select value={provider} onChange={(event) => setProvider(event.target.value as RemoteProvider)}><option value="github">GitHub</option><option value="gitee">Gitee</option><option value="gitlab">GitLab</option></select></label>
-          <label>Personal Access Token<div className="secret-input"><input required type={showToken ? "text" : "password"} value={token} onChange={(event) => setToken(event.target.value)} placeholder="令牌不会显示或写入日志" /><button type="button" onClick={() => setShowToken((current) => !current)} aria-label={showToken ? "隐藏令牌" : "显示令牌"}>{showToken ? "隐藏" : "显示"}</button></div></label>
-          <div className="credential-note"><ShieldCheck size={15} /><span>用户名由令牌自动读取；同一平台同一用户名重复添加时会替换旧令牌。</span></div>
-          <button className="button primary form-submit" disabled={isSaving || !token.trim()}><Plus size={15} />{isSaving ? "保存中..." : "保存账号"}</button>
-        </div>
-      </form>
-      <section className="account-list-panel"><div className="panel-heading"><div><h2>已连接账号</h2><span>{accounts.length} 个本地账号</span></div><span className="secure-label"><ShieldCheck size={13} />安全存储</span></div>{accounts.length ? <div className="account-list">{accounts.map((account) => <AccountRow key={account.id} account={account} busy={accountBusyId === account.id} onTest={() => onTest(account.id)} onDelete={() => onDelete(account.id)} />)}</div> : <div className="accounts-empty"><KeyRound size={21} /><strong>还没有远程账号</strong><span>添加账号后即可测试远程连接。</span></div>}</section>
-    </div>
+  return <div className="accounts-grid">
+    <form className="account-form" onSubmit={submit}>
+      <div className="panel-heading"><div><h2>添加远程账号</h2><span>输入令牌后自动读取用户名</span></div><ShieldCheck size={16} /></div>
+      <div className="form-body">
+        <label>托管平台<select value={provider} onChange={(event) => setProvider(event.target.value as RemoteProvider)}><option value="github">GitHub</option><option value="gitee">Gitee</option><option value="gitlab">GitLab</option></select></label>
+        <label>Personal Access Token<div className="secret-input"><input required type={showToken ? "text" : "password"} value={token} onChange={(event) => setToken(event.target.value)} placeholder="令牌不会显示或写入日志" /><button type="button" onClick={() => setShowToken((current) => !current)} aria-label={showToken ? "隐藏令牌" : "显示令牌"}>{showToken ? "隐藏" : "显示"}</button></div></label>
+        <div className="credential-note"><ShieldCheck size={15} /><span>用户名由令牌自动读取；同一平台同一用户名重复添加时会替换旧令牌。</span></div>
+        <button className="button primary form-submit" disabled={isSaving || !token.trim()}><Plus size={15} />{isSaving ? "保存中..." : "保存账号"}</button>
+      </div>
+    </form>
+    <section className="account-list-panel"><div className="panel-heading"><div><h2>已连接账号</h2><span>{accounts.length} 个本地账号</span></div><span className="secure-label"><ShieldCheck size={13} />安全存储</span></div>{accounts.length ? <div className="account-list">{accounts.map((account) => <AccountRow key={account.id} account={account} busy={accountBusyId === account.id} onTest={() => onTest(account.id)} onDelete={() => onDelete(account.id)} />)}</div> : <div className="accounts-empty"><KeyRound size={21} /><strong>还没有远程账号</strong><span>添加账号后即可测试远程连接。</span></div>}</section>
   </div>;
 }
 
@@ -2489,7 +2482,6 @@ function RemoteRepositoriesWorkspace({ accounts, repositories, projects, selecte
       function ModuleWorkspace({ workspace, onImport }: { workspace: Exclude<AppView, "overview" | "projects">; onImport: () => void }) {
   const content: Record<Exclude<AppView, "overview" | "projects">, { eyebrow: string; title: string; description: string; icon: React.ReactNode; items: string[] }> = {
     remotes: { eyebrow: "REMOTE HUB", title: "远程仓库", description: "连接 GitHub、Gitee 与 GitLab，统一浏览远程项目。", icon: <Cloud size={21} />, items: ["GitHub · 6 个仓库", "Gitee · 4 个仓库", "GitLab · 2 个仓库"] },
-    accounts: { eyebrow: "CREDENTIALS", title: "账号与令牌", description: "账号元数据留在本地，令牌由 Windows 凭据管理器保护。", icon: <KeyRound size={21} />, items: ["本地工作区 · 未连接远程账号", "Personal Access Token · 已准备", "OAuth · 等待授权"] },
     tasks: { eyebrow: "TASK RUNNER", title: "任务中心", description: "把构建、运行和打包命令放到同一个可追踪的入口。", icon: <ListTodo size={21} />, items: ["gitool · npm run dev · 运行中", "atlas-api · cargo test · 22 分钟前", "northstar-web · pnpm build · 昨天"] },
     backups: { eyebrow: "RECOVERY", title: "备份中心", description: "完整保留 .git 历史，把项目恢复到一个新的工作目录。", icon: <Archive size={21} />, items: ["本周已备份 · 3 个项目", "最近归档 · gitool_2026-09-19.zip", "备份策略 · 手动触发"] },
     logs: { eyebrow: "SYSTEM", title: "设置与记录", description: "查看应用运行环境、操作日志和本地数据位置。", icon: <Settings2 size={21} />, items: ["Git · 2.46.0", "Windows · x64", "数据目录 · %APPDATA%\\Gitool"] },
@@ -2861,7 +2853,7 @@ function LogsWorkspace() {
   </div>;
 }
 
-function SettingsWorkspace({ environment, accounts, onSettingsChange }: { environment: EnvironmentStatus | null; accounts: Account[]; onSettingsChange: (settings: AppSettings) => void }) {
+function SettingsWorkspace({ environment, accounts, accountBusyId, onAdd, onTest, onDelete, onSettingsChange }: { environment: EnvironmentStatus | null; accounts: Account[]; accountBusyId: string | null; onAdd: (input: { provider: RemoteProvider; token: string }) => Promise<boolean>; onTest: (accountId: string) => Promise<void>; onDelete: (accountId: string) => Promise<void>; onSettingsChange: (settings: AppSettings) => void }) {
   const bridge = getDesktopBridge();
   const [settings, setSettings] = useState<AppSettings>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "", backupExcludePatterns: "", defaultSearchAccountId: "", aiApiKeyConfigured: false, aiModel: "", aiBaseUrl: "" });
   const [notice, setNotice] = useState("");
@@ -2911,7 +2903,7 @@ function SettingsWorkspace({ environment, accounts, onSettingsChange }: { enviro
     setNotice("AI API Key 已从凭据管理器删除");
   };
 
-  const [activeTab, setActiveTab] = useState<"app" | "ai" | "env">("app");
+  const [activeTab, setActiveTab] = useState<"app" | "accounts" | "ai" | "env">("app");
 
   const settingsRows = [
     { key: "gitPath" as const, label: "Git 可执行文件路径", value: settings.gitPath, placeholder: "留空则使用系统 PATH 中的 git", hint: "例如 C:\\Program Files\\Git\\cmd\\git.exe" },
@@ -2924,9 +2916,14 @@ function SettingsWorkspace({ environment, accounts, onSettingsChange }: { enviro
     {notice && <div className="toast"><Check size={16} />{notice}</div>}
     <div className="settings-tabs">
       <button className={`settings-tab ${activeTab === "app" ? "active" : ""}`} onClick={() => setActiveTab("app")}>应用设置</button>
+      <button className={`settings-tab ${activeTab === "accounts" ? "active" : ""}`} onClick={() => setActiveTab("accounts")}>账号与令牌<span className="tab-count">{accounts.length}</span></button>
       <button className={`settings-tab ${activeTab === "ai" ? "active" : ""}`} onClick={() => setActiveTab("ai")}>AI 摘要服务</button>
       <button className={`settings-tab ${activeTab === "env" ? "active" : ""}`} onClick={() => setActiveTab("env")}>环境信息</button>
     </div>
+
+    {activeTab === "accounts" && (
+      <AccountsWorkspace accounts={accounts} accountBusyId={accountBusyId} onAdd={onAdd} onTest={onTest} onDelete={onDelete} />
+    )}
 
     {activeTab === "app" && (
       <form className="account-form settings-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>

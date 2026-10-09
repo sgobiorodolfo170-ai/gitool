@@ -97,7 +97,7 @@ export type Project = {
 
 export type ProjectFilter = "all" | "favorite" | "attention";
 
-export type AppView = "overview" | "projects" | "remotes" | "accounts" | "tasks" | "backups" | "logs" | "settings";
+export type AppView = "overview" | "projects" | "remotes" | "tasks" | "backups" | "logs" | "settings";
 
 export type WorkspaceEntity = {
   id: string;
