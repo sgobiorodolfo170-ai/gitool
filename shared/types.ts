@@ -276,6 +276,7 @@ export type DetectedCommand = {
   source: string;
   category: TaskType;
   osSupport: string[];
+  description?: string;
 };
 
 export type DetectCommandsResult = {
