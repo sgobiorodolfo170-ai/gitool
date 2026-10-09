@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import type { TaskRun } from "../../../shared/types";
-import { getTaskProfile } from "./storage";
+import { getTaskProfile, updateTaskRun } from "./storage";
 
 const runningTasks = new Map<string, { process: ReturnType<typeof spawn>; output: () => string }>();
 
@@ -26,16 +26,16 @@ export async function runTask(profileId: string): Promise<TaskRun> {
 
   const args = splitCommandLine(profile.args);
   let output = "";
+  // Windows 上 npm/pnpm/yarn 等是 .cmd 脚本，必须通过 shell 执行
   const child = spawn(profile.command, args, {
     cwd: profile.workingDirectory,
     windowsHide: true,
-    shell: false,
+    shell: process.platform === "win32",
   });
   runningTasks.set(run.id, { process: child, output: () => output });
 
   const appendOutput = (chunk: Buffer | string): void => {
     output += chunk.toString();
-    // 限制内存占用：仅保留最近 256KB 输出
     if (output.length > 256 * 1024) {
       output = output.slice(-256 * 1024);
     }
@@ -50,17 +50,13 @@ export async function runTask(profileId: string): Promise<TaskRun> {
 
   const timer = profile.timeoutSeconds > 0
     ? setTimeout(() => {
-        // 超时必须终止进程树，避免子进程残留
-        try {
-          child.kill();
-        } catch {
-          // 进程已退出则忽略
-        }
+        try { child.kill(); } catch { }
         runningTasks.delete(run.id);
         run.status = "timedout";
         run.finishedAt = new Date().toISOString();
         run.exitCode = undefined;
         run.output = `${output}\n[任务超时，已终止]`;
+        persistRun(run);
       }, profile.timeoutSeconds * 1000)
     : undefined;
 
@@ -70,6 +66,7 @@ export async function runTask(profileId: string): Promise<TaskRun> {
     run.status = "failed";
     run.finishedAt = new Date().toISOString();
     run.output = `${output}\n[启动失败] ${error.message}`;
+    persistRun(run);
   });
 
   child.on("close", (code) => {
@@ -81,9 +78,18 @@ export async function runTask(profileId: string): Promise<TaskRun> {
     run.exitCode = code ?? undefined;
     run.finishedAt = new Date().toISOString();
     run.output = output;
+    persistRun(run);
   });
 
   return run;
+}
+
+function persistRun(run: TaskRun): void {
+  try {
+    updateTaskRun(run);
+  } catch {
+    // 持久化失败不影响主流程
+  }
 }
 
 export function stopTask(runId: string): void {
