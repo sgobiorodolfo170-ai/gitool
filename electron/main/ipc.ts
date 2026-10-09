@@ -259,7 +259,7 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
     loadRemoteRepositories(requireString(accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:loadCached", (_event, accountId: unknown) =>
-    loadRemoteRepositoryCache(requireString(accountId, "账号 ID")),
+    loadRemoteRepositoryCache(requireString(accountId, "账号 ID")) ?? [],
   );
   ipcMain.handle("remoteRepositories:cacheMeta", (_event, accountId: unknown) =>
     getRemoteRepositoryCacheMeta(requireString(accountId, "账号 ID")),
