@@ -2421,6 +2421,7 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
   const [detectedCommands, setDetectedCommands] = useState<DetectedCommand[]>([]);
   const [commandCustom, setCommandCustom] = useState(false);
   const [argsCustom, setArgsCustom] = useState(false);
+  const [activeTab, setActiveTab] = useState<"create" | "profiles" | "runs">("create");
 
   const load = async () => {
     if (!bridge) return;
@@ -2526,6 +2527,7 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
       setDetectedCommands([]);
       setCommandCustom(false);
       setArgsCustom(false);
+      setActiveTab("profiles");
       await load();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "保存失败");
@@ -2579,6 +2581,7 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
     setEditing(profile);
     setDraft({ projectId: profile.projectId, name: profile.name, command: profile.command, args: profile.args, taskType: profile.taskType, timeoutSeconds: profile.timeoutSeconds });
     void detectCommandsForProject(profile.projectId);
+    setActiveTab("create");
     const matched = detectedCommands.find((item) => item.command === profile.command);
     setCommandCustom(!matched);
     setArgsCustom(matched ? !matched.args || matched.args !== profile.args : true);
@@ -2587,8 +2590,14 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
   return <div className="module-page">
     <div className="module-hero"><div className="module-icon"><ListTodo size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />TASK RUNNER</div><h1>任务中心</h1><p>配置构建、运行和打包命令，一键执行并查看实时日志。</p></div></div>
     {notice && <div className="toast"><Check size={16} />{notice}</div>}
-    <div className="accounts-grid">
-      <form className="account-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+    <div className="settings-tabs">
+      <button className={`settings-tab ${activeTab === "create" ? "active" : ""}`} onClick={() => setActiveTab("create")}>{editing ? "编辑任务" : "新建任务"}</button>
+      <button className={`settings-tab ${activeTab === "profiles" ? "active" : ""}`} onClick={() => setActiveTab("profiles")}>任务配置<span className="tab-count">{profiles.length}</span></button>
+      <button className={`settings-tab ${activeTab === "runs" ? "active" : ""}`} onClick={() => setActiveTab("runs")}>运行记录<span className="tab-count">{runs.length}</span></button>
+    </div>
+
+    {activeTab === "create" && (
+      <form className="account-form settings-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
         <div className="panel-heading"><div><h2>{editing ? `编辑任务 · ${editing.name}` : "新建任务"}</h2><span>命令将在项目目录执行</span></div><ListTodo size={16} /></div>
         <div className="form-body">
           <label>关联项目<select value={draft.projectId} onChange={(event) => handleProjectChange(event.target.value)}><option value="">选择项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
@@ -2601,15 +2610,21 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
           <button className="button primary form-submit" disabled={!draft.projectId || !draft.name || !draft.command}>{editing ? "保存修改" : "创建任务"}</button>
         </div>
       </form>
-      <section className="account-list-panel">
-        <div className="panel-heading"><div><h2>任务配置</h2><span>{profiles.length} 个任务</span></div><span className="secure-label"><ListTodo size={13} />可执行</span></div>
-        {profiles.length ? <div className="account-list">{profiles.map((profile) => <div className="account-row" key={profile.id}><div className="account-provider-icon github"><span>{taskTypeLabel[profile.taskType].slice(0, 1)}</span></div><div className="account-main"><div className="account-title"><strong>{profile.name}</strong><span className="status-pill status-clean"><span className="status-dot" />{taskTypeLabel[profile.taskType]}</span></div><p>{profile.command} {profile.args}</p><small>{projects.find((project) => project.id === profile.projectId)?.name ?? profile.projectPath}</small></div><div className="account-actions"><button className="button secondary compact-button" onClick={() => startTask(profile)} disabled={runningId !== null}>{runningId === profile.id ? "启动中..." : "运行"}</button><button className="button secondary compact-button" onClick={() => edit(profile)}>编辑</button><button className="icon-button danger" onClick={() => deleteProfile(profile)} aria-label="删除任务"><Trash2 size={15} /></button></div></div>)}</div> : <div className="accounts-empty"><ListTodo size={21} /><strong>还没有任务配置</strong><span>在左侧表单创建第一个任务。</span></div>}
+    )}
+
+    {activeTab === "profiles" && (
+      <section className="account-list-panel settings-form">
+        <div className="panel-heading"><div><h2>任务配置</h2><span>{profiles.length} 个任务</span></div><div className="panel-heading-actions"><button className="bare-button" onClick={() => void load()}><RefreshCw size={16} /></button><span className="secure-label"><ListTodo size={13} />可执行</span></div></div>
+        {profiles.length ? <div className="account-list">{profiles.map((profile) => <div className="account-row" key={profile.id}><div className="account-provider-icon github"><span>{taskTypeLabel[profile.taskType].slice(0, 1)}</span></div><div className="account-main"><div className="account-title"><strong>{profile.name}</strong><span className="status-pill status-clean"><span className="status-dot" />{taskTypeLabel[profile.taskType]}</span></div><p>{profile.command} {profile.args}</p><small>{projects.find((project) => project.id === profile.projectId)?.name ?? profile.projectPath}</small></div><div className="account-actions"><button className="button secondary compact-button" onClick={() => startTask(profile)} disabled={runningId !== null}>{runningId === profile.id ? "启动中..." : "运行"}</button><button className="button secondary compact-button" onClick={() => edit(profile)}>编辑</button><button className="icon-button danger" onClick={() => deleteProfile(profile)} aria-label="删除任务"><Trash2 size={15} /></button></div></div>)}</div> : <div className="accounts-empty"><ListTodo size={21} /><strong>还没有任务配置</strong><span>在「新建任务」标签页创建第一个任务。</span></div>}
       </section>
-    </div>
-<section className="module-list" style={{ marginTop: 16 }}>
+    )}
+
+    {activeTab === "runs" && (
+      <section className="account-list-panel settings-form">
         <div className="panel-heading"><div><h2>运行记录</h2><span>最近 {runs.length} 次</span></div><button className="bare-button" onClick={() => void load()}><RefreshCw size={16} /></button></div>
         {runs.length ? <div className="remote-list">{runs.slice(0, 20).map((run) => { const meta = runStatusMeta[run.status] ?? runStatusMeta.failed; return <div className="remote-row" key={run.id}><div className="remote-main"><div className="remote-title"><strong>{run.name}</strong><span className={`status-pill ${meta.className}`}><span className="status-dot" />{meta.label}</span><span>{run.exitCode !== undefined ? `退出码 ${run.exitCode}` : ""}</span></div><p>{run.command} · {run.startedAt}</p><code className="run-output">{run.output.slice(0, 300) || "（无输出）"}</code></div><div className="remote-actions">{run.status === "running" && <button className="button secondary compact-button" onClick={() => stopRun(run.id)} disabled={stoppingId === run.id}>{stoppingId === run.id ? "停止中..." : <><X size={13} />停止</>}</button>}</div></div>; })}</div> : <div className="accounts-empty"><ListTodo size={22} /><strong>还没有运行记录</strong><span>运行任务后这里会显示输出。</span></div>}
-</section>
+      </section>
+    )}
   </div>;
 }
 
