@@ -216,7 +216,7 @@ function App() {
       const matchesFilter =
         filter === "all" ||
         (filter === "favorite" && project.favorite) ||
-        (filter === "attention" && project.status !== "clean");
+        (filter === "attention" && (project.status !== "clean" || project.tags.includes("watching")));
       const matchesTag = !tagFilter || project.tags.includes(tagFilter);
       const matchesSearch = !query || `${project.name} ${project.path} ${project.summary} ${project.tags.join(" ")}`.toLowerCase().includes(query);
       return matchesFilter && matchesTag && matchesSearch;
@@ -323,10 +323,25 @@ function App() {
     updateProjects(projects.map((project) => (project.id === projectId ? { ...project, favorite: !project.favorite } : project)));
   };
 
-  const toggleRemoteFavorite = (repository: RemoteRepository) => {
+  const toggleRemoteFavorite = async (repository: RemoteRepository) => {
+    const isFav = projects.some((project) => remoteProjectMatch(project, repository) && project.favorite);
+    if (isDesktopRuntime()) {
+      try {
+        await requireDesktopBridge().toggleRepositoryInteraction({
+          accountId: repository.accountId,
+          owner: repository.owner,
+          name: repository.name,
+          action: isFav ? "unstar" : "star",
+        });
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "平台收藏操作失败");
+        window.setTimeout(() => setNotice(null), 3000);
+        return;
+      }
+    }
     const match = projects.find((project) => remoteProjectMatch(project, repository));
     if (match) {
-      if (match.path === "") {
+      if (match.path === "" && !match.tags.includes("watching")) {
         updateProjects(projects.filter((project) => project.id !== match.id));
       } else {
         updateProjects(projects.map((project) => project.id === match.id ? { ...project, favorite: !project.favorite } : project));
@@ -355,6 +370,59 @@ function App() {
     };
     updateProjects([favoriteProject, ...projects]);
     setNotice(`已收藏「${repository.fullName}」，可在我的项目中查看`);
+    window.setTimeout(() => setNotice(null), 3000);
+  };
+
+  const toggleRemoteWatch = async (repository: RemoteRepository) => {
+    const isWatched = projects.some((project) => remoteProjectMatch(project, repository) && project.tags.includes("watching"));
+    if (isDesktopRuntime()) {
+      try {
+        await requireDesktopBridge().toggleRepositoryInteraction({
+          accountId: repository.accountId,
+          owner: repository.owner,
+          name: repository.name,
+          action: isWatched ? "unwatch" : "watch",
+        });
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : "平台关注操作失败");
+        window.setTimeout(() => setNotice(null), 3000);
+        return;
+      }
+    }
+    const match = projects.find((project) => remoteProjectMatch(project, repository));
+    if (match) {
+      const nextTags = isWatched
+        ? match.tags.filter((tag) => tag !== "watching")
+        : [...match.tags, "watching"];
+      if (match.path === "" && !match.favorite && isWatched) {
+        updateProjects(projects.filter((project) => project.id !== match.id));
+      } else {
+        updateProjects(projects.map((project) => project.id === match.id ? { ...project, tags: nextTags } : project));
+      }
+      return;
+    }
+    const now = new Date().toISOString();
+    const watchedProject: Project = {
+      id: `watch:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
+      name: repository.name,
+      path: "",
+      provider: repository.provider,
+      branch: repository.defaultBranch || "main",
+      status: "clean",
+      commit: "未克隆",
+      favorite: false,
+      tags: ["remote", "watching"],
+      files: 0,
+      syncLabel: "已关注",
+      language: "未克隆",
+      languageColor: "#8b97a8",
+      summary: repository.description || "远程关注项目，尚未克隆到本地。",
+      updatedAt: now,
+      diskSizeBytes: 0,
+      webUrl: repository.webUrl,
+    };
+    updateProjects([watchedProject, ...projects]);
+    setNotice(`已关注「${repository.fullName}」，可在我的项目中查看`);
     window.setTimeout(() => setNotice(null), 3000);
   };
 
@@ -1026,7 +1094,7 @@ function App() {
           ) : workspace === "accounts" ? (
             <AccountsWorkspace accounts={accounts} accountBusyId={accountBusyId} onAdd={addAccount} onTest={testAccount} onDelete={deleteAccount} />
           ) : workspace === "remotes" ? (
-            <RemoteRepositoriesWorkspace accounts={accounts} repositories={remoteRepositories} selectedAccountId={selectedAccountId} syncTime={remoteSyncTime} search={remoteSearch} isLoading={isLoadingRemotes} cloningRepositoryId={cloningRepositoryId} cloneProgress={cloneProgress} onAccountChange={(accountId) => { setSelectedAccountId(accountId); setRemoteRepositories([]); void loadRemoteRepositories(accountId, { silent: true }); }} onSearchChange={setRemoteSearch} onRefresh={() => loadRemoteRepositories()} onClone={cloneRemoteRepository} onMutate={mutateRemoteRepository} />
+            <RemoteRepositoriesWorkspace accounts={accounts} repositories={remoteRepositories} projects={projects} selectedAccountId={selectedAccountId} syncTime={remoteSyncTime} search={remoteSearch} isLoading={isLoadingRemotes} cloningRepositoryId={cloningRepositoryId} cloneProgress={cloneProgress} onAccountChange={(accountId) => { setSelectedAccountId(accountId); setRemoteRepositories([]); void loadRemoteRepositories(accountId, { silent: true }); }} onSearchChange={setRemoteSearch} onRefresh={() => loadRemoteRepositories()} onClone={cloneRemoteRepository} onMutate={mutateRemoteRepository} onToggleFavorite={toggleRemoteFavorite} onToggleWatch={toggleRemoteWatch} />
           ) : workspace === "tasks" ? (
             <TasksWorkspace projects={projects} />
           ) : workspace === "backups" ? (
@@ -1338,7 +1406,7 @@ type OverviewWorkspaceProps = {
 };
 
 function OverviewWorkspace({ projects, selectedProject, isImporting, isRefreshing, cloningRepositoryId, defaultAccountId, onSelect, onRefresh, onImport, onClone, onToggleRemoteFavorite }: OverviewWorkspaceProps) {
-  const attentionCount = projects.filter((project) => project.status !== "clean").length;
+  const attentionCount = projects.filter((project) => project.status !== "clean" || project.tags.includes("watching")).length;
   const favoriteCount = projects.filter((project) => project.favorite).length;
   const providerCount = new Set(projects.map((project) => project.provider)).size;
   const recentProjects = useMemo(() => (
@@ -1416,7 +1484,7 @@ function ProjectsWorkspace({
   isAnalyzing,
   analysis,
 }: ProjectsWorkspaceProps) {
-  const attentionCount = projects.filter((project) => project.status !== "clean").length;
+  const attentionCount = projects.filter((project) => project.status !== "clean" || project.tags.includes("watching")).length;
   const favoriteCount = projects.filter((project) => project.favorite).length;
   const searchRef = useRef<HTMLInputElement>(null);
   const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
@@ -1521,7 +1589,7 @@ function MetricCard({ label, value, detail, icon, tone }: { label: string; value
 }
 
 function AttentionPanel({ projects, selectedId, onSelect }: { projects: Project[]; selectedId?: string; onSelect: (id: string) => void }) {
-  const attention = projects.filter((project) => project.status !== "clean");
+  const attention = projects.filter((project) => project.status !== "clean" || project.tags.includes("watching"));
   if (attention.length === 0) {
     return null;
   }
@@ -2315,72 +2383,24 @@ function AccountRow({ account, busy, onTest, onDelete }: { account: Account; bus
   return <div className="account-row"><div className={`account-provider-icon ${account.provider}`}><span>{remoteProviderLabels[account.provider].slice(0, 1)}</span></div><div className="account-main"><div className="account-title"><strong>{account.displayName}</strong><span className={`status-pill ${statusClass}`}><span className="status-dot" />{status}</span></div><p>{remoteProviderLabels[account.provider]} · {account.username || "未填写用户名"}</p><small>Token 已受保护 · {account.scopes.length ? account.scopes.join(", ") : "权限待检测"}</small></div><div className="account-actions"><button className="button secondary compact-button" onClick={onTest} disabled={busy}>{busy ? "检测中..." : "连接测试"}</button><button className="icon-button danger" onClick={onDelete} disabled={busy} aria-label="删除账号"><Trash2 size={15} /></button></div></div>;
 }
 
-function RemoteRepositoriesWorkspace({ accounts, repositories, selectedAccountId, syncTime, search, isLoading, cloningRepositoryId, cloneProgress, onAccountChange, onSearchChange, onRefresh, onClone, onMutate }: { accounts: Account[]; repositories: RemoteRepository[]; selectedAccountId: string; syncTime: string | null; search: string; isLoading: boolean; cloningRepositoryId: string | null; cloneProgress: { percent: number; phase: string; output: string } | null; onAccountChange: (accountId: string) => void; onSearchChange: (search: string) => void; onRefresh: () => void | Promise<void>; onClone: (repository: RemoteRepository) => void | Promise<void>; onMutate: (action: "create" | "update" | "delete", input: { accountId: string; repositoryId?: string; name: string; description: string; visibility: "public" | "private" | "internal" | ""; init: boolean }) => Promise<boolean> }) {
+function RemoteRepositoriesWorkspace({ accounts, repositories, projects, selectedAccountId, syncTime, search, isLoading, cloningRepositoryId, cloneProgress, onAccountChange, onSearchChange, onRefresh, onClone, onMutate, onToggleFavorite, onToggleWatch }: { accounts: Account[]; repositories: RemoteRepository[]; projects: Project[]; selectedAccountId: string; syncTime: string | null; search: string; isLoading: boolean; cloningRepositoryId: string | null; cloneProgress: { percent: number; phase: string; output: string } | null; onAccountChange: (accountId: string) => void; onSearchChange: (search: string) => void; onRefresh: () => void | Promise<void>; onClone: (repository: RemoteRepository) => void | Promise<void>; onMutate: (action: "create" | "update" | "delete", input: { accountId: string; repositoryId?: string; name: string; description: string; visibility: "public" | "private" | "internal" | ""; init: boolean }) => Promise<boolean>; onToggleFavorite: (repository: RemoteRepository) => void | Promise<void>; onToggleWatch: (repository: RemoteRepository) => void | Promise<void> }) {
   const filtered = repositories.filter((repository) => `${repository.fullName} ${repository.description}`.toLowerCase().includes(search.trim().toLowerCase()));
   const activeAccount = accounts.find((account) => account.id === selectedAccountId);
   const [formState, setFormState] = useState<{ mode: "create" | "edit"; repositoryId?: string; name: string; description: string; visibility: "public" | "private"; init: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [formNotice, setFormNotice] = useState("");
-  const [starredRepos, setStarredRepos] = useState<Set<string>>(new Set());
-  const [watchedRepos, setWatchedRepos] = useState<Set<string>>(new Set());
   const [interactingRepo, setInteractingRepo] = useState<string | null>(null);
 
-  const toggleStar = async (repository: RemoteRepository) => {
-    const bridge = getDesktopBridge();
-    if (!bridge) {
-      window.alert("浏览器预览不支持远程操作");
-      return;
-    }
-    const key = repository.fullName;
-    const isStarred = starredRepos.has(key);
-    setInteractingRepo(key);
-    try {
-      await bridge.toggleRepositoryInteraction({
-        accountId: repository.accountId,
-        owner: repository.owner,
-        name: repository.name,
-        action: isStarred ? "unstar" : "star",
-      });
-      setStarredRepos((current) => {
-        const next = new Set(current);
-        if (isStarred) next.delete(key);
-        else next.add(key);
-        return next;
-      });
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : "收藏操作失败");
-    } finally {
-      setInteractingRepo(null);
-    }
-  };
+  const isStarred = (repository: RemoteRepository) => projects.some((project) => remoteProjectMatch(project, repository) && project.favorite);
+  const isWatched = (repository: RemoteRepository) => projects.some((project) => remoteProjectMatch(project, repository) && project.tags.includes("watching"));
 
-  const toggleWatch = async (repository: RemoteRepository) => {
-    const bridge = getDesktopBridge();
-    if (!bridge) {
-      window.alert("浏览器预览不支持远程操作");
-      return;
-    }
-    const key = repository.fullName;
-    const isWatched = watchedRepos.has(key);
-    setInteractingRepo(key);
-    try {
-      await bridge.toggleRepositoryInteraction({
-        accountId: repository.accountId,
-        owner: repository.owner,
-        name: repository.name,
-        action: isWatched ? "unwatch" : "watch",
-      });
-      setWatchedRepos((current) => {
-        const next = new Set(current);
-        if (isWatched) next.delete(key);
-        else next.add(key);
-        return next;
-      });
-    } catch (error) {
-      window.alert(error instanceof Error ? error.message : "关注操作失败");
-    } finally {
-      setInteractingRepo(null);
-    }
+  const handleToggleFavorite = async (repository: RemoteRepository) => {
+    setInteractingRepo(repository.fullName);
+    try { await onToggleFavorite(repository); } finally { setInteractingRepo(null); }
+  };
+  const handleToggleWatch = async (repository: RemoteRepository) => {
+    setInteractingRepo(repository.fullName);
+    try { await onToggleWatch(repository); } finally { setInteractingRepo(null); }
   };
 
   const openRepositoryPage = async (repository: RemoteRepository) => {
@@ -2458,7 +2478,7 @@ function RemoteRepositoriesWorkspace({ accounts, repositories, selectedAccountId
   return <div className="module-page remote-page">
     <div className="module-hero"><div className="module-icon"><Cloud size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />REMOTE HUB</div><h1>远程仓库</h1><p>从 GitHub、Gitee 和 GitLab 读取当前账号可访问的仓库。{syncTime ? <> 上次同步：{new Date(syncTime).toLocaleString("zh-CN", { hour12: false })}</> : null}</p></div><div className="heading-actions"><button className="button secondary" onClick={onRefresh} disabled={isLoading || !selectedAccountId}><RefreshCw size={15} className={isLoading ? "spin" : ""} />{isLoading ? "同步中..." : "同步仓库"}</button><button className="button primary" onClick={openCreate} disabled={!selectedAccountId}><Plus size={16} />创建仓库</button></div></div>
     <div className="remote-toolbar"><label className="account-select"><span>远程账号</span><select value={selectedAccountId} onChange={(event) => onAccountChange(event.target.value)}><option value="">选择账号</option>{accounts.map((account) => <option value={account.id} key={account.id}>{account.displayName} · {remoteProviderLabels[account.provider]}</option>)}</select></label><label className="search-box remote-search"><Search size={16} /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="搜索仓库名称或描述" /></label></div>
-    <section className="remote-list-panel"><div className="panel-heading"><div><h2>{activeAccount ? `${activeAccount.displayName} 的仓库` : "远程仓库列表"}</h2><span>{filtered.length} 个结果</span></div>{activeAccount && <span className="provider-chip">{remoteProviderLabels[activeAccount.provider]}</span>}</div>{filtered.length ? <div className="remote-list">{filtered.map((repository) => <div className="remote-row" key={`${repository.accountId}-${repository.id}`}><div className={`account-provider-icon ${repository.provider}`}><span>{remoteProviderLabels[repository.provider].slice(0, 1)}</span></div><div className="remote-main"><div className="remote-title"><strong>{repository.fullName}</strong><span>{repository.visibility}</span>{repository.archived && <span>已归档</span>}</div><p>{repository.description || "暂无仓库描述"}</p><div className="remote-meta"><span><GitBranch size={12} />{repository.defaultBranch}</span><code>{repository.httpsUrl}</code></div>{cloningRepositoryId === repository.id && cloneProgress && <div className="clone-progress"><div className="clone-progress-bar" style={{ width: `${cloneProgress.percent}%` }} /><span>{cloneProgress.phase} {cloneProgress.percent}%</span></div>}</div><div className="remote-actions"><button className={`icon-button favorite-button ${starredRepos.has(repository.fullName) ? "active" : ""}`} onClick={() => toggleStar(repository)} disabled={interactingRepo === repository.fullName} aria-label={starredRepos.has(repository.fullName) ? "取消收藏" : "收藏仓库"} title={starredRepos.has(repository.fullName) ? "已收藏" : "收藏"}><Star size={16} fill={starredRepos.has(repository.fullName) ? "currentColor" : "none"} /></button><button className={`icon-button ${watchedRepos.has(repository.fullName) ? "active" : ""}`} onClick={() => toggleWatch(repository)} disabled={interactingRepo === repository.fullName} aria-label={watchedRepos.has(repository.fullName) ? "取消关注" : "关注仓库"} title={watchedRepos.has(repository.fullName) ? "已关注" : "关注"} style={watchedRepos.has(repository.fullName) ? { color: "#e85d75" } : undefined}><Heart size={16} fill={watchedRepos.has(repository.fullName) ? "currentColor" : "none"} /></button><button className="icon-button" onClick={() => openRepositoryPage(repository)} aria-label="打开仓库页面" title="在浏览器打开"><ExternalLink size={15} /></button><button className="button secondary compact-button" onClick={() => openEdit(repository)}><Settings2 size={13} />编辑</button><button className="icon-button danger" onClick={() => deleteRepository(repository)} aria-label="删除仓库" title="删除仓库"><Trash2 size={16} /></button><button className="icon-button" aria-label="克隆仓库" title="克隆仓库" onClick={() => onClone(repository)} disabled={cloningRepositoryId !== null && cloningRepositoryId !== repository.id}>{cloningRepositoryId === repository.id ? <RefreshCw size={16} className="spin" /> : <ArrowDownToLine size={16} />}</button></div></div>)}</div> : <div className="accounts-empty"><Cloud size={22} /><strong>{accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}</strong><span>{accounts.length ? "选择账号后点击同步仓库。" : "账号令牌将由 Windows 凭据管理器保护。"}</span></div>}</section>
+    <section className="remote-list-panel"><div className="panel-heading"><div><h2>{activeAccount ? `${activeAccount.displayName} 的仓库` : "远程仓库列表"}</h2><span>{filtered.length} 个结果</span></div>{activeAccount && <span className="provider-chip">{remoteProviderLabels[activeAccount.provider]}</span>}</div>{filtered.length ? <div className="remote-list">{filtered.map((repository) => <div className="remote-row" key={`${repository.accountId}-${repository.id}`}><div className={`account-provider-icon ${repository.provider}`}><span>{remoteProviderLabels[repository.provider].slice(0, 1)}</span></div><div className="remote-main"><div className="remote-title"><strong>{repository.fullName}</strong><span>{repository.visibility}</span>{repository.archived && <span>已归档</span>}</div><p>{repository.description || "暂无仓库描述"}</p><div className="remote-meta"><span><GitBranch size={12} />{repository.defaultBranch}</span><code>{repository.httpsUrl}</code></div>{cloningRepositoryId === repository.id && cloneProgress && <div className="clone-progress"><div className="clone-progress-bar" style={{ width: `${cloneProgress.percent}%` }} /><span>{cloneProgress.phase} {cloneProgress.percent}%</span></div>}</div><div className="remote-actions"><button className={`icon-button favorite-button ${isStarred(repository) ? "active" : ""}`} onClick={() => handleToggleFavorite(repository)} disabled={interactingRepo === repository.fullName} aria-label={isStarred(repository) ? "取消收藏" : "收藏仓库"} title={isStarred(repository) ? "已收藏" : "收藏"}><Star size={16} fill={isStarred(repository) ? "currentColor" : "none"} /></button><button className={`icon-button ${isWatched(repository) ? "active" : ""}`} onClick={() => handleToggleWatch(repository)} disabled={interactingRepo === repository.fullName} aria-label={isWatched(repository) ? "取消关注" : "关注仓库"} title={isWatched(repository) ? "已关注" : "关注"} style={isWatched(repository) ? { color: "#e85d75" } : undefined}><Heart size={16} fill={isWatched(repository) ? "currentColor" : "none"} /></button><button className="icon-button" onClick={() => openRepositoryPage(repository)} aria-label="打开仓库页面" title="在浏览器打开"><ExternalLink size={15} /></button><button className="button secondary compact-button" onClick={() => openEdit(repository)}><Settings2 size={13} />编辑</button><button className="icon-button danger" onClick={() => deleteRepository(repository)} aria-label="删除仓库" title="删除仓库"><Trash2 size={16} /></button><button className="icon-button" aria-label="克隆仓库" title="克隆仓库" onClick={() => onClone(repository)} disabled={cloningRepositoryId !== null && cloningRepositoryId !== repository.id}>{cloningRepositoryId === repository.id ? <RefreshCw size={16} className="spin" /> : <ArrowDownToLine size={16} />}</button></div></div>)}</div> : <div className="accounts-empty"><Cloud size={22} /><strong>{accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}</strong><span>{accounts.length ? "选择账号后点击同步仓库。" : "账号令牌将由 Windows 凭据管理器保护。"}</span></div>}</section>
   {formState && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setFormState(null); }}>
       <div className="modal-panel" role="dialog" aria-modal="true">
         <form onSubmit={submitForm}>
