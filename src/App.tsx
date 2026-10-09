@@ -325,6 +325,36 @@ function App() {
 
   const toggleRemoteFavorite = async (repository: RemoteRepository) => {
     const isFav = projects.some((project) => remoteProjectMatch(project, repository) && project.favorite);
+    const match = projects.find((project) => remoteProjectMatch(project, repository));
+    if (match) {
+      if (match.path === "" && !match.tags.includes("watching")) {
+        updateProjects(projects.filter((project) => project.id !== match.id));
+      } else {
+        updateProjects(projects.map((project) => project.id === match.id ? { ...project, favorite: !project.favorite } : project));
+      }
+    } else {
+      const now = new Date().toISOString();
+      const favoriteProject: Project = {
+        id: `fav:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
+        name: repository.name,
+        path: "",
+        provider: repository.provider,
+        branch: repository.defaultBranch || "main",
+        status: "clean",
+        commit: "未克隆",
+        favorite: true,
+        tags: ["remote", "favorite"],
+        files: 0,
+        syncLabel: "未克隆",
+        language: "未克隆",
+        languageColor: "#8b97a8",
+        summary: repository.description || "远程收藏项目，尚未克隆到本地。",
+        updatedAt: now,
+        diskSizeBytes: 0,
+        webUrl: repository.webUrl,
+      };
+      updateProjects([favoriteProject, ...projects]);
+    }
     if (isDesktopRuntime()) {
       try {
         await requireDesktopBridge().toggleRepositoryInteraction({
@@ -336,45 +366,45 @@ function App() {
       } catch (error) {
         setNotice(error instanceof Error ? error.message : "平台收藏操作失败");
         window.setTimeout(() => setNotice(null), 3000);
-        return;
       }
     }
-    const match = projects.find((project) => remoteProjectMatch(project, repository));
-    if (match) {
-      if (match.path === "" && !match.tags.includes("watching")) {
-        updateProjects(projects.filter((project) => project.id !== match.id));
-      } else {
-        updateProjects(projects.map((project) => project.id === match.id ? { ...project, favorite: !project.favorite } : project));
-      }
-      return;
-    }
-    const now = new Date().toISOString();
-    const favoriteProject: Project = {
-      id: `fav:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
-      name: repository.name,
-      path: "",
-      provider: repository.provider,
-      branch: repository.defaultBranch || "main",
-      status: "clean",
-      commit: "未克隆",
-      favorite: true,
-      tags: ["remote", "favorite"],
-      files: 0,
-      syncLabel: "未克隆",
-      language: "未克隆",
-      languageColor: "#8b97a8",
-      summary: repository.description || "远程收藏项目，尚未克隆到本地。",
-      updatedAt: now,
-      diskSizeBytes: 0,
-      webUrl: repository.webUrl,
-    };
-    updateProjects([favoriteProject, ...projects]);
-    setNotice(`已收藏「${repository.fullName}」，可在我的项目中查看`);
-    window.setTimeout(() => setNotice(null), 3000);
   };
 
   const toggleRemoteWatch = async (repository: RemoteRepository) => {
     const isWatched = projects.some((project) => remoteProjectMatch(project, repository) && project.tags.includes("watching"));
+    const match = projects.find((project) => remoteProjectMatch(project, repository));
+    if (match) {
+      const nextTags = isWatched
+        ? match.tags.filter((tag) => tag !== "watching")
+        : [...match.tags, "watching"];
+      if (match.path === "" && !match.favorite && isWatched) {
+        updateProjects(projects.filter((project) => project.id !== match.id));
+      } else {
+        updateProjects(projects.map((project) => project.id === match.id ? { ...project, tags: nextTags } : project));
+      }
+    } else {
+      const now = new Date().toISOString();
+      const watchedProject: Project = {
+        id: `watch:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
+        name: repository.name,
+        path: "",
+        provider: repository.provider,
+        branch: repository.defaultBranch || "main",
+        status: "clean",
+        commit: "未克隆",
+        favorite: false,
+        tags: ["remote", "watching"],
+        files: 0,
+        syncLabel: "已关注",
+        language: "未克隆",
+        languageColor: "#8b97a8",
+        summary: repository.description || "远程关注项目，尚未克隆到本地。",
+        updatedAt: now,
+        diskSizeBytes: 0,
+        webUrl: repository.webUrl,
+      };
+      updateProjects([watchedProject, ...projects]);
+    }
     if (isDesktopRuntime()) {
       try {
         await requireDesktopBridge().toggleRepositoryInteraction({
@@ -386,44 +416,8 @@ function App() {
       } catch (error) {
         setNotice(error instanceof Error ? error.message : "平台关注操作失败");
         window.setTimeout(() => setNotice(null), 3000);
-        return;
       }
     }
-    const match = projects.find((project) => remoteProjectMatch(project, repository));
-    if (match) {
-      const nextTags = isWatched
-        ? match.tags.filter((tag) => tag !== "watching")
-        : [...match.tags, "watching"];
-      if (match.path === "" && !match.favorite && isWatched) {
-        updateProjects(projects.filter((project) => project.id !== match.id));
-      } else {
-        updateProjects(projects.map((project) => project.id === match.id ? { ...project, tags: nextTags } : project));
-      }
-      return;
-    }
-    const now = new Date().toISOString();
-    const watchedProject: Project = {
-      id: `watch:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
-      name: repository.name,
-      path: "",
-      provider: repository.provider,
-      branch: repository.defaultBranch || "main",
-      status: "clean",
-      commit: "未克隆",
-      favorite: false,
-      tags: ["remote", "watching"],
-      files: 0,
-      syncLabel: "已关注",
-      language: "未克隆",
-      languageColor: "#8b97a8",
-      summary: repository.description || "远程关注项目，尚未克隆到本地。",
-      updatedAt: now,
-      diskSizeBytes: 0,
-      webUrl: repository.webUrl,
-    };
-    updateProjects([watchedProject, ...projects]);
-    setNotice(`已关注「${repository.fullName}」，可在我的项目中查看`);
-    window.setTimeout(() => setNotice(null), 3000);
   };
 
   const deleteProjectFromList = (projectId: string) => {
