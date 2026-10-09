@@ -241,7 +241,7 @@ export type OpenEditorInput = {
   newWindow: boolean;
 };
 
-export type TaskType = "build" | "run" | "package";
+export type TaskType = "build" | "run" | "package" | "deploy";
 
 export type TaskProfile = {
   id: string;
@@ -274,6 +274,8 @@ export type DetectedCommand = {
   command: string;
   args: string;
   source: string;
+  category: TaskType;
+  osSupport: string[];
 };
 
 export type DetectCommandsResult = {
