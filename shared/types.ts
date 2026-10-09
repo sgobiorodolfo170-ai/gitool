@@ -229,6 +229,13 @@ export type RemoteRepositorySearchInput = {
   accountId?: string;
 };
 
+export type RepositoryInteractionInput = {
+  accountId: string;
+  owner: string;
+  name: string;
+  action: "star" | "unstar" | "watch" | "unwatch";
+};
+
 export type RemoteRepositoryMutationResult = {
   success: boolean;
   message: string;
@@ -446,6 +453,7 @@ export type DesktopBridge = {
   loadCachedRemoteRepositories(accountId: string): Promise<RemoteRepository[]>;
   getRemoteRepositoryCacheMeta(accountId: string): Promise<{ syncedAt: string } | null>;
   searchRemoteRepositories(input: RemoteRepositorySearchInput): Promise<RemoteRepository[]>;
+  toggleRepositoryInteraction(input: RepositoryInteractionInput): Promise<void>;
   createRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
   updateRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
   deleteRemoteRepository(accountId: string, repositoryId: string): Promise<RemoteRepositoryMutationResult>;

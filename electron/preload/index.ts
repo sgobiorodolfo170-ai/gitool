@@ -102,6 +102,8 @@ const bridge: DesktopBridge = {
     invoke<{ syncedAt: string } | null>("remoteRepositories:cacheMeta", accountId),
   searchRemoteRepositories: (input) =>
     invoke<RemoteRepository[]>("remoteRepositories:search", input),
+  toggleRepositoryInteraction: (input) =>
+    invoke<void>("remoteRepositories:interact", input),
   createRemoteRepository: (input) =>
     invoke<RemoteRepositoryMutationResult>("remoteRepositories:create", input),
   updateRemoteRepository: (input) =>

@@ -24,6 +24,7 @@ import type {
   Project,
   RemoteRepositoryWriteInput,
   RemoteRepositorySearchInput,
+  RepositoryInteractionInput,
   RenameWorkspaceInput,
   RevertCommitInput,
   SetRemoteUrlInput,
@@ -68,9 +69,9 @@ import {
 import {
   createRemoteRepository,
   deleteRemoteRepository,
-  loadCachedRemoteRepositories,
   loadRemoteRepositories,
   searchRemoteRepositories,
+  toggleRepositoryInteraction,
   testAccount,
   updateRemoteRepository,
 } from "./services/providers";
@@ -83,6 +84,7 @@ import {
   listWorkspaces,
   loadAccounts,
   loadProjects,
+  loadRemoteRepositoryCache,
   renameWorkspace,
   saveProjects,
 } from "./services/storage";
@@ -254,7 +256,7 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
     loadRemoteRepositories(requireString(accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:loadCached", (_event, accountId: unknown) =>
-    loadCachedRemoteRepositories(requireString(accountId, "账号 ID")),
+    loadRemoteRepositoryCache(requireString(accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:cacheMeta", (_event, accountId: unknown) =>
     getRemoteRepositoryCacheMeta(requireString(accountId, "账号 ID")),
@@ -274,6 +276,10 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   ipcMain.handle("remoteRepositories:search", (_event, input: unknown) => {
     const { provider, query, accountId } = requireRemoteRepositorySearchInput(input);
     return searchRemoteRepositories(provider, query, accountId);
+  });
+  ipcMain.handle("remoteRepositories:interact", (_event, input: unknown) => {
+    const { accountId, owner, name, action } = requireRepositoryInteractionInput(input);
+    return toggleRepositoryInteraction(accountId, owner, name, action);
   });
 
   ipcMain.handle("tasks:listProfiles", () => listTaskProfiles());
@@ -773,6 +779,23 @@ function requireRemoteRepositorySearchInput(value: unknown): RemoteRepositorySea
     provider,
     query: requireString(candidate.query, "搜索关键词"),
     accountId: typeof accountId === "string" && accountId.length > 0 ? accountId : undefined,
+  };
+}
+
+function requireRepositoryInteractionInput(value: unknown): RepositoryInteractionInput {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("交互参数格式不正确");
+  }
+  const candidate = value as Record<string, unknown>;
+  const action = candidate.action;
+  if (action !== "star" && action !== "unstar" && action !== "watch" && action !== "unwatch") {
+    throw new Error("不支持的操作类型");
+  }
+  return {
+    accountId: requireString(candidate.accountId, "账号 ID"),
+    owner: requireString(candidate.owner, "仓库所有者"),
+    name: requireString(candidate.name, "仓库名称"),
+    action,
   };
 }
 

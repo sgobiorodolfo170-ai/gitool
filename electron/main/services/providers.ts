@@ -264,6 +264,64 @@ function extractSearchItems(payload: unknown): unknown[] {
   return [];
 }
 
+type InteractionAction = "star" | "unstar" | "watch" | "unwatch";
+
+function getInteractionEndpoint(provider: RemoteProvider, owner: string, name: string, action: InteractionAction): { method: string; url: string; body?: string } {
+  const isStar = action === "star" || action === "unstar";
+  const isOn = action === "star" || action === "watch";
+  if (provider === "github") {
+    if (isStar) {
+      return { method: isOn ? "PUT" : "DELETE", url: `https://api.github.com/user/starred/${owner}/${name}` };
+    }
+    return {
+      method: isOn ? "PUT" : "DELETE",
+      url: `https://api.github.com/repos/${owner}/${name}/subscription`,
+      body: isOn ? JSON.stringify({ subscribed: true, ignored: false }) : undefined,
+    };
+  }
+  if (provider === "gitee") {
+    if (isStar) {
+      return { method: isOn ? "PUT" : "DELETE", url: `https://gitee.com/api/v5/user/starred/${owner}/${name}` };
+    }
+    return { method: isOn ? "PUT" : "DELETE", url: `https://gitee.com/api/v5/user/subscriptions/${owner}/${name}` };
+  }
+  const encoded = encodeURIComponent(`${owner}/${name}`);
+  if (isStar) {
+    return { method: isOn ? "POST" : "DELETE", url: `https://gitlab.com/api/v4/projects/${encoded}/${isOn ? "star" : "unstar"}` };
+  }
+  throw new Error("GitLab 暂不支持关注操作");
+}
+
+export async function toggleRepositoryInteraction(
+  accountId: string,
+  owner: string,
+  name: string,
+  action: InteractionAction,
+): Promise<void> {
+  const account = getAccount(accountId);
+  const token = readCredential(account.credentialRef);
+  const endpoint = getInteractionEndpoint(account.provider, owner, name, action);
+  const authHeader = USER_ENDPOINTS[account.provider].header;
+  const prefix = USER_ENDPOINTS[account.provider].prefix;
+  let response: Response;
+  try {
+    response = await fetch(endpoint.url, {
+      method: endpoint.method,
+      headers: {
+        Accept: "application/json",
+        ...(endpoint.body ? { "Content-Type": "application/json" } : {}),
+        [authHeader]: `${prefix}${token}`,
+      },
+      body: endpoint.body,
+    });
+  } catch (error) {
+    throw new Error(`操作失败：${errorMessage(error)}`);
+  }
+  if (!response.ok && response.status !== 204) {
+    throw new Error(`平台返回 HTTP ${response.status}`);
+  }
+}
+
 export async function createRemoteRepository(
   input: RemoteRepositoryWriteInput,
 ): Promise<RemoteRepositoryMutationResult> {
