@@ -438,7 +438,7 @@ function App() {
     window.setTimeout(() => setNotice(null), 3000);
   };
 
-  const addAccount = async (input: { provider: RemoteProvider; displayName: string; username: string; token: string }) => {
+  const addAccount = async (input: { provider: RemoteProvider; token: string }) => {
     if (!isDesktopRuntime()) {
       setNotice("账号凭据管理需要使用 Windows 桌面版");
       window.setTimeout(() => setNotice(null), 3000);
@@ -448,17 +448,18 @@ function App() {
     try {
       const account = await requireDesktopBridge().createAccount({
         provider: input.provider,
-        displayName: input.displayName,
-        username: input.username,
-        authType: "pat",
         token: input.token,
       });
-      setAccounts((current) => [account, ...current]);
-      setNotice("账号已保存到本地凭据配置");
+      setAccounts((current) => {
+        const without = current.filter((item) => !(item.provider === account.provider && item.username === account.username));
+        return [account, ...without];
+      });
+      setNotice(`账号「${account.username}」已保存`);
       window.setTimeout(() => setNotice(null), 3000);
       return true;
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "账号保存失败");
+      window.setTimeout(() => setNotice(null), 3000);
       return false;
     }
   };
@@ -2332,10 +2333,8 @@ function formatDayGroup(iso: string): string {
   }
 }
 
-function AccountsWorkspace({ accounts, accountBusyId, onAdd, onTest, onDelete }: { accounts: Account[]; accountBusyId: string | null; onAdd: (input: { provider: RemoteProvider; displayName: string; username: string; token: string }) => Promise<boolean>; onTest: (accountId: string) => Promise<void>; onDelete: (accountId: string) => Promise<void> }) {
+function AccountsWorkspace({ accounts, accountBusyId, onAdd, onTest, onDelete }: { accounts: Account[]; accountBusyId: string | null; onAdd: (input: { provider: RemoteProvider; token: string }) => Promise<boolean>; onTest: (accountId: string) => Promise<void>; onDelete: (accountId: string) => Promise<void> }) {
   const [provider, setProvider] = useState<RemoteProvider>("github");
-  const [displayName, setDisplayName] = useState("");
-  const [username, setUsername] = useState("");
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -2343,10 +2342,8 @@ function AccountsWorkspace({ accounts, accountBusyId, onAdd, onTest, onDelete }:
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsSaving(true);
-    const saved = await onAdd({ provider, displayName, username, token });
+    const saved = await onAdd({ provider, token });
     if (saved) {
-      setDisplayName("");
-      setUsername("");
       setToken("");
     }
     setIsSaving(false);
@@ -2356,13 +2353,11 @@ function AccountsWorkspace({ accounts, accountBusyId, onAdd, onTest, onDelete }:
     <div className="module-hero"><div className="module-icon"><KeyRound size={21} /></div><div><div className="eyebrow"><span className="eyebrow-line" />CREDENTIALS</div><h1>账号与令牌</h1><p>连接远程平台，令牌只保存到 Windows 凭据管理器。</p></div></div>
     <div className="accounts-grid">
       <form className="account-form" onSubmit={submit}>
-        <div className="panel-heading"><div><h2>添加远程账号</h2><span>当前支持 Personal Access Token</span></div><ShieldCheck size={16} /></div>
+        <div className="panel-heading"><div><h2>添加远程账号</h2><span>输入令牌后自动读取用户名</span></div><ShieldCheck size={16} /></div>
         <div className="form-body">
           <label>托管平台<select value={provider} onChange={(event) => setProvider(event.target.value as RemoteProvider)}><option value="github">GitHub</option><option value="gitee">Gitee</option><option value="gitlab">GitLab</option></select></label>
-          <label>显示名称<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="例如：个人 GitHub" /></label>
-          <label>平台用户名<input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="可稍后通过连接测试补全" /></label>
           <label>Personal Access Token<div className="secret-input"><input required type={showToken ? "text" : "password"} value={token} onChange={(event) => setToken(event.target.value)} placeholder="令牌不会显示或写入日志" /><button type="button" onClick={() => setShowToken((current) => !current)} aria-label={showToken ? "隐藏令牌" : "显示令牌"}>{showToken ? "隐藏" : "显示"}</button></div></label>
-          <div className="credential-note"><ShieldCheck size={15} /><span>令牌将写入 Windows Credential Manager，SQLite 只保存账号元数据。</span></div>
+          <div className="credential-note"><ShieldCheck size={15} /><span>用户名由令牌自动读取；同一平台同一用户名重复添加时会替换旧令牌。</span></div>
           <button className="button primary form-submit" disabled={isSaving || !token.trim()}><Plus size={15} />{isSaving ? "保存中..." : "保存账号"}</button>
         </div>
       </form>

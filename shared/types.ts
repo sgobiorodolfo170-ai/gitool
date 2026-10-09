@@ -124,9 +124,6 @@ export type LocalProjectInspection = {
 
 export type CreateAccountInput = {
   provider: RemoteProvider;
-  displayName: string;
-  username: string;
-  authType: "pat";
   token: string;
 };
 

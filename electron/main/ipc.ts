@@ -70,13 +70,13 @@ import {
   createRemoteRepository,
   deleteRemoteRepository,
   loadRemoteRepositories,
+  resolveTokenUser,
   searchRemoteRepositories,
   toggleRepositoryInteraction,
   testAccount,
   updateRemoteRepository,
 } from "./services/providers";
 import {
-  createAccount,
   createWorkspace,
   deleteAccount,
   deleteWorkspace,
@@ -87,6 +87,7 @@ import {
   loadRemoteRepositoryCache,
   renameWorkspace,
   saveProjects,
+  upsertAccount,
 } from "./services/storage";
 import {
   clearOperationRecords,
@@ -243,9 +244,11 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   );
 
   ipcMain.handle("accounts:load", () => loadAccounts());
-  ipcMain.handle("accounts:create", (_event, input: unknown) =>
-    createAccount(requireCreateAccountInput(input)),
-  );
+  ipcMain.handle("accounts:create", async (_event, input: unknown) => {
+    const { provider, token } = requireCreateAccountInput(input);
+    const { username } = await resolveTokenUser(provider, token);
+    return upsertAccount(provider, username, token);
+  });
   ipcMain.handle("accounts:test", (_event, accountId: unknown) =>
     testAccount(requireString(accountId, "账号 ID")),
   );
@@ -671,15 +674,8 @@ function requireCreateAccountInput(value: unknown): CreateAccountInput {
   if (provider !== "github" && provider !== "gitee" && provider !== "gitlab") {
     throw new Error("不支持的远程平台");
   }
-  if (candidate.authType !== "pat") {
-    throw new Error("当前版本账号录入使用 Personal Access Token");
-  }
-
   return {
     provider,
-    displayName: typeof candidate.displayName === "string" ? candidate.displayName : "",
-    username: typeof candidate.username === "string" ? candidate.username : "",
-    authType: "pat",
     token: requireString(candidate.token, "令牌"),
   };
 }

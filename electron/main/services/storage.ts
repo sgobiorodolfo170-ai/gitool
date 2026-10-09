@@ -2,8 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { app } from "electron";
-import type { Account, AppSettings, BackupRecord, CreateAccountInput, CreateWorkspaceInput, OperationRecord, Project, RemoteProvider, RemoteRepository, RenameWorkspaceInput, TaskProfile, TaskRun, WorkspaceEntity } from "../../../shared/types";
-import { deleteCredential, saveCredential } from "./credentials";
+import type { Account, AppSettings, BackupRecord, CreateWorkspaceInput, OperationRecord, Project, RemoteProvider, RemoteRepository, RenameWorkspaceInput, TaskProfile, TaskRun, WorkspaceEntity } from "../../../shared/types";
+import { deleteCredential, readCredential, saveCredential } from "./credentials";
 
 type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
 
@@ -175,30 +175,42 @@ export function getAccount(accountId: string): Account {
   return rowToAccount(row);
 }
 
-export function createAccount(input: CreateAccountInput): Account {
-  const token = input.token.trim();
-  if (token.length === 0) {
+export function upsertAccount(provider: RemoteProvider, username: string, token: string): Account {
+  const trimmedToken = token.trim();
+  if (trimmedToken.length === 0) {
     throw new Error("令牌不能为空");
   }
-  if (!isRemoteProvider(input.provider)) {
+  if (!isRemoteProvider(provider)) {
     throw new Error("不支持的远程平台");
   }
 
+  const existing = findAccountByProviderUsername(provider, username);
+  if (existing) {
+    const currentToken = readCredential(existing.credentialRef);
+    if (currentToken === trimmedToken) {
+      return existing;
+    }
+    saveCredential(existing.credentialRef, trimmedToken);
+    const now = new Date().toISOString();
+    updateAccount(existing.id, { status: "active", lastCheckedAt: now });
+    return getAccount(existing.id);
+  }
+
   const now = new Date().toISOString();
-  const id = `${input.provider}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const id = `${provider}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const credentialRef = `account-${id}`;
-  saveCredential(credentialRef, token);
+  saveCredential(credentialRef, trimmedToken);
 
   const account: Account = {
     id,
-    provider: input.provider,
-    username: input.username.trim(),
-    displayName: input.displayName.trim().length > 0 ? input.displayName.trim() : "未命名账号",
-    authType: input.authType,
+    provider,
+    username,
+    displayName: username,
+    authType: "pat",
     credentialRef,
-    status: "unknown",
+    status: "active",
     scopes: [],
-    lastCheckedAt: null,
+    lastCheckedAt: now,
     createdAt: now,
     updatedAt: now,
   };
@@ -231,6 +243,18 @@ export function createAccount(input: CreateAccountInput): Account {
   }
 
   return account;
+}
+
+function findAccountByProviderUsername(provider: string, username: string): Account | null {
+  const connection = openDatabase();
+  const row = connection
+    .prepare(
+      `SELECT id, provider, username, displayName, authType, credentialRef, status, scopes,
+              lastCheckedAt, createdAt, updatedAt
+       FROM accounts WHERE provider = ? AND username = ?`,
+    )
+    .get(provider, username) as unknown as SqlRow | undefined;
+  return row ? rowToAccount(row) : null;
 }
 
 export function updateAccount(accountId: string, patch: Partial<Account>): void {

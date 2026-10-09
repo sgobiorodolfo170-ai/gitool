@@ -45,6 +45,38 @@ const REPOSITORY_ENDPOINTS: Record<RemoteProvider, ProviderEndpoint> = {
   },
 };
 
+export async function resolveTokenUser(provider: RemoteProvider, token: string): Promise<{ username: string }> {
+  const endpoint = USER_ENDPOINTS[provider];
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(endpoint.url, {
+      headers: {
+        Accept: "application/json",
+        [endpoint.header]: `${endpoint.prefix}${token}`,
+      },
+    });
+  } catch (error) {
+    throw new Error(`连接远程平台失败：${errorMessage(error)}`);
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("令牌无效或已过期");
+  }
+  if (!response.ok) {
+    throw new Error(`平台返回 HTTP ${response.status}，请检查令牌和权限`);
+  }
+  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  const username =
+    typeof body.login === "string"
+      ? body.login
+      : typeof body.username === "string"
+        ? body.username
+        : "";
+  if (!username) {
+    throw new Error("无法从平台读取用户名，请检查令牌权限");
+  }
+  return { username };
+}
+
 export async function testAccount(accountId: string): Promise<AccountTestResult> {
   const account = getAccount(accountId);
   const token = readCredential(account.credentialRef);
