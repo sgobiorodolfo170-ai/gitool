@@ -2449,28 +2449,30 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
     setRuns(loadedRuns);
   };
 
-  const detectCommandsForProject = async (projectId: string) => {
+  const detectCommandsForProject = async (projectId: string): Promise<DetectedCommand[]> => {
     if (!bridge || !projectId) {
       setDetectedCommands([]);
-      return;
+      return [];
     }
     const project = projects.find((item) => item.id === projectId);
     if (!project) {
       setDetectedCommands([]);
-      return;
+      return [];
     }
     try {
       const result = await bridge.detectProjectCommands(project.path);
       setDetectedCommands(result.commands);
+      return result.commands;
     } catch {
       setDetectedCommands([]);
+      return [];
     }
   };
 
   const handleProjectChange = (projectId: string) => {
     setDraft((current) => ({ ...current, projectId, command: "", args: "" }));
-    setCommandCustom(true);
-    setArgsCustom(true);
+    setCommandCustom(false);
+    setArgsCustom(false);
     void detectCommandsForProject(projectId);
   };
 
@@ -2597,14 +2599,14 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
     timedout: { label: "超时", className: "status-conflicted" },
   };
 
-  const edit = (profile: TaskProfile) => {
+  const edit = async (profile: TaskProfile) => {
     setEditing(profile);
     setDraft({ projectId: profile.projectId, name: profile.name, command: profile.command, args: profile.args, taskType: profile.taskType, timeoutSeconds: profile.timeoutSeconds });
-    void detectCommandsForProject(profile.projectId);
     setActiveTab("create");
-    const matched = detectedCommands.find((item) => item.command === profile.command);
+    const detected = await detectCommandsForProject(profile.projectId);
+    const matched = detected.find((item) => item.command === profile.command);
     setCommandCustom(!matched);
-    setArgsCustom(matched ? !matched.args || matched.args !== profile.args : true);
+    setArgsCustom(matched ? matched.args !== profile.args : true);
   };
 
   return <div className="module-page">
@@ -2622,10 +2624,10 @@ function TasksWorkspace({ projects }: { projects: Project[] }) {
         <div className="form-body">
           <label>关联项目<select value={draft.projectId} onChange={(event) => handleProjectChange(event.target.value)}><option value="">选择项目</option>{projects.map((project) => <option value={project.id} key={project.id}>{project.name}</option>)}</select></label>
           {!editing && draft.projectId && <div className="task-name-preview"><ListTodo size={13} />任务名称将自动生成为「{generateTaskName(draft.projectId)}」</div>}
-          <label>任务分类<select value={draft.taskType} onChange={(event) => { const value = event.target.value as TaskType; setDraft((current) => ({ ...current, taskType: value, command: "", args: "" })); setCommandCustom(true); setArgsCustom(true); }}><option value="build">构建</option><option value="run">运行</option><option value="package">打包</option><option value="deploy">部署</option></select></label>
+          <label>任务分类<select value={draft.taskType} onChange={(event) => { const value = event.target.value as TaskType; setDraft((current) => ({ ...current, taskType: value, command: "", args: "" })); setCommandCustom(false); setArgsCustom(false); }}><option value="build">构建</option><option value="run">运行</option><option value="package">打包</option><option value="deploy">部署</option></select></label>
           {incompatibleCommands.length > 0 && <div className="conflict-wizard" style={{ background: "#fef9e7", borderColor: "#f0d78a" }}><div className="conflict-heading" style={{ color: "#9a6b1f" }}><CircleAlert size={14} /><strong>检测到 {incompatibleCommands.length} 个当前系统不支持的命令</strong></div><p style={{ color: "#8a6d2f" }}>以下命令不支持 Windows 系统，仅支持：{incompatibleCommands[0].osSupport.join("、")}。可在其他系统上执行，或使用自定义命令手动配置。</p><div className="conflict-files">{incompatibleCommands.map((item) => <code key={`${item.command}-${item.args}`}>{item.label}（仅 {item.osSupport.join("/")}）</code>)}</div></div>}
-          <label>命令{commandOptions.length > 0 && !commandCustom ? <select value={draft.command} onChange={(event) => { const value = event.target.value; if (value === "__custom__") { setCommandCustom(true); return; } setDraft({ ...draft, command: value, args: "" }); setArgsCustom(true); }}><option value="">选择命令</option>{commandOptions.map((item) => <option value={item.command} key={`${item.command}-${item.category}`}>{item.command} — {item.description ?? item.label}（{item.source}）</option>)}{commandOptions.length > 0 && <option value="__custom__">自定义…</option>}</select> : <div className="secret-input"><input value={draft.command} onChange={(event) => setDraft({ ...draft, command: event.target.value })} placeholder="例如：npm（选择项目后自动读取）" />{commandOptions.length > 0 && <button type="button" onClick={() => setCommandCustom(false)}>选择</button>}</div>}</label>
-          <label>参数{argOptions.length > 0 && !argsCustom && draft.command ? <select value={draft.args} onChange={(event) => { const value = event.target.value; if (value === "__custom__") { setArgsCustom(true); return; } setDraft({ ...draft, args: value }); }}><option value="">选择参数</option>{argOptions.map((item) => <option value={item.args} key={`${item.command}-${item.args}`}>{item.args} — {item.description ?? item.label}</option>)}{argOptions.length > 0 && <option value="__custom__">自定义…</option>}</select> : <div className="secret-input"><input value={draft.args} onChange={(event) => setDraft({ ...draft, args: event.target.value })} placeholder="例如：run dev" />{argOptions.length > 0 && draft.command && <button type="button" onClick={() => setArgsCustom(false)}>选择</button>}</div>}</label>
+          <label>命令{commandOptions.length > 0 && <select value={commandCustom ? "__custom__" : draft.command} onChange={(event) => { const value = event.target.value; if (value === "__custom__") { setCommandCustom(true); return; } setCommandCustom(false); setDraft({ ...draft, command: value, args: "" }); setArgsCustom(false); }}><option value="">选择命令</option>{commandOptions.map((item) => <option value={item.command} key={`${item.command}-${item.category}`}>{item.command} — {item.description ?? item.label}（{item.source}）</option>)}<option value="__custom__">自定义…</option></select>}{(commandCustom || commandOptions.length === 0) && <div className="secret-input" style={{ marginTop: commandOptions.length > 0 ? 6 : 0 }}><input value={draft.command} onChange={(event) => setDraft({ ...draft, command: event.target.value })} placeholder="例如：npm（选择项目后自动读取）" /></div>}</label>
+          <label>参数{argOptions.length > 0 && draft.command && <select value={argsCustom ? "__custom__" : draft.args} onChange={(event) => { const value = event.target.value; if (value === "__custom__") { setArgsCustom(true); return; } setArgsCustom(false); setDraft({ ...draft, args: value }); }}><option value="">选择参数</option>{argOptions.map((item) => <option value={item.args} key={`${item.command}-${item.args}`}>{item.args} — {item.description ?? item.label}</option>)}<option value="__custom__">自定义…</option></select>}{(argsCustom || argOptions.length === 0 || !draft.command) && <div className="secret-input" style={{ marginTop: argOptions.length > 0 && draft.command ? 6 : 0 }}><input value={draft.args} onChange={(event) => setDraft({ ...draft, args: event.target.value })} placeholder="例如：run dev" /></div>}</label>
           <label>超时（秒）<input type="number" value={draft.timeoutSeconds} onChange={(event) => setDraft({ ...draft, timeoutSeconds: Number(event.target.value) || 0 })} /></label>
           <button className="button primary form-submit" disabled={!draft.projectId || !draft.command}>{editing ? "保存修改" : "创建任务"}</button>
         </div>
