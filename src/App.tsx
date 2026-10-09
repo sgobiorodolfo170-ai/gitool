@@ -1292,7 +1292,7 @@ function RemoteRepositorySearch({ projects, onClone, cloningRepositoryId, defaul
 
   return (
     <section className="repo-search-panel">
-      <div className="panel-heading"><div><h2>远程项目搜索</h2><span>在 GitHub / Gitee 上检索开源项目，单击行打开项目网页</span></div><Github size={16} /></div>
+      <div className="panel-heading"><div><h2>远程项目搜索</h2><span>在 GitHub / Gitee 上检索开源项目，单击行打开项目网页</span></div><button className="bare-button" onClick={() => { const url = provider === "github" ? "https://github.com" : "https://gitee.com"; if (bridge) void bridge.openExternal(url); }} aria-label={`打开 ${provider === "github" ? "GitHub" : "Gitee"} 官网`}>{provider === "github" ? <Github size={16} /> : <Cloud size={16} />}</button></div>
       <form className="repo-search-bar" onSubmit={(event) => { void submit(event); }}>
         <select value={provider} onChange={(event) => setProvider(event.target.value as "github" | "gitee")} aria-label="平台">
           <option value="github">github</option>
