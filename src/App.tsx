@@ -453,6 +453,7 @@ function App() {
         const without = current.filter((item) => !(item.provider === account.provider && item.username === account.username));
         return [account, ...without];
       });
+      setSelectedAccountId((current) => current || account.id);
       setNotice(`账号「${account.username}」已保存`);
       window.setTimeout(() => setNotice(null), 3000);
       return true;
@@ -499,7 +500,11 @@ function App() {
       await requireDesktopBridge().deleteAccount(accountId);
       setAccounts((current) => current.filter((account) => account.id !== accountId));
       setRemoteRepositories((current) => current.filter((repository) => repository.accountId !== accountId));
-      setSelectedAccountId((current) => current === accountId ? "" : current);
+      setSelectedAccountId((current) => {
+        if (current !== accountId) return current;
+        const remaining = accounts.filter((account) => account.id !== accountId);
+        return remaining[0]?.id ?? "";
+      });
       setNotice("账号和对应凭据已删除");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "账号删除失败");
