@@ -2,7 +2,9 @@
 
 Gitool 是一个 Windows Git 仓库管理桌面工具，统一管理本地仓库以及 GitHub、Gitee、GitLab 远程仓库。
 
-![Gitool 主界面](docs/screenshots/app-overview.png)
+![总览](docs/screenshots/shot-1-overview.png)
+![我的项目](docs/screenshots/shot-2-projects.png)
+![远程仓库](docs/screenshots/shot-3-remote.png)
 
 ## 功能概览
 
