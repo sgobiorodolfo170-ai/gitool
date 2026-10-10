@@ -11,6 +11,7 @@ files:
   - dist-electron/**/*
   - node_modules/**/*
   - package.json
+  - build/icon.png
 
 asar: true
 asarUnpack:
@@ -20,6 +21,7 @@ npmRebuild: false
 nodeGypRebuild: false
 
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:

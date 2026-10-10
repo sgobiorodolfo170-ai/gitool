@@ -32,17 +32,12 @@ function showMainWindow(window: BrowserWindow): void {
 }
 
 function createTrayIcon(): Electron.NativeImage {
-  const svg = [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">',
-    '<rect width="32" height="32" rx="7" fill="#1f3a33"/>',
-    '<path d="M7 9c0-1.1.9-2 2-2h10l6 6v10c0 1.1-.9 2-2 2H9c-1.1 0-2-.9-2-2V9z" fill="#4a9a83"/>',
-    '<path d="M12 12h8M12 16h8M12 20h5" stroke="#e8f5ef" stroke-width="2" stroke-linecap="round"/>',
-    '</svg>',
-  ].join("");
-  return nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`);
+  const iconPath = join(currentDirectory, "..", "build", "icon.png");
+  return nativeImage.createFromPath(iconPath);
 }
 
 function createMainWindow(): BrowserWindow {
+  const iconPath = join(currentDirectory, "..", "build", "icon.png");
   const window = new BrowserWindow({
     title: "Gitool",
     width: 1440,
@@ -52,6 +47,7 @@ function createMainWindow(): BrowserWindow {
     backgroundColor: "#f5f7f9",
     show: false,
     autoHideMenuBar: true,
+    icon: iconPath,
     webPreferences: {
       preload: join(currentDirectory, "preload.cjs"),
       contextIsolation: true,
