@@ -1041,6 +1041,8 @@ function App() {
             </div>
           ))}
         </nav>
+
+        <div className="sidebar-version">v{__APP_VERSION__}</div>
       </aside>
 
       <main className="main-area">

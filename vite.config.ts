@@ -1,6 +1,9 @@
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import electron from "vite-plugin-electron/simple";
+import { readFileSync } from "node:fs";
+
+const appVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 
 function contentSecurityPolicyPlugin(): Plugin {
   return {
@@ -76,6 +79,9 @@ export default defineConfig(({ mode }) => {
           ]),
     ],
     clearScreen: false,
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+    },
     server: {
       port: 1420,
       strictPort: true,
