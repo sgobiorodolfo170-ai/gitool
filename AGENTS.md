@@ -8,6 +8,7 @@ tags:
   - 模板文档
 template: agents-规范模板
 created: 2026-07-27
+adapted: 2026-10-10
 ---
 
 # AI Agent 开发规范与方法论
