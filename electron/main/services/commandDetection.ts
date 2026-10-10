@@ -197,7 +197,13 @@ function detectGradleCommands(projectPath: string, category: TaskType): Detected
 }
 
 function detectDotnetCommands(projectPath: string, category: TaskType): DetectedCommand[] {
-  const hasProjectFile = readdirSync(projectPath, { withFileTypes: true }).some(
+  let entries;
+  try {
+    entries = readdirSync(projectPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const hasProjectFile = entries.some(
     (entry) => entry.isFile() && DOTNET_PROJECT_EXTENSIONS.some((ext) => entry.name.endsWith(ext)),
   );
   if (!hasProjectFile) {

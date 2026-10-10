@@ -301,21 +301,23 @@ type InteractionAction = "star" | "unstar" | "watch" | "unwatch";
 function getInteractionEndpoint(provider: RemoteProvider, owner: string, name: string, action: InteractionAction): { method: string; url: string; body?: string } {
   const isStar = action === "star" || action === "unstar";
   const isOn = action === "star" || action === "watch";
+  const encOwner = encodeURIComponent(owner);
+  const encName = encodeURIComponent(name);
   if (provider === "github") {
     if (isStar) {
-      return { method: isOn ? "PUT" : "DELETE", url: `https://api.github.com/user/starred/${owner}/${name}` };
+      return { method: isOn ? "PUT" : "DELETE", url: `https://api.github.com/user/starred/${encOwner}/${encName}` };
     }
     return {
       method: isOn ? "PUT" : "DELETE",
-      url: `https://api.github.com/repos/${owner}/${name}/subscription`,
+      url: `https://api.github.com/repos/${encOwner}/${encName}/subscription`,
       body: isOn ? JSON.stringify({ subscribed: true, ignored: false }) : undefined,
     };
   }
   if (provider === "gitee") {
     if (isStar) {
-      return { method: isOn ? "PUT" : "DELETE", url: `https://gitee.com/api/v5/user/starred/${owner}/${name}` };
+      return { method: isOn ? "PUT" : "DELETE", url: `https://gitee.com/api/v5/user/starred/${encOwner}/${encName}` };
     }
-    return { method: isOn ? "PUT" : "DELETE", url: `https://gitee.com/api/v5/user/subscriptions/${owner}/${name}` };
+    return { method: isOn ? "PUT" : "DELETE", url: `https://gitee.com/api/v5/user/subscriptions/${encOwner}/${encName}` };
   }
   const encoded = encodeURIComponent(`${owner}/${name}`);
   if (isStar) {
@@ -337,7 +339,7 @@ export async function toggleRepositoryInteraction(
   const prefix = USER_ENDPOINTS[account.provider].prefix;
   let response: Response;
   try {
-    response = await fetch(endpoint.url, {
+    response = await fetchWithTimeout(endpoint.url, {
       method: endpoint.method,
       headers: {
         Accept: "application/json",

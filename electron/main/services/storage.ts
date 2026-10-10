@@ -300,7 +300,7 @@ function openDatabase(): DatabaseSync {
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
-      path TEXT NOT NULL UNIQUE,
+      path TEXT NOT NULL,
       provider TEXT NOT NULL,
       branch TEXT NOT NULL,
       status TEXT NOT NULL,
@@ -395,6 +395,7 @@ function openDatabase(): DatabaseSync {
   `);
   migrationEnsureProjectColumns(connection);
   migrationEnsureWorkspaceColumns(connection);
+  migrationDropPathUniqueConstraint(connection);
   seedDefaultWorkspace(connection);
   database = connection;
   return connection;
@@ -434,6 +435,42 @@ function migrationEnsureProjectColumns(connection: DatabaseSync): void {
   if (!columns.some((column) => column.name === "webUrl")) {
     connection.exec("ALTER TABLE projects ADD COLUMN webUrl TEXT");
   }
+}
+
+function migrationDropPathUniqueConstraint(connection: DatabaseSync): void {
+  const row = connection
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'")
+    .get() as unknown as SqlRow | undefined;
+  if (!row || typeof row.sql !== "string") return;
+  if (!row.sql.includes("path TEXT NOT NULL UNIQUE")) return;
+  connection.exec(`
+    CREATE TABLE projects_migration (
+      id TEXT PRIMARY KEY NOT NULL,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      branch TEXT NOT NULL,
+      status TEXT NOT NULL,
+      commitHash TEXT NOT NULL,
+      favorite INTEGER NOT NULL DEFAULT 0,
+      tags TEXT NOT NULL DEFAULT '[]',
+      remote TEXT,
+      files INTEGER NOT NULL DEFAULT 0,
+      syncLabel TEXT NOT NULL,
+      language TEXT NOT NULL,
+      languageColor TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      diskSizeBytes INTEGER NOT NULL DEFAULT 0,
+      alias TEXT,
+      webUrl TEXT,
+      workspaceId TEXT NOT NULL DEFAULT 'default'
+    );
+    INSERT INTO projects_migration (id, name, path, provider, branch, status, commitHash, favorite, tags, remote, files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl, workspaceId)
+    SELECT id, name, path, provider, branch, status, commitHash, favorite, tags, remote, files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl, workspaceId FROM projects;
+    DROP TABLE projects;
+    ALTER TABLE projects_migration RENAME TO projects;
+  `);
 }
 
 function rowToProject(row: SqlRow): Project {

@@ -246,8 +246,9 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   ipcMain.handle("accounts:load", () => loadAccounts());
   ipcMain.handle("accounts:create", async (_event, input: unknown) => {
     const { provider, token } = requireCreateAccountInput(input);
-    const { username } = await resolveTokenUser(provider, token);
-    return upsertAccount(provider, username, token);
+    const trimmed = token.trim();
+    const { username } = await resolveTokenUser(provider, trimmed);
+    return upsertAccount(provider, username, trimmed);
   });
   ipcMain.handle("accounts:test", (_event, accountId: unknown) =>
     testAccount(requireString(accountId, "账号 ID")),

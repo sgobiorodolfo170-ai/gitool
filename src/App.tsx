@@ -222,13 +222,19 @@ function App() {
     });
   }, [filter, projects, search, tagFilter]);
 
-  const updateProjects = (nextProjects: Project[]) => {
-    setProjects(nextProjects);
-    if (isDesktopRuntime()) {
-      void requireDesktopBridge().saveProjects(activeWorkspaceId, nextProjects);
-    } else {
-      saveProjects(activeWorkspaceId, nextProjects);
-    }
+  const updateProjects = (updater: (prev: Project[]) => Project[]) => {
+    setProjects((prev) => {
+      const next = updater(prev);
+      if (isDesktopRuntime()) {
+        void requireDesktopBridge().saveProjects(activeWorkspaceId, next).catch((error) => {
+          setNotice(error instanceof Error ? error.message : "项目数据保存失败");
+          window.setTimeout(() => setNotice(null), 4000);
+        });
+      } else {
+        saveProjects(activeWorkspaceId, next);
+      }
+      return next;
+    });
   };
 
   const switchWorkspace = async (id: string) => {
@@ -316,20 +322,23 @@ function App() {
   const toggleFavorite = (projectId: string) => {
     const target = projects.find((project) => project.id === projectId);
     if (target && target.path === "" && target.favorite) {
-      updateProjects(projects.filter((project) => project.id !== projectId));
+      updateProjects((prev) => prev.filter((project) => project.id !== projectId));
       return;
     }
-    updateProjects(projects.map((project) => (project.id === projectId ? { ...project, favorite: !project.favorite } : project)));
+    updateProjects((prev) => prev.map((project) => (project.id === projectId ? { ...project, favorite: !project.favorite } : project)));
   };
 
   const toggleRemoteFavorite = async (repository: RemoteRepository) => {
     const isFav = projects.some((project) => remoteProjectMatch(project, repository) && project.favorite);
     const match = projects.find((project) => remoteProjectMatch(project, repository));
+    let rollback: (() => void) | null = null;
     if (match) {
       if (match.path === "" && !match.tags.includes("watching")) {
-        updateProjects(projects.filter((project) => project.id !== match.id));
+        updateProjects((prev) => prev.filter((project) => project.id !== match.id));
+        rollback = () => updateProjects((prev) => [match, ...prev]);
       } else {
-        updateProjects(projects.map((project) => project.id === match.id ? { ...project, favorite: !project.favorite } : project));
+        updateProjects((prev) => prev.map((project) => project.id === match.id ? { ...project, favorite: !project.favorite } : project));
+        rollback = () => updateProjects((prev) => prev.map((project) => project.id === match.id ? { ...project, favorite: match.favorite } : project));
       }
     } else {
       const now = new Date().toISOString();
@@ -352,7 +361,8 @@ function App() {
         diskSizeBytes: 0,
         webUrl: repository.webUrl,
       };
-      updateProjects([favoriteProject, ...projects]);
+      updateProjects((prev) => [favoriteProject, ...prev]);
+      rollback = () => updateProjects((prev) => prev.filter((project) => project.id !== favoriteProject.id));
     }
     if (isDesktopRuntime()) {
       try {
@@ -363,6 +373,7 @@ function App() {
           action: isFav ? "unstar" : "star",
         });
       } catch (error) {
+        rollback?.();
         setNotice(error instanceof Error ? error.message : "平台收藏操作失败");
         window.setTimeout(() => setNotice(null), 3000);
       }
@@ -372,14 +383,17 @@ function App() {
   const toggleRemoteWatch = async (repository: RemoteRepository) => {
     const isWatched = projects.some((project) => remoteProjectMatch(project, repository) && project.tags.includes("watching"));
     const match = projects.find((project) => remoteProjectMatch(project, repository));
+    let rollback: (() => void) | null = null;
     if (match) {
       const nextTags = isWatched
         ? match.tags.filter((tag) => tag !== "watching")
         : [...match.tags, "watching"];
       if (match.path === "" && !match.favorite && isWatched) {
-        updateProjects(projects.filter((project) => project.id !== match.id));
+        updateProjects((prev) => prev.filter((project) => project.id !== match.id));
+        rollback = () => updateProjects((prev) => [match, ...prev]);
       } else {
-        updateProjects(projects.map((project) => project.id === match.id ? { ...project, tags: nextTags } : project));
+        updateProjects((prev) => prev.map((project) => project.id === match.id ? { ...project, tags: nextTags } : project));
+        rollback = () => updateProjects((prev) => prev.map((project) => project.id === match.id ? { ...project, tags: match.tags } : project));
       }
     } else {
       const now = new Date().toISOString();
@@ -402,7 +416,8 @@ function App() {
         diskSizeBytes: 0,
         webUrl: repository.webUrl,
       };
-      updateProjects([watchedProject, ...projects]);
+      updateProjects((prev) => [watchedProject, ...prev]);
+      rollback = () => updateProjects((prev) => prev.filter((project) => project.id !== watchedProject.id));
     }
     if (isDesktopRuntime()) {
       try {
@@ -413,6 +428,7 @@ function App() {
           action: isWatched ? "unwatch" : "watch",
         });
       } catch (error) {
+        rollback?.();
         setNotice(error instanceof Error ? error.message : "平台关注操作失败");
         window.setTimeout(() => setNotice(null), 3000);
       }
@@ -426,11 +442,12 @@ function App() {
       ? `确定移除「${target.alias || target.name}」？这是未克隆的远程收藏条目。`
       : `确定从我的项目中移除「${target.alias || target.name}」？\n项目目录不会被删除，后续可重新导入。`;
     if (!window.confirm(message)) return;
-    updateProjects(projects.filter((project) => project.id !== projectId));
-    if (selectedId === projectId) {
-      const remaining = projects.filter((project) => project.id !== projectId);
-      setSelectedId(remaining[0]?.id ?? "");
-    }
+    const wasSelected = selectedId === projectId;
+    updateProjects((prev) => {
+      const remaining = prev.filter((project) => project.id !== projectId);
+      if (wasSelected) setSelectedId(remaining[0]?.id ?? "");
+      return remaining;
+    });
     setOperationOutput(null);
     setAnalysis(null);
     setNotice("已从我的项目移除");
@@ -602,9 +619,9 @@ function App() {
         const favoriteStub = projects.find((project) => project.path === "" && project.webUrl === repository.webUrl && project.favorite);
         if (favoriteStub) {
           newProject.favorite = true;
-          updateProjects([newProject, ...projects.filter((project) => project.id !== favoriteStub.id)]);
+          updateProjects((prev) => [newProject, ...prev.filter((project) => project.id !== favoriteStub.id)]);
         } else {
-          updateProjects([newProject, ...projects]);
+          updateProjects((prev) => [newProject, ...prev]);
         }
         setSelectedId(newProject.id);
         setWorkspace("projects");
@@ -670,7 +687,7 @@ function App() {
       const result = await requireDesktopBridge().runGitOperation(selectedProject.path, operation);
       setOperationOutput(result.output);
       if (result.snapshot) {
-        updateProjects(projects.map((project) => (
+        updateProjects((prev) => prev.map((project) => (
           project.id === selectedProject.id ? projectFromSnapshot(project, result.snapshot!) : project
         )));
       }
@@ -710,7 +727,7 @@ function App() {
         updated.push(project);
       }
     }
-    updateProjects(projects.map((project) => updated.find((item) => item.id === project.id) ?? project));
+    updateProjects((prev) => prev.map((project) => updated.find((item) => item.id === project.id) ?? project));
     setNotice(`批量${operationLabels[operation]}完成：成功 ${successCount}，失败 ${failureCount}`);
     window.setTimeout(() => setNotice(null), 4000);
   };
@@ -783,7 +800,7 @@ function App() {
       };
       if (importedSnapshot) Object.assign(newProject, projectFromSnapshot(newProject, importedSnapshot));
       window.localStorage.setItem(LAST_IMPORT_DIRECTORY_KEY, path);
-      updateProjects([newProject, ...projects]);
+      updateProjects((prev) => [newProject, ...prev]);
       setSelectedId(newProject.id);
       setWorkspace("projects");
       setNotice("项目已导入");
@@ -811,7 +828,7 @@ function App() {
           return project;
         }
       });
-      updateProjects(refreshed);
+      updateProjects(() => refreshed);
       setNotice("项目状态已刷新");
     } finally {
       setIsRefreshing(false);
@@ -832,7 +849,7 @@ function App() {
     try {
       const result = await bridge.moveProject({ sourcePath: sourceProject.path, targetDirectory });
       if (result.success) {
-        updateProjects(projects.map((project) => project.id === sourceProject.id ? { ...project, path: result.targetPath } : project));
+        updateProjects((prev) => prev.map((project) => project.id === sourceProject.id ? { ...project, path: result.targetPath } : project));
         setNotice("项目已移动，记录已更新");
       } else {
         setNotice(`移动失败：${result.output}`);
@@ -895,7 +912,7 @@ function App() {
         updatedAt: "刚刚",
         diskSizeBytes,
       };
-      updateProjects([newProject, ...projects]);
+      updateProjects((prev) => [newProject, ...prev]);
       setSelectedId(newProject.id);
       setWorkspace("projects");
       setNotice("新 Git 仓库初始化完成");
@@ -944,7 +961,7 @@ function App() {
         imported += 1;
       }
       if (newProjects.length > 0) {
-        updateProjects([...newProjects, ...projects]);
+        updateProjects((prev) => [...newProjects, ...prev]);
       }
     } finally {
       setIsImporting(false);
@@ -1066,7 +1083,7 @@ function App() {
               onTagFilterChange={setTagFilter}
               onSelect={(id) => { setSelectedId(id); setOperationOutput(null); setAnalysis(null); }}
               onToggleFavorite={toggleFavorite}
-              onUpdateProject={(projectId, patch) => updateProjects(projects.map((project) => project.id === projectId ? { ...project, ...patch } : project))}
+              onUpdateProject={(projectId, patch) => updateProjects((prev) => prev.map((project) => project.id === projectId ? { ...project, ...patch } : project))}
               onBulkGitOperation={runBulkGitOperation}
               onMoveProject={moveProject}
               onInitRepository={initNewRepository}
@@ -1304,9 +1321,15 @@ function RemoteRepositorySearch({ projects, onClone, cloningRepositoryId, defaul
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const isFavorite = (repository: RemoteRepository) => (
-    projects.some((project) => remoteProjectMatch(project, repository) && project.favorite)
-  );
+  const favoriteKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const project of projects) {
+      if (project.favorite) set.add(`${project.provider}:${project.name}`);
+    }
+    return set;
+  }, [projects]);
+
+  const isFavorite = (repository: RemoteRepository) => favoriteKeys.has(`${repository.provider}:${repository.name}`);
 
   const openRepository = (repository: RemoteRepository, event?: React.MouseEvent) => {
     event?.stopPropagation();
@@ -2370,8 +2393,24 @@ function RemoteRepositoriesWorkspace({ accounts, repositories, projects, selecte
   const [formNotice, setFormNotice] = useState("");
   const [interactingRepo, setInteractingRepo] = useState<string | null>(null);
 
-  const isStarred = (repository: RemoteRepository) => projects.some((project) => remoteProjectMatch(project, repository) && project.favorite);
-  const isWatched = (repository: RemoteRepository) => projects.some((project) => remoteProjectMatch(project, repository) && project.tags.includes("watching"));
+  const starredKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const project of projects) {
+      if (project.favorite) set.add(`${project.provider}:${project.name}`);
+    }
+    return set;
+  }, [projects]);
+
+  const watchedKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const project of projects) {
+      if (project.tags.includes("watching")) set.add(`${project.provider}:${project.name}`);
+    }
+    return set;
+  }, [projects]);
+
+  const isStarred = (repository: RemoteRepository) => starredKeys.has(`${repository.provider}:${repository.name}`);
+  const isWatched = (repository: RemoteRepository) => watchedKeys.has(`${repository.provider}:${repository.name}`);
 
   const handleToggleFavorite = async (repository: RemoteRepository) => {
     setInteractingRepo(repository.fullName);
