@@ -2,6 +2,15 @@ import { BrowserWindow, Menu, Tray, app, nativeImage, shell } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerIpcHandlers } from "./ipc.js";
+import { checkForUpdates, CHECK_INTERVAL_MS } from "./services/updater.js";
+
+function notifyUpdateIfAvailable(window: BrowserWindow): void {
+  void checkForUpdates().then((result) => {
+    if (result.hasUpdate) {
+      window.webContents.send("updater:available", { version: result.version });
+    }
+  }).catch(() => {});
+}
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -106,6 +115,9 @@ if (!hasSingleInstanceLock) {
     registerIpcHandlers();
     const window = createMainWindow();
     createTray(window);
+    notifyUpdateIfAvailable(window);
+    const updateTimer = setInterval(() => notifyUpdateIfAvailable(window), CHECK_INTERVAL_MS);
+    app.on("before-quit", () => clearInterval(updateTimer));
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {

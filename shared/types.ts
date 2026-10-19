@@ -411,6 +411,18 @@ export type AiSummaryResult = {
   error?: string;
 };
 
+export type UpdateCheckResult = {
+  hasUpdate: boolean;
+  version: string;
+  downloadUrl: string;
+};
+
+export type UpdateProgress = {
+  percent: number;
+  downloaded: number;
+  total: number;
+};
+
 export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
   selectDirectory(defaultPath?: string): Promise<string | null>;
@@ -484,4 +496,9 @@ export type DesktopBridge = {
   deleteAiApiKey(): Promise<void>;
   hasAiApiKey(): Promise<boolean>;
   detectProjectCommands(path: string): Promise<DetectCommandsResult>;
+  checkForUpdates(): Promise<UpdateCheckResult>;
+  downloadUpdate(): Promise<string>;
+  installUpdate(filePath: string): void;
+  onUpdateAvailable(callback: (info: { version: string }) => void): () => void;
+  onUpdateProgress(callback: (progress: UpdateProgress) => void): () => void;
 };

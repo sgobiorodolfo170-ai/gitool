@@ -31,6 +31,7 @@ import type {
   SwitchBranchInput,
   TaskProfile,
   TaskRun,
+  UpdateProgress,
 } from "../../shared/types";
 import { analyzeProject } from "./services/analysis";
 import { deleteAiApiKey, generateAiSummary, hasStoredApiKey, saveAiApiKey } from "./services/ai";
@@ -105,6 +106,9 @@ import {
   updateTaskRun,
 } from "./services/storage";
 import { getRunningTaskOutput, runTask, stopTask } from "./services/tasks";
+import { checkForUpdates, downloadUpdate, installUpdate } from "./services/updater";
+
+let cachedDownloadUrl = "";
 
 export function registerIpcHandlers(): void {  ipcMain.handle("system:environment", () => getEnvironmentStatus());
 
@@ -344,6 +348,31 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
     deleteAiApiKey();
   });
   ipcMain.handle("ai:hasKey", () => hasStoredApiKey());
+
+  ipcMain.handle("updater:check", async () => {
+    const result = await checkForUpdates();
+    if (result.hasUpdate && result.downloadUrl) {
+      cachedDownloadUrl = result.downloadUrl;
+    }
+    return result;
+  });
+
+  ipcMain.handle("updater:download", async (event) => {
+    if (!cachedDownloadUrl) {
+      throw new Error("没有可用的更新");
+    }
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return downloadUpdate(cachedDownloadUrl, (progress: UpdateProgress) => {
+      win?.webContents.send("updater:progress", progress);
+    });
+  });
+
+  ipcMain.handle("updater:install", async (_event, filePath: unknown) => {
+    if (typeof filePath !== "string" || filePath.trim().length === 0) {
+      throw new Error("安装包路径无效");
+    }
+    installUpdate(filePath);
+  });
 }
 
 async function recordGitOperation(projectPath: unknown, operation: unknown): Promise<GitOperationResult> {

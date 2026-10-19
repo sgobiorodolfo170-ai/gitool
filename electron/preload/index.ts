@@ -31,6 +31,8 @@ import type {
   RepositoryDiscoveryItem,
   TaskProfile,
   TaskRun,
+  UpdateCheckResult,
+  UpdateProgress,
   WorkspaceEntity,
 } from "../../shared/types";
 
@@ -139,6 +141,23 @@ const bridge: DesktopBridge = {
   saveAiApiKey: (secret) => invoke<void>("ai:saveKey", secret),
   deleteAiApiKey: () => invoke<void>("ai:deleteKey"),
   hasAiApiKey: () => invoke<boolean>("ai:hasKey"),
+  checkForUpdates: () => invoke<UpdateCheckResult>("updater:check"),
+  downloadUpdate: () => invoke<string>("updater:download"),
+  installUpdate: (filePath) => { invoke<void>("updater:install", filePath); },
+  onUpdateAvailable: (callback) => {
+    const listener = (_event: unknown, payload: unknown) => {
+      callback(payload as { version: string });
+    };
+    ipcRenderer.on("updater:available", listener);
+    return () => { ipcRenderer.removeListener("updater:available", listener); };
+  },
+  onUpdateProgress: (callback) => {
+    const listener = (_event: unknown, payload: unknown) => {
+      callback(payload as UpdateProgress);
+    };
+    ipcRenderer.on("updater:progress", listener);
+    return () => { ipcRenderer.removeListener("updater:progress", listener); };
+  },
 };
 
 contextBridge.exposeInMainWorld("gitool", bridge);

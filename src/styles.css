@@ -42,7 +42,14 @@ button { border: 0; cursor: pointer; }
 .workspace-copy span { font-size: 12px; font-weight: 600; }
 .workspace-copy small { margin-top: 2px; color: #8ba1a3; font-size: 10px; }
 .sidebar-nav { flex: 1; }
-.sidebar-version { padding: 10px 14px; color: #5a6e73; font-size: 10px; font-family: "DM Mono", monospace; }
+.sidebar-version { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 14px; color: #5a6e73; font-size: 10px; font-family: "DM Mono", monospace; }
+.sidebar-update-btn { padding: 2px 7px; border: 0; border-radius: 4px; color: #19312d; background: #95ddc2; font-size: 9px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.sidebar-update-btn:hover { background: #b0ebd5; }
+.sidebar-update-btn.install { background: #f0d78a; color: #6b4f1f; }
+.sidebar-update-btn.install:hover { background: #f5e1a8; }
+.sidebar-update-progress { position: relative; display: inline-flex; align-items: center; width: 80px; height: 14px; border-radius: 4px; background: #20343c; overflow: hidden; }
+.sidebar-update-progress-bar { position: absolute; inset: 0 auto 0 0; background: #4a9a83; transition: width .2s ease; }
+.sidebar-update-progress-text { position: relative; color: #d7efe7; font-size: 8px; }
 .nav-group { margin-bottom: 24px; }
 .nav-group-label { display: block; padding: 0 11px 9px; color: #6e858a; font-size: 10px; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
 .nav-item { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 38px; padding: 0 11px; margin: 2px 0; color: #a9bbbc; background: transparent; border-radius: 8px; text-align: left; font-size: 12px; }

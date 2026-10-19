@@ -122,6 +122,10 @@ function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceEntity[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState<{ version: string } | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<{ percent: number } | null>(null);
+  const [downloadedPath, setDownloadedPath] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<ProjectFilter>("all");
   const [search, setSearch] = useState("");
@@ -159,6 +163,17 @@ function App() {
       }
     });
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    const unsub1 = requireDesktopBridge().onUpdateAvailable((info) => {
+      setUpdateAvailable(info);
+    });
+    const unsub2 = requireDesktopBridge().onUpdateProgress((progress) => {
+      setUpdateProgress({ percent: progress.percent });
+    });
+    return () => { unsub1(); unsub2(); };
   }, []);
 
   useEffect(() => {
@@ -310,6 +325,28 @@ function App() {
     } finally {
       window.setTimeout(() => setNotice(null), 3000);
     }
+  };
+
+  const handleUpdate = async () => {
+    const bridge = getDesktopBridge();
+    if (!bridge) return;
+    setIsDownloading(true);
+    setUpdateProgress(null);
+    try {
+      const path = await bridge.downloadUpdate();
+      setDownloadedPath(path);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "下载更新失败");
+      window.setTimeout(() => setNotice(null), 4000);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleInstallUpdate = () => {
+    const bridge = getDesktopBridge();
+    if (!bridge || !downloadedPath) return;
+    bridge.installUpdate(downloadedPath);
   };
 
   const openProjectDetail = (id: string) => {
@@ -1042,7 +1079,21 @@ function App() {
           ))}
         </nav>
 
-        <div className="sidebar-version">v{__APP_VERSION__}</div>
+        <div className="sidebar-version">
+          v{__APP_VERSION__}
+          {updateAvailable && !isDownloading && !downloadedPath && (
+            <button className="sidebar-update-btn" onClick={() => void handleUpdate()}>→ v{updateAvailable.version} 更新</button>
+          )}
+          {isDownloading && updateProgress && (
+            <span className="sidebar-update-progress">
+              <span className="sidebar-update-progress-bar" style={{ width: `${updateProgress.percent}%` }} />
+              <span className="sidebar-update-progress-text">{updateProgress.percent}%</span>
+            </span>
+          )}
+          {downloadedPath && (
+            <button className="sidebar-update-btn install" onClick={handleInstallUpdate}>重启安装</button>
+          )}
+        </div>
       </aside>
 
       <main className="main-area">
