@@ -18,6 +18,8 @@ import type {
   GitOperationResult,
   GitSnapshot,
   GitTag,
+  InstallGitResult,
+  InstallProgress,
   ListVersionsResult,
   LocalProjectInspection,
   MoveProjectInput,
@@ -53,6 +55,17 @@ function cleanMessage(error: unknown): string {
 
 const bridge: DesktopBridge = {
   environment: () => invoke<EnvironmentStatus>("system:environment"),
+  refreshEnvironment: () => invoke<EnvironmentStatus>("system:refreshEnvironment"),
+  installGit: () => invoke<InstallGitResult>("system:installGit"),
+  onInstallProgress: (callback) => {
+    const listener = (_event: unknown, payload: unknown) => {
+      callback(payload as InstallProgress);
+    };
+    ipcRenderer.on("setup:installProgress", listener);
+    return () => {
+      ipcRenderer.removeListener("setup:installProgress", listener);
+    };
+  },
   selectDirectory: (defaultPath) => invoke<string | null>("system:selectDirectory", defaultPath),
   openExternal: (url) => invoke<void>("shell:openExternal", url),
   openPath: (path) => invoke<void>("shell:openPath", path),

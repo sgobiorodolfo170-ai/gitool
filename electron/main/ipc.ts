@@ -47,7 +47,6 @@ import {
   deleteBranch,
   deleteTag,
   getDiskSize,
-  getEnvironmentStatus,
   getFileDiff,
   getProjectSnapshot,
   initRepository,
@@ -67,6 +66,8 @@ import {
   switchBranch,
   unstageFiles,
 } from "./services/git";
+import { getEnvironmentStatus } from "./services/environment";
+import { installGit } from "./services/setup";
 import {
   createRemoteRepository,
   deleteRemoteRepository,
@@ -111,6 +112,12 @@ import { checkForUpdates, downloadUpdate, installUpdate } from "./services/updat
 let cachedDownloadUrl = "";
 
 export function registerIpcHandlers(): void {  ipcMain.handle("system:environment", () => getEnvironmentStatus());
+  // system:refreshEnvironment 与 system:environment 调用同一函数，但语义独立：
+  // 前者用于「一键安装完成后刷新」等显式触发场景，后者用于首启拉取。
+  ipcMain.handle("system:refreshEnvironment", () => getEnvironmentStatus());
+  // 一键安装 Git：下载官方安装包 → UAC 提权静默安装 → 写入 gitPath → 返回最新体检。
+  // 进度通过 setup:installProgress 事件单向推送到渲染层。
+  ipcMain.handle("system:installGit", async () => installGit());
 
   ipcMain.handle("system:selectDirectory", async (event, defaultPath: unknown) => {
     const owner = BrowserWindow.fromWebContents(event.sender);

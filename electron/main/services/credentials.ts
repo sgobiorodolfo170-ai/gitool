@@ -36,3 +36,18 @@ export function deleteCredential(credentialRef: string): void {
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+// 探测 Windows 凭据管理器可写：写入一个随机探针条目再删除，失败则视为不可用。
+// 设计理由：组策略或安全软件可能禁用凭据管理器，PAT 与 AI Key 将无法保存，
+// 体检时主动暴露该风险让小白用户提前知情，而不是等到保存令牌时才报错。
+export function probeKeyring(): boolean {
+  try {
+    const ref = `probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const entry = new Entry(SERVICE_NAME, ref);
+    entry.setPassword("probe");
+    entry.deletePassword();
+    return true;
+  } catch {
+    return false;
+  }
+}

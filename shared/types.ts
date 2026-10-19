@@ -18,10 +18,33 @@ export type GitOperationResult = {
   snapshot?: GitSnapshot;
 };
 
+export type NetworkState = "reachable" | "unreachable" | "unknown";
+
 export type EnvironmentStatus = {
   git_available: boolean;
   git_version?: string | null;
   platform: string;
+  data_directory: string;
+  data_directory_writable: boolean;
+  network: {
+    github: NetworkState;
+    gitee: NetworkState;
+    gitlab: NetworkState;
+  };
+  keyring_available: boolean;
+};
+
+export type InstallProgress = {
+  phase: "downloading" | "installing" | "verifying" | "done" | "failed";
+  percent: number;
+  message: string;
+};
+
+export type InstallGitResult = {
+  success: boolean;
+  gitPath: string;
+  message: string;
+  environment?: EnvironmentStatus;
 };
 
 export type ProjectAnalysis = {
@@ -425,6 +448,9 @@ export type UpdateProgress = {
 
 export type DesktopBridge = {
   environment(): Promise<EnvironmentStatus>;
+  refreshEnvironment(): Promise<EnvironmentStatus>;
+  installGit(): Promise<InstallGitResult>;
+  onInstallProgress(callback: (event: InstallProgress) => void): () => void;
   selectDirectory(defaultPath?: string): Promise<string | null>;
   openExternal(url: string): Promise<void>;
   openPath(path: string): Promise<void>;

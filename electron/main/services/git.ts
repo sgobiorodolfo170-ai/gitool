@@ -15,7 +15,6 @@ import type {
   CreateBranchInput,
   CreateTagInput,
   DeleteBranchInput,
-  EnvironmentStatus,
   FileDiffRequest,
   GitOperation,
   GitOperationResult,
@@ -35,10 +34,23 @@ import type {
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
 import { notifyRenderer } from "./events";
-import { getAccount } from "./storage";
+import { getAccount, loadSettings } from "./storage";
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 10 * 1024 * 1024;
+
+// 解析当前应使用的 git 可执行文件路径：优先使用 settings.gitPath，
+// 为空时回退到系统 PATH 中的 "git"。
+// 设计理由：装完 Git 后 PATH 变更不会传播到运行中的 Electron 进程，
+// 显式指向 git.exe 是「免重启」的必要前提。导出供 environment.ts 复用。
+export function getActiveGitBinary(): string {
+  try {
+    const candidate = loadSettings().gitPath.trim();
+    return candidate || "git";
+  } catch {
+    return "git";
+  }
+}
 
 const OPERATION_COMMANDS: Record<GitOperation, string[][]> = {
   fetch: [["fetch", "--prune"]],
@@ -54,23 +66,6 @@ type GitProcessResult = {
   success: boolean;
   output: string;
 };
-
-export async function getEnvironmentStatus(): Promise<EnvironmentStatus> {
-  try {
-    const { stdout } = await execFileAsync("git", ["--version"], { windowsHide: true });
-    return {
-      git_available: true,
-      git_version: stdout.trim(),
-      platform: process.platform,
-    };
-  } catch {
-    return {
-      git_available: false,
-      git_version: null,
-      platform: process.platform,
-    };
-  }
-}
 
 export async function inspectLocalProject(projectPath: string): Promise<LocalProjectInspection> {
   assertDirectory(projectPath);
@@ -556,7 +551,7 @@ export async function revertCommit(input: RevertCommitInput): Promise<GitOperati
 
 async function commitRevertProcess(projectPath: string, hash: string): Promise<{ success: boolean; output: string }> {
   try {
-    const { stdout, stderr } = await execFileAsync("git", ["-C", projectPath, "revert", "--no-edit", hash], {
+    const { stdout, stderr } = await execFileAsync(getActiveGitBinary(), ["-C", projectPath, "revert", "--no-edit", hash], {
       windowsHide: true,
       maxBuffer: MAX_BUFFER,
     });
@@ -629,7 +624,7 @@ export async function cloneRepository(
   };
 
   return new Promise<CloneRepositoryResult>((resolve) => {
-    const child = spawn("git", args, {
+    const child = spawn(getActiveGitBinary(), args, {
       cwd: dirname(targetPath),
       windowsHide: true,
       env: {
@@ -702,7 +697,7 @@ function assertCloneTarget(targetPath: string): void {
 }
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
+  const { stdout } = await execFileAsync(getActiveGitBinary(), ["-C", cwd, ...args], {
     windowsHide: true,
     maxBuffer: MAX_BUFFER,
   });
@@ -711,7 +706,7 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
 
 async function runGitProcess(cwd: string, args: string[]): Promise<GitProcessResult> {
   try {
-    const { stdout, stderr } = await execFileAsync("git", ["-C", cwd, ...args], {
+    const { stdout, stderr } = await execFileAsync(getActiveGitBinary(), ["-C", cwd, ...args], {
       windowsHide: true,
       maxBuffer: MAX_BUFFER,
     });

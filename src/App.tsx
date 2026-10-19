@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
+  AlertTriangle,
   ArrowDownToLine,
   ArrowUpRight,
   Bell,
@@ -23,6 +24,7 @@ import {
   KeyRound,
   LayoutDashboard,
   ListTodo,
+  Loader2,
   MoreHorizontal,
   PenLine,
   Plus,
@@ -37,7 +39,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { Account, AppSettings, AppView, BackupRecord, BranchInfo, ChangeFile, CommitEntry, DetectedCommand, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, TaskType, WorkspaceEntity } from "./types";
+import type { Account, AppSettings, AppView, BackupRecord, BranchInfo, ChangeFile, CommitEntry, DetectedCommand, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, InstallGitResult, InstallProgress, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, TaskType, WorkspaceEntity } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 import { loadProjects, saveProjects } from "./lib/projects";
 import { DEFAULT_WORKSPACE_ID, createWorkspace as createWorkspaceLocal, deleteWorkspace as deleteWorkspaceLocal, listWorkspaces as listWorkspacesLocal, renameWorkspace as renameWorkspaceLocal } from "./lib/workspaces";
@@ -115,6 +117,7 @@ function buildNavGroups(counts: { projects: number; remotes: number; tasks: numb
 
 const LAST_IMPORT_DIRECTORY_KEY = "gitool.lastImportDirectory";
 const ACTIVE_WORKSPACE_KEY = "gitool.activeWorkspace";
+const SETUP_DISMISS_KEY = "gitool.setup.dismissed";
 
 function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
@@ -147,6 +150,9 @@ function App() {
   const [isLoadingRemotes, setIsLoadingRemotes] = useState(false);
   const [cloningRepositoryId, setCloningRepositoryId] = useState<string | null>(null);
   const [cloneProgress, setCloneProgress] = useState<{ percent: number; phase: string; output: string } | null>(null);
+  const [installProgress, setInstallProgress] = useState<InstallProgress | null>(null);
+  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [installingGit, setInstallingGit] = useState(false);
 
   const defaultDirectoryHint = () => {
     return appSettings?.defaultProjectDirectory?.trim()
@@ -163,6 +169,53 @@ function App() {
       }
     });
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    const unsubscribe = requireDesktopBridge().onInstallProgress((event) => {
+      setInstallProgress(event);
+      // 成功提示 2s 后消失，失败提示 4s 后消失（让用户看清错误信息）
+      if (event.phase === "done" || event.phase === "failed") {
+        window.setTimeout(() => setInstallProgress(null), event.phase === "done" ? 2000 : 4000);
+      }
+    });
+    return unsubscribe;
+  }, []);
+
+  // 刷新环境信息：用于「环境信息」tab 的刷新按钮 + 一键安装完成后的原地更新。
+  const refreshEnvironment = useCallback(async () => {
+    if (!isDesktopRuntime()) return;
+    try {
+      const env = await requireDesktopBridge().refreshEnvironment();
+      setEnvironment(env);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "刷新环境信息失败");
+    }
+  }, []);
+
+  // 一键安装 Git：下载官方安装包 → UAC 静默安装 → 写入 gitPath → 返回最新体检。
+  // 调用方（横幅、模态、env tab）负责在结束后关闭 UI；本函数只管状态与 bridge 调用。
+  const installGit = useCallback(async (): Promise<InstallGitResult | null> => {
+    if (!isDesktopRuntime()) return null;
+    setInstallingGit(true);
+    try {
+      const result = await requireDesktopBridge().installGit();
+      if (result.environment) setEnvironment(result.environment);
+      if (result.success) {
+        setShowSetupModal(false);
+        setNotice("Git 安装成功，相关功能已可用");
+      } else {
+        setNotice(result.message || "安装未完成");
+      }
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "安装失败";
+      setNotice(message);
+      return null;
+    } finally {
+      setInstallingGit(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -202,6 +255,11 @@ function App() {
         setEnvironment(environmentStatus);
         setAccounts(storedAccounts);
         setSelectedAccountId(storedAccounts[0]?.id ?? "");
+        // 首启体检：Git 不可用且用户未勾选「不再提醒」时，弹出引导模态。
+        // 设计理由：小白用户不会主动进设置页，必须首启就主动暴露缺失项。
+        if (!environmentStatus.git_available && window.localStorage.getItem(SETUP_DISMISS_KEY) !== "1") {
+          setShowSetupModal(true);
+        }
       }).catch(() => {
         if (!cancelled) setNotice("无法读取本地工作区数据");
       });
@@ -214,7 +272,15 @@ function App() {
       setWorkspaces(loadedWorkspaces);
       setActiveWorkspaceId(workspaceId);
       setProjects(loadProjects(workspaceId));
-      setEnvironment({ git_available: true, git_version: "浏览器预览", platform: "web" });
+      setEnvironment({
+        git_available: true,
+        git_version: "浏览器预览",
+        platform: "web",
+        data_directory: "",
+        data_directory_writable: true,
+        network: { github: "unknown", gitee: "unknown", gitlab: "unknown" },
+        keyring_available: false,
+      });
     }
 
     return () => {
@@ -1106,6 +1172,17 @@ function App() {
           </div>
         </header>
 
+        {environment && !environment.git_available && (
+          <div className="env-banner">
+            <AlertTriangle size={14} />
+            <span>未检测到 Git，仓库克隆、提交、拉取等功能不可用。</span>
+            <button className="button primary compact-button" onClick={() => void installGit()} disabled={installingGit}>
+              {installingGit ? <><Loader2 size={13} className="spin" />安装中</> : <><ArrowDownToLine size={13} />一键安装</>}
+            </button>
+            <button className="button secondary compact-button" onClick={() => setWorkspace("settings")}>查看详情</button>
+          </div>
+        )}
+
         <div className="content-scroll">
           {workspace === "overview" ? (
             <OverviewWorkspace
@@ -1161,7 +1238,7 @@ function App() {
           ) : workspace === "logs" ? (
             <LogsWorkspace />
           ) : workspace === "settings" ? (
-            <SettingsWorkspace environment={environment} accounts={accounts} accountBusyId={accountBusyId} onAdd={addAccount} onTest={testAccount} onDelete={deleteAccount} onSettingsChange={(next) => setAppSettings(next)} />
+            <SettingsWorkspace environment={environment} accounts={accounts} accountBusyId={accountBusyId} onAdd={addAccount} onTest={testAccount} onDelete={deleteAccount} onSettingsChange={(next) => setAppSettings(next)} onRefreshEnvironment={refreshEnvironment} onInstallGit={installGit} installingGit={installingGit} installProgress={installProgress} />
           ) : (
             <ModuleWorkspace workspace={workspace} onImport={importProject} />
           )}
@@ -1169,6 +1246,82 @@ function App() {
       </main>
 
       {notice && <div className="toast"><Check size={16} />{notice}</div>}
+
+      {/* 浮动进度块：仅当安装进行中/刚结束、且模态未打开时显示。避免与模态内的进度条重复。 */}
+      {installProgress && !showSetupModal && (
+        <div className={`setup-progress-float ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}>
+          <div className="setup-progress-header">
+            {installProgress.phase === "done"
+              ? <Check size={13} />
+              : installProgress.phase === "failed"
+                ? <AlertTriangle size={13} />
+                : <Loader2 size={13} className="spin" />}
+            <span>
+              {installProgress.phase === "downloading"
+                ? "下载 Git 安装包"
+                : installProgress.phase === "installing"
+                  ? "正在安装（如见 UAC 提示请允许）"
+                  : installProgress.phase === "verifying"
+                    ? "验证安装"
+                    : installProgress.phase === "done"
+                      ? "安装完成"
+                      : "安装未完成"}
+            </span>
+          </div>
+          <div className="setup-progress-bar"><div className="setup-progress-fill" style={{ width: `${installProgress.percent}%` }} /></div>
+          <span className="setup-progress-text">{installProgress.message}</span>
+        </div>
+      )}
+
+      {showSetupModal && environment && !environment.git_available && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal-panel setup-modal">
+            <div className="modal-heading">
+              <div>
+                <h2>需要安装 Git 才能使用核心功能</h2>
+                <span>未检测到系统 Git，应用可为你一键下载并安装</span>
+              </div>
+              <AlertTriangle size={18} />
+            </div>
+            <div className="form-body">
+              <p className="setup-intro">
+                Gitool 的克隆、提交、分支、拉取、推送等操作依赖 Git 命令行工具，当前系统未检测到 Git。
+                点击下方按钮将自动从官方（git-for-windows）下载 64 位安装包，并以管理员权限静默安装，
+                完成后无需重启即可使用。
+              </p>
+              {installProgress && (
+                <div className={`setup-progress ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}>
+                  <div className="setup-progress-bar">
+                    <div className="setup-progress-fill" style={{ width: `${installProgress.percent}%` }} />
+                  </div>
+                  <span className="setup-progress-text">{installProgress.message}</span>
+                </div>
+              )}
+              {installProgress?.phase === "failed" && (
+                <p className="form-error">安装未完成。可关闭后重试，或在「设置 → 环境信息」手动指定已存在的 git.exe 路径。</p>
+              )}
+              <div className="setup-actions">
+                <button className="button primary" onClick={() => void installGit()} disabled={installingGit || installProgress?.phase === "downloading" || installProgress?.phase === "installing" || installProgress?.phase === "verifying"}>
+                  {installingGit || (installProgress && installProgress.phase !== "done" && installProgress.phase !== "failed")
+                    ? <><Loader2 size={14} className="spin" />正在安装...</>
+                    : <><ArrowDownToLine size={14} />一键安装 Git</>}
+                </button>
+                <button className="button secondary" onClick={() => setShowSetupModal(false)} disabled={installingGit}>稍后再说</button>
+                <label className="checkbox-row setup-dismiss">
+                  <input type="checkbox" onChange={(event) => {
+                    if (event.target.checked) {
+                      window.localStorage.setItem(SETUP_DISMISS_KEY, "1");
+                    } else {
+                      window.localStorage.removeItem(SETUP_DISMISS_KEY);
+                    }
+                  }} />
+                  不再提醒（环境信息页仍可手动安装）
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2942,7 +3095,7 @@ function LogsWorkspace() {
   </div>;
 }
 
-function SettingsWorkspace({ environment, accounts, accountBusyId, onAdd, onTest, onDelete, onSettingsChange }: { environment: EnvironmentStatus | null; accounts: Account[]; accountBusyId: string | null; onAdd: (input: { provider: RemoteProvider; token: string }) => Promise<boolean>; onTest: (accountId: string) => Promise<void>; onDelete: (accountId: string) => Promise<void>; onSettingsChange: (settings: AppSettings) => void }) {
+function SettingsWorkspace({ environment, accounts, accountBusyId, onAdd, onTest, onDelete, onSettingsChange, onRefreshEnvironment, onInstallGit, installingGit, installProgress }: { environment: EnvironmentStatus | null; accounts: Account[]; accountBusyId: string | null; onAdd: (input: { provider: RemoteProvider; token: string }) => Promise<boolean>; onTest: (accountId: string) => Promise<void>; onDelete: (accountId: string) => Promise<void>; onSettingsChange: (settings: AppSettings) => void; onRefreshEnvironment: () => Promise<void>; onInstallGit: () => Promise<InstallGitResult | null>; installingGit: boolean; installProgress: InstallProgress | null }) {
   const bridge = getDesktopBridge();
   const [settings, setSettings] = useState<AppSettings>({ gitPath: "", defaultProjectDirectory: "", defaultBackupDirectory: "", backupExcludePatterns: "", defaultSearchAccountId: "", aiApiKeyConfigured: false, aiModel: "", aiBaseUrl: "" });
   const [notice, setNotice] = useState("");
@@ -3040,12 +3193,57 @@ function SettingsWorkspace({ environment, accounts, accountBusyId, onAdd, onTest
 
     {activeTab === "env" && (
       <section className="account-list-panel settings-form">
-        <div className="panel-heading"><div><h2>环境信息</h2><span>本地运行环境</span></div><span className="secure-label"><ShieldCheck size={13} />安全</span></div>
+        <div className="panel-heading">
+          <div><h2>环境信息</h2><span>本地运行环境</span></div>
+          <div className="panel-heading-actions">
+            <button className="bare-button" onClick={() => void onRefreshEnvironment()} disabled={installingGit} aria-label="刷新环境信息"><RefreshCw size={16} /></button>
+          </div>
+        </div>
         <div className="form-body">
-          <label>Git 可用性<span className="status-pill status-clean setting-value"><span className="status-dot" />{environment?.git_available ? "可用" : "不可用"}</span></label>
+          {/* Git 可用性：缺失时显示一键安装按钮 */}
+          <label>Git 可用性
+            <span className={`status-pill setting-value ${environment?.git_available ? "status-clean" : "status-conflicted"}`}>
+              <span className="status-dot" />{environment?.git_available ? "可用" : "不可用"}
+            </span>
+            {!environment?.git_available && (
+              <button className="button primary env-install-btn" onClick={() => void onInstallGit()} disabled={installingGit}>
+                {installingGit || (installProgress && installProgress.phase !== "done" && installProgress.phase !== "failed")
+                  ? <><Loader2 size={13} className="spin" />安装中</>
+                  : <><ArrowDownToLine size={13} />一键安装 Git</>}
+              </button>
+            )}
+          </label>
           <label>Git 版本<div className="setting-value mono">{environment?.git_version ?? "检测中"}</div></label>
+          {/* 数据目录可写性：sqlite + 备份 ZIP 均需写入 */}
+          <label>数据目录可写
+            <span className={`status-pill setting-value ${environment?.data_directory_writable ? "status-clean" : "status-conflicted"}`}>
+              <span className="status-dot" />{environment?.data_directory_writable ? "可写" : "不可写"}
+            </span>
+          </label>
+          <label>数据目录<div className="setting-value mono">{environment?.data_directory || "%APPDATA%\\Gitool"}</div></label>
+          {/* 凭据管理器：PAT / AI Key 依赖它保存 */}
+          <label>凭据管理器
+            <span className={`status-pill setting-value ${environment?.keyring_available ? "status-clean" : "status-conflicted"}`}>
+              <span className="status-dot" />{environment?.keyring_available ? "可用" : "不可用"}
+            </span>
+          </label>
+          {/* 网络可达性：影响远程仓库列表、克隆、星标同步 */}
+          <label>网络可达性
+            <div className="env-network-list">
+              {([{ key: "github", label: "GitHub" }, { key: "gitee", label: "Gitee" }, { key: "gitlab", label: "GitLab" }] as const).map((item) => {
+                const state = environment?.network?.[item.key] ?? "unknown";
+                const cls = state === "reachable" ? "status-clean" : state === "unreachable" ? "status-conflicted" : "status-behind";
+                return <span key={item.key} className={`status-pill setting-value ${cls}`}><span className="status-dot" />{item.label} · {state === "reachable" ? "可达" : state === "unreachable" ? "不可达" : "未知"}</span>;
+              })}
+            </div>
+          </label>
           <label>操作系统<div className="setting-value mono">{environment?.platform === "web" ? "浏览器预览" : "Windows x64"}</div></label>
-          <label>数据目录<div className="setting-value mono">%APPDATA%\Gitool</div></label>
+          {installProgress && (
+            <div className={`setup-progress ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}>
+              <div className="setup-progress-bar"><div className="setup-progress-fill" style={{ width: `${installProgress.percent}%` }} /></div>
+              <span className="setup-progress-text">{installProgress.message}</span>
+            </div>
+          )}
         </div>
       </section>
     )}
