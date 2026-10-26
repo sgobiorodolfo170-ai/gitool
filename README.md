@@ -95,6 +95,7 @@ npm install          # 安装依赖
 npm run dev          # 启动 Electron 桌面应用（含主进程热重启与渲染层 HMR）
 npm run dev:web      # 仅浏览器预览，使用演示数据
 npm run typecheck    # 渲染层与主进程类型检查
+npm test             # 单元测试（纯函数：解析 / 校验 / 格式化）
 npm run build        # 构建 dist/ 与 dist-electron/
 npm run dist         # 构建并生成 NSIS 安装包到 release/
 ```
@@ -117,6 +118,7 @@ npm run dist
 - Git 操作通过参数数组直接调用系统 Git，不经过 shell。
 - 渲染层启用 `contextIsolation`、`sandbox`，禁用 `nodeIntegration`，仅暴露白名单桥接方法。
 - 生产环境启用严格 CSP；主进程校验所有 IPC 入参。
+- 更新包只允许从下载目录内执行，安装前校验路径白名单，拒绝任意路径的 exe。
 - 结构分析默认忽略 `.git`、`node_modules`、`target`、`dist` 等目录。
 
 ## 项目结构

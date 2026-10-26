@@ -2,5 +2,7 @@ node_modules/
 dist/
 dist-electron/
 release/
+build/electron-dist/
 .vite/
+.workbuddy-ai/
 *.log

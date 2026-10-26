@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import { app } from "electron";
 import type { Account, AppSettings, BackupRecord, CreateWorkspaceInput, OperationRecord, Project, RemoteProvider, RemoteRepository, RenameWorkspaceInput, TaskProfile, TaskRun, WorkspaceEntity } from "../../../shared/types";
 import { deleteCredential, readCredential, saveCredential } from "./credentials";
+import { buildOperationRecordsCsv } from "./operationCsv";
 
 type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
 
@@ -286,6 +287,8 @@ export function deleteAccount(accountId: string): void {
   deleteCredential(account.credentialRef);
   const connection = openDatabase();
   connection.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
+  // 同步清掉该账号的仓库缓存，否则删号后仍残留一份完整仓库列表。
+  connection.prepare("DELETE FROM remote_repository_cache WHERE accountId = ?").run(accountId);
 }
 
 function openDatabase(): DatabaseSync {
@@ -397,8 +400,19 @@ function openDatabase(): DatabaseSync {
   migrationEnsureWorkspaceColumns(connection);
   migrationDropPathUniqueConstraint(connection);
   seedDefaultWorkspace(connection);
+  // 索引统一放在所有迁移之后创建：DROP TABLE 会连带删除其索引，
+  // 若在迁移前建索引，迁移过的库会永久丢失索引并退化为全表扫描。
+  ensureIndexes(connection);
   database = connection;
   return connection;
+}
+
+function ensureIndexes(connection: DatabaseSync): void {
+  connection.exec(`
+    CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspaceId);
+    CREATE INDEX IF NOT EXISTS idx_operation_records_createdAt ON operation_records(createdAt DESC);
+    CREATE INDEX IF NOT EXISTS idx_task_runs_startedAt ON task_runs(startedAt DESC);
+  `);
 }
 
 function migrationEnsureWorkspaceColumns(connection: DatabaseSync): void {
@@ -408,7 +422,6 @@ function migrationEnsureWorkspaceColumns(connection: DatabaseSync): void {
   if (!columns.some((column) => column.name === "workspaceId")) {
     connection.exec(`ALTER TABLE projects ADD COLUMN workspaceId TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE_ID}'`);
   }
-  connection.exec("CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspaceId)");
 }
 
 function seedDefaultWorkspace(connection: DatabaseSync): void {
@@ -443,7 +456,11 @@ function migrationDropPathUniqueConstraint(connection: DatabaseSync): void {
     .get() as unknown as SqlRow | undefined;
   if (!row || typeof row.sql !== "string") return;
   if (!row.sql.includes("path TEXT NOT NULL UNIQUE")) return;
-  connection.exec(`
+  // 整段包进事务：重建表涉及 CREATE / INSERT / DROP / RENAME 四步，
+  // 中途失败会留下半成品表，用户数据将无法读取。
+  connection.exec("BEGIN");
+  try {
+    connection.exec(`
     CREATE TABLE projects_migration (
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
@@ -471,6 +488,11 @@ function migrationDropPathUniqueConstraint(connection: DatabaseSync): void {
     DROP TABLE projects;
     ALTER TABLE projects_migration RENAME TO projects;
   `);
+    connection.exec("COMMIT");
+  } catch (error) {
+    connection.exec("ROLLBACK");
+    throw new Error(`数据库迁移失败：${errorMessage(error)}`);
+  }
 }
 
 function rowToProject(row: SqlRow): Project {
@@ -704,6 +726,14 @@ export function insertOperationRecord(record: OperationRecord): void {
       record.result,
       record.createdAt,
     );
+  // 只保留最近 2000 条：界面只读 500 条，历史记录无限增长会拖慢启动与查询。
+  connection
+    .prepare(
+      `DELETE FROM operation_records WHERE id IN (
+         SELECT id FROM operation_records ORDER BY createdAt DESC LIMIT -1 OFFSET 2000
+       )`,
+    )
+    .run();
 }
 
 export function clearOperationRecords(): void {
@@ -715,22 +745,8 @@ export function exportOperationRecords(directory: string): string {
   const records = listOperationRecords();
   const fileName = `gitool-operations-${new Date().toISOString().slice(0, 10)}.csv`;
   const filePath = join(directory, fileName);
-  const header = "id,operation,projectId,projectPath,result,createdAt,detail\n";
-  const rows = records.map((record) => [
-    record.id,
-    csvEscape(record.operation),
-    record.projectId,
-    csvEscape(record.projectPath),
-    record.result,
-    record.createdAt,
-    csvEscape(record.detail),
-  ].join(",")).join("\n");
-  writeFileSync(filePath, header + rows + "\n", { encoding: "utf8" });
+  writeFileSync(filePath, buildOperationRecordsCsv(records), { encoding: "utf8" });
   return filePath;
-}
-
-function csvEscape(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
 }
 
 function rowToTaskProfile(row: SqlRow): TaskProfile {

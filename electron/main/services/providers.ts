@@ -470,33 +470,49 @@ export async function deleteRemoteRepository(
   return { success: true, message: `远程仓库 ${current.fullName} 已删除` };
 }
 
+/** 单账号仓库数量上限 = 每页 100 × 50 页。超过此量级已不属于桌面工具的正常场景。 */
+const MAX_REPOSITORY_PAGES = 50;
+
 async function findRepository(
   account: Account,
   token: string,
   repositoryId: string,
 ): Promise<RemoteRepository | null> {
   const endpoint = REPOSITORY_ENDPOINTS[account.provider];
-  let response: Response;
-  try {
-    response = await fetchWithTimeout(endpoint.url, {
-      headers: {
-        Accept: "application/json",
-        [endpoint.header]: `${endpoint.prefix}${token}`,
-      },
-    });
-  } catch {
-    return null;
+  let pageUrl: string | null = endpoint.url;
+  let pageCount = 0;
+
+  // 必须分页遍历：旧实现只拉第一页（per_page=100），
+  // 仓库数超过 100 的账号在编辑/删除第 101 个之后的仓库时一律报「仓库不存在」。
+  while (pageUrl && pageCount < MAX_REPOSITORY_PAGES) {
+    pageCount += 1;
+    let response: Response;
+    try {
+      response = await fetchWithTimeout(pageUrl, {
+        headers: {
+          Accept: "application/json",
+          [endpoint.header]: `${endpoint.prefix}${token}`,
+        },
+      });
+    } catch {
+      return null;
+    }
+    if (!response.ok) {
+      return null;
+    }
+    const payload: unknown = await response.json().catch(() => null);
+    if (!Array.isArray(payload)) {
+      return null;
+    }
+    const found = payload
+      .map((item) => parseRepository(account.provider, account.id, item))
+      .find((repository) => repository !== null && repository.id === repositoryId);
+    if (found) {
+      return found;
+    }
+    pageUrl = nextPageUrl(account.provider, response, payload.length);
   }
-  if (!response.ok) {
-    return null;
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  if (!Array.isArray(payload)) {
-    return null;
-  }
-  return payload
-    .map((item) => parseRepository(account.provider, account.id, item))
-    .find((repository) => repository !== null && repository.id === repositoryId) ?? null;
+  return null;
 }
 
 function getCreateEndpoint(provider: RemoteProvider): ProviderEndpoint {
@@ -573,31 +589,23 @@ function buildUpdateBody(
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   const provider = current.provider;
+
   if (input.name && input.name !== current.name) {
-    if (provider === "github") {
-      body.name = input.name;
-    } else if (provider === "gitee") {
-      body.name = input.name;
-    } else {
-      body.name = input.name;
-    }
+    body.name = input.name;
   }
-  if (input.description && input.description !== current.description) {
-    if (provider === "github") {
-      body.description = input.description;
-    } else if (provider === "gitee") {
-      body.description = input.description;
-    } else {
-      body.description = input.description;
-    }
+
+  // 描述允许被清空：空字符串是合法输入，旧实现用 `if (input.description && ...)`
+  // 做真值判断，导致用户永远删不掉已有描述。前端编辑表单会带出当前描述，可直接比较。
+  if (input.description !== current.description) {
+    body.description = input.description;
   }
-  if (input.visibility && input.visibility === "public" || input.visibility === "private") {
-    if (provider === "github") {
-      body.private = input.visibility === "private";
-    } else if (provider === "gitee") {
-      body.private = input.visibility === "private";
-    } else {
+
+  // 括号必须显式：`a && b || c` 依赖运算符优先级，可读性差且容易在改动时出错。
+  if (input.visibility === "public" || input.visibility === "private") {
+    if (provider === "gitlab") {
       body.visibility = input.visibility;
+    } else {
+      body.private = input.visibility === "private";
     }
   }
   return body;

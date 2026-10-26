@@ -1,7 +1,7 @@
 {
   "name": "gitool",
   "productName": "Gitool",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": false,
   "type": "module",
   "description": "Windows Git repository workspace",
@@ -12,6 +12,8 @@
     "dev:web": "vite --mode web",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b && tsc -p tsconfig.electron.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder --win --x64"
   },
@@ -30,6 +32,7 @@
     "electron-builder": "^26.15.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
-    "vite-plugin-electron": "^1.1.2"
+    "vite-plugin-electron": "^1.1.2",
+    "vitest": "^5.0.5"
   }
 }

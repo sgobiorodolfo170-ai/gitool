@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import type { Account, AppSettings, AppView, BackupRecord, BranchInfo, ChangeFile, CommitEntry, DetectedCommand, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, InstallGitResult, InstallProgress, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, TaskType, WorkspaceEntity } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
+import { renderMarkdownSafe } from "./lib/markdown";
 import { loadProjects, saveProjects } from "./lib/projects";
 import { DEFAULT_WORKSPACE_ID, createWorkspace as createWorkspaceLocal, deleteWorkspace as deleteWorkspaceLocal, listWorkspaces as listWorkspacesLocal, renameWorkspace as renameWorkspaceLocal } from "./lib/workspaces";
 
@@ -78,6 +79,7 @@ const operationLabels: Record<GitOperation, string> = {
   pull: "拉取更新",
   push: "推送更新",
   sync: "同步项目",
+  revert: "撤销提交",
 };
 
 const remoteProviderLabels: Record<RemoteProvider, string> = {
@@ -122,6 +124,11 @@ const SETUP_DISMISS_KEY = "gitool.setup.dismissed";
 function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
   const [projects, setProjects] = useState<Project[]>([]);
+  // 项目列表的同步副本：updateProjects 需要在不等待 React 重渲染的情况下读到最新值，
+  // 否则连续两次更新会基于同一个旧快照计算。
+  const projectsRef = useRef<Project[]>([]);
+  // 串行保存队列：见 persistProjects 的注释。
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [workspaces, setWorkspaces] = useState<WorkspaceEntity[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
@@ -158,6 +165,43 @@ function App() {
     return appSettings?.defaultProjectDirectory?.trim()
       || window.localStorage.getItem(LAST_IMPORT_DIRECTORY_KEY)
       || undefined;
+  };
+
+  /**
+   * 项目列表的唯一写入口：同时维护 ref 与 state，避免两者漂移。
+   */
+  const applyProjects = useCallback((next: Project[]) => {
+    projectsRef.current = next;
+    setProjects(next);
+  }, []);
+
+  /**
+   * 落库项目列表。
+   *
+   * 两个关键点：
+   * 1. 副作用不能写在 setState 的 updater 里——React 严格模式下 updater 可能被调用两次，
+   *    等于重复落库。
+   * 2. 必须串行：连续快速操作（如连点收藏）会并发触发保存，后发起的请求可能先返回，
+   *    旧快照会覆盖新快照。这里用 Promise 链保证落库顺序与内存顺序一致。
+   */
+  const persistProjects = useCallback((workspaceId: string, next: Project[]) => {
+    if (!isDesktopRuntime()) {
+      saveProjects(workspaceId, next);
+      return;
+    }
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(() => requireDesktopBridge().saveProjects(workspaceId, next))
+      .catch((error) => {
+        setNotice(error instanceof Error ? error.message : "项目数据保存失败");
+        window.setTimeout(() => setNotice(null), 4000);
+      });
+  }, []);
+
+  const updateProjects = (updater: (prev: Project[]) => Project[]) => {
+    const next = updater(projectsRef.current);
+    applyProjects(next);
+    persistProjects(activeWorkspaceId, next);
   };
 
   useEffect(() => {
@@ -250,7 +294,7 @@ function App() {
         setActiveWorkspaceId(workspaceId);
         const storedProjects = await bridge.loadProjects(workspaceId);
         if (cancelled) return;
-        setProjects(storedProjects);
+        applyProjects(storedProjects);
         setSelectedId(storedProjects[0]?.id ?? "");
         setEnvironment(environmentStatus);
         setAccounts(storedAccounts);
@@ -271,7 +315,7 @@ function App() {
         : (loadedWorkspaces[0]?.id ?? DEFAULT_WORKSPACE_ID);
       setWorkspaces(loadedWorkspaces);
       setActiveWorkspaceId(workspaceId);
-      setProjects(loadProjects(workspaceId));
+      applyProjects(loadProjects(workspaceId));
       setEnvironment({
         git_available: true,
         git_version: "浏览器预览",
@@ -303,21 +347,6 @@ function App() {
     });
   }, [filter, projects, search, tagFilter]);
 
-  const updateProjects = (updater: (prev: Project[]) => Project[]) => {
-    setProjects((prev) => {
-      const next = updater(prev);
-      if (isDesktopRuntime()) {
-        void requireDesktopBridge().saveProjects(activeWorkspaceId, next).catch((error) => {
-          setNotice(error instanceof Error ? error.message : "项目数据保存失败");
-          window.setTimeout(() => setNotice(null), 4000);
-        });
-      } else {
-        saveProjects(activeWorkspaceId, next);
-      }
-      return next;
-    });
-  };
-
   const switchWorkspace = async (id: string) => {
     if (id === activeWorkspaceId) return;
     setActiveWorkspaceId(id);
@@ -326,9 +355,9 @@ function App() {
       const stored = isDesktopRuntime()
         ? await requireDesktopBridge().loadProjects(id)
         : loadProjects(id);
-      setProjects(stored);
+      applyProjects(stored);
     } catch {
-      setProjects([]);
+      applyProjects([]);
     }
     setSelectedId("");
     setFilter("all");
@@ -2049,71 +2078,6 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function escapeHtml(source: string): string {
-  return source
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function renderMarkdownSafe(markdown: string): string {
-  const lines = markdown.split(/\r?\n/);
-  const html: string[] = [];
-  let inCode = false;
-  let inList = false;
-  for (const raw of lines) {
-    const line = raw.replace(/\s+$/, "");
-    if (line.trim().startsWith("```")) {
-      if (inCode) {
-        html.push("</code></pre>");
-        inCode = false;
-      } else {
-        html.push("<pre><code>");
-        inCode = true;
-      }
-      continue;
-    }
-    if (inCode) {
-      html.push(escapeHtml(line));
-      continue;
-    }
-    if (!line.trim()) {
-      if (inList) { html.push("</ul>"); inList = false; }
-      continue;
-    }
-    const heading = line.match(/^(#{1,6})\s+(.*)$/);
-    if (heading) {
-      const level = Math.min(heading[1].length, 6);
-      html.push(`<h${level}>${inlineMarkdown(escapeHtml(heading[2]))}</h${level}>`);
-      continue;
-    }
-    if (/^\s*[-*+]\s+/.test(line)) {
-      if (!inList) { html.push("<ul>"); inList = true; }
-      html.push(`<li>${inlineMarkdown(escapeHtml(line.replace(/^\s*[-*+]\s+/, "")))}</li>`);
-      continue;
-    }
-    if (/^\s*\d+[.)]\s+/.test(line)) {
-      if (!inList) { html.push("<ul>"); inList = true; }
-      html.push(`<li>${inlineMarkdown(escapeHtml(line.replace(/^\s*\d+[.)]\s+/, "")))}</li>`);
-      continue;
-    }
-    html.push(`<p>${inlineMarkdown(escapeHtml(line))}</p>`);
-  }
-  if (inCode) html.push("</code></pre>");
-  if (inList) html.push("</ul>");
-  return html.join("\n");
-}
-
-function inlineMarkdown(source: string): string {
-  return source
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
 }
 
 function isDormant(project: Project, thresholdMonths = 3): boolean {

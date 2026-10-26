@@ -19,8 +19,9 @@ function contentSecurityPolicyPlugin(): Plugin {
         const policy = [
           "default-src 'self'",
           `script-src ${scriptSource}`,
-          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-          "font-src 'self' data: https://fonts.gstatic.com",
+          // 不再放行 Google Fonts：字体已改为系统栈，CSP 保持最小面。
+          "style-src 'self' 'unsafe-inline'",
+          "font-src 'self' data:",
           "img-src 'self' data:",
           `connect-src ${connectSource}`,
           "object-src 'none'",

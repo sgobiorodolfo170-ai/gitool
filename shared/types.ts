@@ -9,7 +9,12 @@ export type GitSnapshot = {
   updated_at: string;
 };
 
-export type GitOperation = "fetch" | "pull" | "push" | "sync";
+/**
+ * 同步类 Git 操作。
+ * `revert` 单独列出：它不属于「与远程同步」语义，也不走 OPERATION_COMMANDS 表，
+ * 但操作记录需要如实反映用户做了什么（曾因硬编码为 "pull" 导致日志误导）。
+ */
+export type GitOperation = "fetch" | "pull" | "push" | "sync" | "revert";
 
 export type GitOperationResult = {
   operation: GitOperation;

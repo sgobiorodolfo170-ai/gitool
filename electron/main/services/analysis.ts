@@ -1,9 +1,17 @@
 import { readdir, stat } from "node:fs/promises";
-import { extname, join, relative } from "node:path";
+import { basename, extname, join, relative } from "node:path";
 import type { ProjectAnalysis } from "../../../shared/types";
+import { mapLimit } from "./concurrency";
 
 const analysisCache = new Map<string, { value: ProjectAnalysis; at: number }>();
 const ANALYSIS_CACHE_TTL_MS = 30 * 1000;
+
+/** 单次分析的文件数上限：超过后停止累加，保证大仓库也能在可接受时间内出结果。 */
+const MAX_FILES = 20000;
+/** 目录深度上限：防止异常目录结构（软链接环、生成的嵌套目录）把遍历拖死。 */
+const MAX_DEPTH = 12;
+/** stat 并发数：太高会在 Windows 上撞 EMFILE，太低则退化为串行。 */
+const STAT_CONCURRENCY = 64;
 
 const IGNORED_DIRECTORIES = new Set([
   ".git",
@@ -79,8 +87,22 @@ async function computeAnalysis(projectPath: string): Promise<ProjectAnalysis> {
   let directories = 0;
   let totalBytes = 0;
 
-  async function walk(current: string): Promise<void> {
-    const entries = await readdir(current, { withFileTypes: true });
+  async function walk(current: string, depth: number): Promise<void> {
+    if (depth > MAX_DEPTH || files >= MAX_FILES) {
+      return;
+    }
+    // readdir 必须容错：一个无权限目录（System Volume Information、被占用的构建目录）
+    // 就会让旧实现整体抛错，用户只看到「分析失败」。
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    const filePaths: string[] = [];
+    const subdirectories: string[] = [];
+
     for (const entry of entries) {
       if (IGNORED_DIRECTORIES.has(entry.name)) {
         continue;
@@ -88,23 +110,30 @@ async function computeAnalysis(projectPath: string): Promise<ProjectAnalysis> {
       const entryPath = join(current, entry.name);
       if (entry.isDirectory()) {
         directories += 1;
-        await walk(entryPath);
+        subdirectories.push(entryPath);
         continue;
       }
-      if (!entry.isFile()) {
-        continue;
+      if (entry.isFile()) {
+        filePaths.push(entryPath);
       }
+    }
 
+    // 同一层内的文件并发 stat，避免逐文件串行 await 造成的线性耗时。
+    await mapLimit(filePaths, STAT_CONCURRENCY, async (entryPath) => {
+      if (files >= MAX_FILES) {
+        return;
+      }
       files += 1;
       const fileStats = await stat(entryPath).catch(() => null);
       const size = fileStats?.size ?? 0;
       totalBytes += size;
 
-      if (KEY_FILES.has(entry.name)) {
+      const name = basename(entryPath);
+      if (KEY_FILES.has(name)) {
         keyFiles.push(relative(projectPath, entryPath).replaceAll("\\", "/"));
       }
 
-      const language = LANGUAGE_MAP[extname(entry.name).toLowerCase()];
+      const language = LANGUAGE_MAP[extname(name).toLowerCase()];
       if (language) {
         const languageStat = languages.get(language.name) ?? {
           files: 0,
@@ -116,14 +145,18 @@ async function computeAnalysis(projectPath: string): Promise<ProjectAnalysis> {
         languages.set(language.name, languageStat);
       }
 
-      const projectType = projectTypeFor(entry.name);
+      const projectType = projectTypeFor(name);
       if (projectType) {
         projectTypes.add(projectType);
       }
+    });
+
+    for (const subdirectory of subdirectories) {
+      await walk(subdirectory, depth + 1);
     }
   }
 
-  await walk(projectPath);
+  await walk(projectPath, 0);
 
   return {
     files,

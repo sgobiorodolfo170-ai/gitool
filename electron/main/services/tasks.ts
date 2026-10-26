@@ -1,9 +1,13 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import type { TaskRun } from "../../../shared/types";
+import { splitCommandLine } from "./commandLine";
 import { getTaskProfile, updateTaskRun } from "./storage";
 
 const runningTasks = new Map<string, { process: ReturnType<typeof spawn>; output: () => string }>();
+
+/** 用户主动停止的运行 ID。close 事件据此把状态记为 stopped 而非 failed。 */
+const stopRequested = new Set<string>();
 
 export async function runTask(profileId: string): Promise<TaskRun> {
   const profile = getTaskProfile(profileId);
@@ -50,7 +54,7 @@ export async function runTask(profileId: string): Promise<TaskRun> {
 
   const timer = profile.timeoutSeconds > 0
     ? setTimeout(() => {
-        try { child.kill(); } catch { }
+        killProcessTree(child);
         runningTasks.delete(run.id);
         run.status = "timedout";
         run.finishedAt = new Date().toISOString();
@@ -73,8 +77,15 @@ export async function runTask(profileId: string): Promise<TaskRun> {
     if (timer) clearTimeout(timer);
     runningTasks.delete(run.id);
     if (run.status === "running") {
-      run.status = code === 0 ? "succeeded" : "failed";
+      // 主动停止与自然失败必须区分：TaskRun 定义了 stopped 状态，
+      // 旧实现只 kill 不改状态，用户点「停止」后记录显示为 failed。
+      if (stopRequested.has(run.id)) {
+        run.status = "stopped";
+      } else {
+        run.status = code === 0 ? "succeeded" : "failed";
+      }
     }
+    stopRequested.delete(run.id);
     run.exitCode = code ?? undefined;
     run.finishedAt = new Date().toISOString();
     run.output = output;
@@ -97,12 +108,39 @@ export function stopTask(runId: string): void {
   if (!running) {
     return;
   }
-  try {
-    running.process.kill();
-  } catch {
-    // 进程已退出则忽略
-  }
+  stopRequested.add(runId);
+  killProcessTree(running.process);
   runningTasks.delete(runId);
+}
+
+/**
+ * 终止整个进程树。
+ *
+ * Windows 上 `child.kill()` 只结束直接子进程：`npm run build` 会派生 node / tsc / vite，
+ * 父进程被杀后子进程继续占用端口与文件句柄，用户点「停止」后日志停了、进程还在跑。
+ * 因此 Windows 走 `taskkill /T /F`（必须用 execFile 数组参数，不经 shell）。
+ */
+function killProcessTree(child: ReturnType<typeof spawn>): void {
+  const pid = child.pid;
+  if (pid === undefined) {
+    try {
+      child.kill();
+    } catch {
+      // 进程已退出
+    }
+    return;
+  }
+  if (process.platform === "win32") {
+    execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, () => {
+      // 失败（进程已退出 / 权限不足）不影响状态流转，close 事件仍会触发
+    });
+    return;
+  }
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    // 进程已退出
+  }
 }
 
 export function isTaskRunning(runId: string): boolean {
@@ -115,40 +153,6 @@ export function getRunningTaskOutput(runId: string): string {
     return "";
   }
   return running.output();
-}
-
-export function splitCommandLine(input: string): string[] {
-  const result: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  let quoteChar = "";
-  for (const char of input) {
-    if (inQuotes) {
-      if (char === quoteChar) {
-        inQuotes = false;
-      } else {
-        current += char;
-      }
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      inQuotes = true;
-      quoteChar = char;
-      continue;
-    }
-    if (char === " ") {
-      if (current.length > 0) {
-        result.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += char;
-  }
-  if (current.length > 0) {
-    result.push(current);
-  }
-  return result;
 }
 
 function assertWorkingDirectory(target: string): void {

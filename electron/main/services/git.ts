@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -34,6 +34,15 @@ import type {
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
 import { notifyRenderer } from "./events";
+import {
+  bracketValue,
+  buildCommitMessageArgs,
+  isValidCommitHash,
+  isValidRefName,
+  parseBranchLine,
+  parseChangeStatus,
+  parseCloneProgress,
+} from "./gitParsing";
 import { getAccount, loadSettings } from "./storage";
 
 const execFileAsync = promisify(execFile);
@@ -52,7 +61,9 @@ export function getActiveGitBinary(): string {
   }
 }
 
-const OPERATION_COMMANDS: Record<GitOperation, string[][]> = {
+// 可批量执行的同步类操作。revert 有独立的交互流程（需要 commit hash），
+// 不在此表中，故用 Partial 让 runGitOperation 的 "不支持" 分支兜底。
+const OPERATION_COMMANDS: Partial<Record<GitOperation, string[][]>> = {
   fetch: [["fetch", "--prune"]],
   pull: [["pull", "--no-rebase"]],
   push: [["push"]],
@@ -88,7 +99,7 @@ export async function initRepository(input: InitRepositoryInput): Promise<void> 
     throw new Error("该目录已经是 Git 仓库");
   }
   const branch = input.defaultBranch?.trim() || "main";
-  if (!/^[A-Za-z0-9._\/-]+$/.test(branch)) {
+  if (!isValidRefName(branch)) {
     throw new Error("默认分支名不合法");
   }
   const args = ["init", "-b", branch];
@@ -186,7 +197,7 @@ export async function listTags(projectPath: string): Promise<GitTag[]> {
 export async function createTag(input: CreateTagInput): Promise<void> {
   assertDirectory(input.path);
   const name = input.name.trim();
-  if (!/^[A-Za-z0-9._\/-]+$/.test(name)) {
+  if (!isValidRefName(name)) {
     throw new Error("标签名只能包含字母、数字、点、下划线、斜杠和连字符");
   }
   const message = input.message?.trim() ?? "";
@@ -200,10 +211,15 @@ export async function createTag(input: CreateTagInput): Promise<void> {
 
 export async function deleteTag(projectPath: string, name: string): Promise<void> {
   assertDirectory(projectPath);
-  if (!name.trim()) {
+  const trimmed = name.trim();
+  if (!trimmed) {
     throw new Error("标签名不能为空");
   }
-  const result = await runGitProcess(projectPath, ["tag", "-d", name.trim()]);
+  // 删除是不可逆操作，必须与创建用同一套白名单，避免 `-d` 之后被注入选项。
+  if (!isValidRefName(trimmed)) {
+    throw new Error("标签名不合法");
+  }
+  const result = await runGitProcess(projectPath, ["tag", "-d", trimmed]);
   if (!result.success) {
     throw new Error(result.output || "删除标签失败");
   }
@@ -226,9 +242,15 @@ export async function compareVersions(input: CompareRequest): Promise<CompareRes
   if (!base || !head) {
     throw new Error("请提供对比的基线版本和目标版本");
   }
+  // 版本标识来自渲染层，必须白名单校验：`git diff` 会把以 `-` 开头的参数当选项，
+  // 例如 `--output=<path>` 可让 git 向任意路径写文件（参数注入，非 shell 注入）。
+  if (!isValidRefName(base) || !isValidRefName(head)) {
+    throw new Error("版本标识不合法，只能包含字母、数字、点、下划线、斜杠和连字符");
+  }
+  const range = `${base}..${head}`;
   const [statResult, numStatResult] = await Promise.all([
-    runGitProcess(input.path, ["diff", "--stat", `${base}..${head}`]),
-    runGitProcess(input.path, ["diff", "--numstat", `${base}..${head}`]),
+    runGitProcess(input.path, ["diff", "--stat", range]),
+    runGitProcess(input.path, ["diff", "--numstat", range]),
   ]);
   if (!statResult.success) {
     throw new Error(statResult.output || "对比失败");
@@ -428,11 +450,7 @@ export async function commitChanges(request: CommitRequest): Promise<CommitResul
   if (message.length > 2000) {
     throw new Error("提交信息过长（最多 2000 字符）");
   }
-  const messageLines = message.split(/\r?\n/).filter((line) => line.length > 0);
-  const args = ["commit"];
-  for (const line of messageLines) {
-    args.push("-m", line);
-  }
+  const args = ["commit", ...buildCommitMessageArgs(message)];
   const result = await runGitProcess(request.path, args);
   if (!result.success) {
     return {
@@ -449,23 +467,10 @@ export async function listBranches(projectPath: string): Promise<BranchInfo[]> {
   const output = await runGit(projectPath, ["branch", "-vv"]).catch(() => "");
   const branches: BranchInfo[] = [];
   for (const raw of output.split(/\r?\n/)) {
-    if (!raw.trim()) continue;
-    const current = raw.trim().startsWith("*");
-    const line = current ? raw.trim().slice(1).trim() : raw.trim();
-    const match = line.match(/^([^\s]+)/);
-    if (!match) continue;
-    const name = match[1];
-    const tracking = line.match(/\[([^\]]+)\]/);
-    const aheadMatch = tracking?.[1]?.match(/ahead (\d+)/);
-    const behindMatch = tracking?.[1]?.match(/behind (\d+)/);
-    const remotePart = tracking?.[1]?.split(":")[0];
-    branches.push({
-      name,
-      current,
-      remote: tracking ? remotePart ?? undefined : undefined,
-      ahead: aheadMatch ? Number(aheadMatch[1]) : 0,
-      behind: behindMatch ? Number(behindMatch[1]) : 0,
-    });
+    const parsed = parseBranchLine(raw);
+    if (parsed) {
+      branches.push(parsed);
+    }
   }
   return branches;
 }
@@ -473,7 +478,7 @@ export async function listBranches(projectPath: string): Promise<BranchInfo[]> {
 export async function createBranch(input: CreateBranchInput): Promise<void> {
   assertDirectory(input.path);
   const name = input.name.trim();
-  if (!/^[A-Za-z0-9._\/-]+$/.test(name)) {
+  if (!isValidRefName(name)) {
     throw new Error("分支名只能包含字母、数字、点、下划线、斜杠和连字符");
   }
   await runGit(input.path, ["checkout", "-b", name]);
@@ -482,7 +487,7 @@ export async function createBranch(input: CreateBranchInput): Promise<void> {
 export async function switchBranch(input: SwitchBranchInput): Promise<void> {
   assertDirectory(input.path);
   const name = input.name.trim();
-  if (!/^[A-Za-z0-9._\/-]+$/.test(name)) {
+  if (!isValidRefName(name)) {
     throw new Error("分支名不合法");
   }
   const result = await runGitProcess(input.path, ["checkout", name]);
@@ -496,6 +501,9 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<void> {
   const name = input.name.trim();
   if (!name) {
     throw new Error("分支名不能为空");
+  }
+  if (!isValidRefName(name)) {
+    throw new Error("分支名不合法");
   }
   const current = await runGit(input.path, ["branch", "--show-current"]).catch(() => "");
   if (current === name) {
@@ -536,7 +544,7 @@ export async function listCommitHistory(projectPath: string, limit = 50): Promis
 export async function revertCommit(input: RevertCommitInput): Promise<GitOperationResult> {
   assertDirectory(input.path);
   const hash = input.hash.trim();
-  if (!/^[0-9a-f]{7,40}$/.test(hash)) {
+  if (!isValidCommitHash(hash)) {
     throw new Error("提交哈希不合法");
   }
   const result = await commitRevertProcess(input.path, hash);
@@ -546,7 +554,8 @@ export async function revertCommit(input: RevertCommitInput): Promise<GitOperati
   } catch {
     snapshot = undefined;
   }
-  return { operation: "pull", success: result.success, output: result.output, snapshot };
+  // 必须如实回填 "revert"：曾硬编码为 "pull"，导致操作记录与界面把「撤销提交」显示成「拉取更新」。
+  return { operation: "revert", success: result.success, output: result.output, snapshot };
 }
 
 async function commitRevertProcess(projectPath: string, hash: string): Promise<{ success: boolean; output: string }> {
@@ -562,26 +571,6 @@ async function commitRevertProcess(projectPath: string, hash: string): Promise<{
     const output = [failure.stdout?.trim(), failure.stderr?.trim()].filter(Boolean).join("\n");
     return { success: false, output: output || failure.message || "回退提交失败" };
   }
-}
-
-function parseChangeStatus(status: string): ChangeFile["status"] {
-  const combined = status.trim();
-  if (combined.includes("U") || combined === "AA" || combined === "DD") {
-    return "conflicted";
-  }
-  if (status[0] === "R" || status[1] === "R") {
-    return "renamed";
-  }
-  if (status[0] === "D" || status[1] === "D") {
-    return "deleted";
-  }
-  if (status[1] === "?" || status[1] === "!") {
-    return "untracked";
-  }
-  if (status[1] === "A" || status[0] === "A") {
-    return "added";
-  }
-  return "modified";
 }
 
 function assertDirectory(target: string): void {
@@ -664,15 +653,6 @@ export async function cloneRepository(
   });
 }
 
-function parseCloneProgress(output: string): number {
-  const match = output.match(/(\d+)\s*%/);
-  if (!match) {
-    return 0;
-  }
-  const percent = Number(match[1]);
-  return Number.isFinite(percent) ? Math.min(100, Math.max(0, percent)) : 0;
-}
-
 function assertCloneUrl(url: string): void {
   const httpsPattern = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
   const sshPattern = /^[^@\s]+@[^:\s]+:.+$/;
@@ -720,19 +700,6 @@ async function runGitProcess(cwd: string, args: string[]): Promise<GitProcessRes
       output: output || failure.message || "Git 命令执行失败",
     };
   }
-}
-
-function bracketValue(branchLine: string, key: string): string | null {
-  const marker = `${key} `;
-  const start = branchLine.indexOf(marker);
-  if (start === -1) {
-    return null;
-  }
-  const value = branchLine
-    .slice(start + marker.length)
-    .split(/[,\]]/)[0]
-    .trim();
-  return value.length > 0 ? value : null;
 }
 
 const diskSizeCache = new Map<string, { value: number; at: number }>();
@@ -838,20 +805,64 @@ export async function moveProject(input: MoveProjectInput): Promise<MoveProjectR
     throw new Error("目标目录不能是项目所在目录");
   }
 
+  // 同盘移动优先用 rename：瞬间完成、不占额外磁盘。
+  // 旧实现只有 cpSync 且从不删除源目录，名为「移动」实为「复制」，
+  // 用户点一次就多出一份完整副本（含 node_modules），旧目录永久残留。
   try {
-    cpSync(sourcePath, targetPath, { recursive: true });
-    const sourceCount = countFiles(sourcePath);
-    const targetCount = countFiles(targetPath);
-    if (sourceCount !== targetCount) {
-      rmSync(targetPath, { recursive: true, force: true });
-      throw new Error(`复制校验失败：源目录 ${sourceCount} 个文件，目标 ${targetCount} 个文件`);
-    }
+    renameSync(sourcePath, targetPath);
     return { success: true, targetPath, output: `项目已移动到 ${targetPath}` };
   } catch (error) {
-    if (existsSync(targetPath)) {
-      rmSync(targetPath, { recursive: true, force: true });
+    if (!isCrossDeviceError(error)) {
+      return { success: false, targetPath, output: `移动失败：${errorMessage(error)}` };
     }
-    return { success: false, targetPath, output: errorMessage(error) };
+    // 跨盘：rename 不可用，退化为「复制 → 校验 → 删源」
+  }
+
+  try {
+    cpSync(sourcePath, targetPath, { recursive: true });
+  } catch (error) {
+    removeQuietly(targetPath);
+    return { success: false, targetPath, output: `复制失败：${errorMessage(error)}` };
+  }
+
+  const sourceCount = countFiles(sourcePath);
+  const targetCount = countFiles(targetPath);
+  if (sourceCount !== targetCount) {
+    removeQuietly(targetPath);
+    return {
+      success: false,
+      targetPath,
+      output: `复制校验失败：源目录 ${sourceCount} 个文件，目标 ${targetCount} 个文件，已回滚`,
+    };
+  }
+
+  try {
+    rmSync(sourcePath, { recursive: true, force: true });
+  } catch (error) {
+    // 副本已完整落盘，不能回滚（否则用户两头空）。如实告知并保留新副本。
+    return {
+      success: false,
+      targetPath,
+      output: `已复制到 ${targetPath}，但删除源目录失败：${errorMessage(error)}。请手动删除 ${sourcePath}`,
+    };
+  }
+
+  return { success: true, targetPath, output: `项目已移动到 ${targetPath}` };
+}
+
+/** 跨盘时 rename 会抛 EXDEV（Windows 上也可能表现为 EPERM）。 */
+function isCrossDeviceError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "EXDEV" || code === "EPERM";
+}
+
+function removeQuietly(target: string): void {
+  try {
+    if (existsSync(target)) {
+      rmSync(target, { recursive: true, force: true });
+    }
+  } catch {
+    // 清理失败不应掩盖原始错误
   }
 }
 

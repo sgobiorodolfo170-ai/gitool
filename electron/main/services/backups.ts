@@ -10,7 +10,9 @@ const MAX_BUFFER = 64 * 1024 * 1024;
 
 export async function createBackup(input: BackupCreateInput): Promise<BackupRecord> {
   const now = new Date().toISOString();
-  const archiveName = `${sanitizeFileName(input.projectName)}-${now.replace(/[:.]/g, "-").slice(0, 10)}.zip`;
+  // 文件名必须精确到秒：曾只截取到日期，同一天对同一项目重复备份会静默覆盖前一个 zip，
+  // 而数据库里却插入两条指向同一文件的记录。
+  const archiveName = `${sanitizeFileName(input.projectName)}-${formatTimestamp(now)}.zip`;
   const archivePath = join(input.targetDirectory, archiveName);
 
   assertDirectory(input.sourcePath);
@@ -34,7 +36,9 @@ export async function createBackup(input: BackupCreateInput): Promise<BackupReco
 
   try {
     const settings = loadSettings();
-    const args = ["-a", "-c", "-f", archivePath, "-C", parentDirectory, "--exclude", ".git/*"];
+    // 不再硬编码排除 .git/*：README 承诺备份含提交历史，恢复后可直接导入。
+    // 需要瘦身的用户可在「备份排除规则」里自行添加，规则完全交给用户配置。
+    const args = ["-a", "-c", "-f", archivePath, "-C", parentDirectory];
     const patterns = settings.backupExcludePatterns
       .split(/[,\n;]/)
       .map((item) => item.trim())
@@ -76,8 +80,19 @@ export async function restoreBackup(input: BackupRestoreInput): Promise<void> {
   }
 }
 
+/**
+ * 清理文件名中的 Windows 非法字符。
+ * 刻意保留中文：旧实现用 `[^A-Za-z0-9_.-]` 白名单，会把「我的项目」整串替换成下划线，
+ * 备份文件名失去可读性。
+ */
 function sanitizeFileName(name: string): string {
-  return name.replace(/[^A-Za-z0-9_.-]/g, "_");
+  const cleaned = name.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim();
+  return cleaned.length > 0 ? cleaned.slice(0, 80) : "project";
+}
+
+/** ISO 时间戳 → `2026-10-26_19-02-20`，保证同名项目同日多次备份互不覆盖。 */
+function formatTimestamp(iso: string): string {
+  return iso.replace(/\.\d+Z$/, "").replace("T", "_").replace(/:/g, "-");
 }
 
 function parentOf(target: string): string {
@@ -87,7 +102,12 @@ function parentOf(target: string): string {
 }
 
 function assertDirectory(target: string): void {
-  const stats = statSync(target);
+  let stats;
+  try {
+    stats = statSync(target);
+  } catch {
+    throw new Error("源路径不存在或无法访问");
+  }
   if (!stats.isDirectory()) {
     throw new Error("源路径不是目录");
   }

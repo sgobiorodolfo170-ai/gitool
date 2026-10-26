@@ -107,7 +107,7 @@ import {
   updateTaskRun,
 } from "./services/storage";
 import { getRunningTaskOutput, runTask, stopTask } from "./services/tasks";
-import { checkForUpdates, downloadUpdate, installUpdate } from "./services/updater";
+import { checkForUpdates, downloadUpdate, installUpdate, isTrustedInstallerPath } from "./services/updater";
 
 let cachedDownloadUrl = "";
 
@@ -375,10 +375,12 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   });
 
   ipcMain.handle("updater:install", async (_event, filePath: unknown) => {
-    if (typeof filePath !== "string" || filePath.trim().length === 0) {
-      throw new Error("安装包路径无效");
+    const installerPath = requireString(filePath, "安装包路径");
+    // 该入参最终会被 cmd start 执行，必须限制在下载目录内且为 exe。
+    if (!isTrustedInstallerPath(installerPath)) {
+      throw new Error("安装包路径不受信任，已拒绝执行");
     }
-    installUpdate(filePath);
+    installUpdate(installerPath);
   });
 }
 
@@ -545,7 +547,9 @@ function requireTaskProfile(value: unknown): TaskProfile {
   }
   const candidate = value as Record<string, unknown>;
   const taskType = candidate.taskType;
-  if (taskType !== "build" && taskType !== "run" && taskType !== "package") {
+  // 必须与 shared/types.ts 的 TaskType 完全一致：曾漏掉 deploy，
+  // 导致自动检测出的部署命令（Dockerfile / deploy 脚本）一律保存失败。
+  if (taskType !== "build" && taskType !== "run" && taskType !== "package" && taskType !== "deploy") {
     throw new Error("任务类型无效");
   }
   return {
