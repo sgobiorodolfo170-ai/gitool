@@ -7,6 +7,25 @@
 
 ---
 
+## 执行进度（2026-10-26 晚，v0.2.2）
+
+| 编号 | 事项 | 状态 | 结果 |
+| --- | --- | --- | --- |
+| P2-1 A | 抽纯函数与常量 | ✅ 完成 | `src/lib/{format,navigation,projectMatch,storageKeys}.ts`，+28 用例 |
+| P2-1 B | 抽展示组件 | ✅ 完成 | 14 个组件 + `src/lib/meta.ts`，App 3114 → 1278 |
+| P2-1 C | 抽领域 hooks | 🚧 部分 | C-1 完成（useNotice/useEnvironment/useUpdater），App 1278 → 1228；**C-2 未做** |
+| P2-1 D | App 收敛编排层 | ⬜ 未开始 | 依赖 C-2 |
+| P2-2 | prettier | ✅ 完成 | 3 次提交，最长行 2962 → 144 |
+| P2-3 | zod 收敛 IPC | ⬜ 未开始 | 需引入 zod + 重写 26 个 validator |
+| P2-5 | CSS token | ✅ 完成 | 26 个 token，硬编码 482 → 287 |
+| P2-9 | 代码签名 | ⏸ 暂缓 | 用户明确暂不碰 |
+| P1-5b | 更新包 SHA256 | ⏸ 暂缓 | 用户明确暂不碰 |
+
+**下一步唯一优先级：P2-1 阶段 C-2**（useProjects / useImportFlow / useRemotes / useGitOperations）。
+App 目前仍有约 900 行事件处理器，不抽完这 4 个 hook，`App.tsx` 永远降不到 300 行。
+
+---
+
 ## 一、待办清单与依赖关系
 
 | 编号 | 事项 | 规模 | 依赖 | 可独立发布 |
