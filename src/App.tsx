@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { operationLabels } from "./lib/meta";
 import { AlertTriangle, ArrowDownToLine, Bell, Check, Command, GitBranch, Loader2 } from "lucide-react";
-import type { Account, AppSettings, AppView, EnvironmentStatus, GitOperation, GitSnapshot, InstallGitResult, InstallProgress, Project, ProjectAnalysis, ProjectFilter, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, WorkspaceEntity } from "./types";
+import type { Account, AppSettings, AppView, GitOperation, GitSnapshot, Project, ProjectAnalysis, ProjectFilter, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, WorkspaceEntity } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 
 import { buildNavGroups, workspaceLabel } from "./lib/navigation";
@@ -19,6 +19,9 @@ import { BackupsWorkspace } from "./components/BackupsWorkspace";
 import { LogsWorkspace } from "./components/LogsWorkspace";
 import { SettingsWorkspace } from "./components/SettingsWorkspace";
 import { ModuleWorkspace } from "./components/ModuleWorkspace";
+import { useEnvironment } from "./hooks/useEnvironment";
+import { useNotice } from "./hooks/useNotice";
+import { useUpdater } from "./hooks/useUpdater";
 
 import { loadProjects, saveProjects } from "./lib/projects";
 import { DEFAULT_WORKSPACE_ID, createWorkspace as createWorkspaceLocal, deleteWorkspace as deleteWorkspaceLocal, listWorkspaces as listWorkspacesLocal, renameWorkspace as renameWorkspaceLocal } from "./lib/workspaces";
@@ -34,10 +37,6 @@ function App() {
   const [workspaces, setWorkspaces] = useState<WorkspaceEntity[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
-  const [updateAvailable, setUpdateAvailable] = useState<{ version: string } | null>(null);
-  const [updateProgress, setUpdateProgress] = useState<{ percent: number } | null>(null);
-  const [downloadedPath, setDownloadedPath] = useState<string | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<ProjectFilter>("all");
   const [search, setSearch] = useState("");
@@ -48,8 +47,6 @@ function App() {
   const [operationOutput, setOperationOutput] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [environment, setEnvironment] = useState<EnvironmentStatus | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountBusyId, setAccountBusyId] = useState<string | null>(null);
   const [remoteRepositories, setRemoteRepositories] = useState<RemoteRepository[]>([]);
@@ -59,9 +56,41 @@ function App() {
   const [isLoadingRemotes, setIsLoadingRemotes] = useState(false);
   const [cloningRepositoryId, setCloningRepositoryId] = useState<string | null>(null);
   const [cloneProgress, setCloneProgress] = useState<{ percent: number; phase: string; output: string } | null>(null);
-  const [installProgress, setInstallProgress] = useState<InstallProgress | null>(null);
-  const [showSetupModal, setShowSetupModal] = useState(false);
-  const [installingGit, setInstallingGit] = useState(false);
+  
+
+  // 三个独立领域 hook：提示、环境体检、应用更新。
+  // 保留原有变量名做别名，避免一次性改动上百处引用；后续可逐步换成 hook 的原始命名。
+  const { notice, showNotice, clearNotice } = useNotice();
+  const setNotice = useCallback(
+    (message: string | null) => {
+      if (message === null) {
+        clearNotice();
+      } else {
+        showNotice(message);
+      }
+    },
+    [clearNotice, showNotice],
+  );
+
+  const {
+    environment,
+    installProgress,
+    installingGit,
+    showSetupModal,
+    setEnvironment,
+    setShowSetupModal,
+    refreshEnvironment,
+    installGit,
+  } = useEnvironment(showNotice);
+
+  const {
+    available: updateAvailable,
+    progress: updateProgress,
+    downloadedPath,
+    isDownloading,
+    download: handleUpdate,
+    install: handleInstallUpdate,
+  } = useUpdater(showNotice);
 
   const defaultDirectoryHint = () => {
     return appSettings?.defaultProjectDirectory?.trim()
@@ -117,65 +146,7 @@ function App() {
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    if (!isDesktopRuntime()) return;
-    const unsubscribe = requireDesktopBridge().onInstallProgress((event) => {
-      setInstallProgress(event);
-      // 成功提示 2s 后消失，失败提示 4s 后消失（让用户看清错误信息）
-      if (event.phase === "done" || event.phase === "failed") {
-        window.setTimeout(() => setInstallProgress(null), event.phase === "done" ? 2000 : 4000);
-      }
-    });
-    return unsubscribe;
-  }, []);
-
-  // 刷新环境信息：用于「环境信息」tab 的刷新按钮 + 一键安装完成后的原地更新。
-  const refreshEnvironment = useCallback(async () => {
-    if (!isDesktopRuntime()) return;
-    try {
-      const env = await requireDesktopBridge().refreshEnvironment();
-      setEnvironment(env);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "刷新环境信息失败");
-    }
-  }, []);
-
-  // 一键安装 Git：下载官方安装包 → UAC 静默安装 → 写入 gitPath → 返回最新体检。
-  // 调用方（横幅、模态、env tab）负责在结束后关闭 UI；本函数只管状态与 bridge 调用。
-  const installGit = useCallback(async (): Promise<InstallGitResult | null> => {
-    if (!isDesktopRuntime()) return null;
-    setInstallingGit(true);
-    try {
-      const result = await requireDesktopBridge().installGit();
-      if (result.environment) setEnvironment(result.environment);
-      if (result.success) {
-        setShowSetupModal(false);
-        setNotice("Git 安装成功，相关功能已可用");
-      } else {
-        setNotice(result.message || "安装未完成");
-      }
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "安装失败";
-      setNotice(message);
-      return null;
-    } finally {
-      setInstallingGit(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isDesktopRuntime()) return;
-    const unsub1 = requireDesktopBridge().onUpdateAvailable((info) => {
-      setUpdateAvailable(info);
-    });
-    const unsub2 = requireDesktopBridge().onUpdateProgress((progress) => {
-      setUpdateProgress({ percent: progress.percent });
-    });
-    return () => { unsub1(); unsub2(); };
-  }, []);
-
-  useEffect(() => {
+    useEffect(() => {
     let cancelled = false;
 
     if (isDesktopRuntime()) {
@@ -322,28 +293,6 @@ function App() {
     } finally {
       window.setTimeout(() => setNotice(null), 3000);
     }
-  };
-
-  const handleUpdate = async () => {
-    const bridge = getDesktopBridge();
-    if (!bridge) return;
-    setIsDownloading(true);
-    setUpdateProgress(null);
-    try {
-      const path = await bridge.downloadUpdate();
-      setDownloadedPath(path);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "下载更新失败");
-      window.setTimeout(() => setNotice(null), 4000);
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  const handleInstallUpdate = () => {
-    const bridge = getDesktopBridge();
-    if (!bridge || !downloadedPath) return;
-    bridge.installUpdate(downloadedPath);
   };
 
   const openProjectDetail = (id: string) => {
