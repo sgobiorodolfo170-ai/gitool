@@ -22,7 +22,6 @@ import {
   GitCommitHorizontal,
   Github,
   KeyRound,
-  LayoutDashboard,
   ListTodo,
   Loader2,
   MoreHorizontal,
@@ -42,15 +41,12 @@ import {
 import type { Account, AppSettings, AppView, BackupRecord, BranchInfo, ChangeFile, CommitEntry, DetectedCommand, EnvironmentStatus, GitOperation, GitSnapshot, GitTag, InstallGitResult, InstallProgress, OperationRecord, Project, ProjectAnalysis, ProjectFilter, ProjectStatus, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, TaskProfile, TaskRun, TaskType, WorkspaceEntity } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 import { renderMarkdownSafe } from "./lib/markdown";
+import { formatBytes, formatCommitDate, formatDayGroup, isDormant } from "./lib/format";
+import { buildNavGroups, workspaceLabel } from "./lib/navigation";
+import { projectFromSnapshot, remoteProjectMatch } from "./lib/projectMatch";
+import { ACTIVE_WORKSPACE_KEY, LAST_IMPORT_DIRECTORY_KEY, SETUP_DISMISS_KEY } from "./lib/storageKeys";
 import { loadProjects, saveProjects } from "./lib/projects";
 import { DEFAULT_WORKSPACE_ID, createWorkspace as createWorkspaceLocal, deleteWorkspace as deleteWorkspaceLocal, listWorkspaces as listWorkspacesLocal, renameWorkspace as renameWorkspaceLocal } from "./lib/workspaces";
-
-type NavItem = {
-  id: AppView;
-  label: string;
-  icon: typeof LayoutDashboard;
-  count?: string;
-};
 
 const statusMeta: Record<ProjectStatus, { label: string; className: string }> = {
   clean: { label: "已同步", className: "status-clean" },
@@ -87,39 +83,6 @@ const remoteProviderLabels: Record<RemoteProvider, string> = {
   gitee: "Gitee",
   gitlab: "GitLab",
 };
-
-function remoteProjectMatch(project: Project, repository: RemoteRepository): boolean {
-  if (project.webUrl && repository.webUrl && project.webUrl === repository.webUrl) {
-    return true;
-  }
-  return project.provider === repository.provider && project.name === repository.name;
-}
-
-function buildNavGroups(counts: { projects: number; remotes: number; tasks: number }): { label: string; items: NavItem[] }[] {
-  return [
-    {
-      label: "工作区",
-      items: [
-        { id: "overview", label: "总览", icon: LayoutDashboard },
-        { id: "projects", label: "我的项目", icon: FolderGit2, count: counts.projects > 0 ? String(counts.projects) : undefined },
-        { id: "remotes", label: "远程仓库", icon: Cloud, count: counts.remotes > 0 ? String(counts.remotes) : undefined },
-      ],
-    },
-    {
-      label: "工具",
-      items: [
-        { id: "tasks", label: "任务中心", icon: ListTodo, count: counts.tasks > 0 ? String(counts.tasks) : undefined },
-        { id: "backups", label: "备份中心", icon: Archive },
-        { id: "logs", label: "操作记录", icon: Clock3 },
-        { id: "settings", label: "设置", icon: Settings2 },
-      ],
-    },
-  ];
-}
-
-const LAST_IMPORT_DIRECTORY_KEY = "gitool.lastImportDirectory";
-const ACTIVE_WORKSPACE_KEY = "gitool.activeWorkspace";
-const SETUP_DISMISS_KEY = "gitool.setup.dismissed";
 
 function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
@@ -1373,31 +1336,6 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item
   return results;
 }
 
-function projectFromSnapshot(project: Project, snapshot: GitSnapshot): Project {
-  return {
-    ...project,
-    branch: snapshot.branch,
-    status: snapshot.status,
-    commit: snapshot.commit,
-    files: snapshot.files,
-    syncLabel: snapshot.sync_label,
-    updatedAt: snapshot.updated_at,
-  };
-}
-
-function workspaceLabel(workspace: AppView) {
-  const labels: Record<AppView, string> = {
-    overview: "总览",
-    projects: "我的项目",
-    remotes: "远程仓库",
-    tasks: "任务中心",
-    backups: "备份中心",
-    logs: "设置与记录",
-    settings: "设置",
-  };
-  return labels[workspace];
-}
-
 function WorkspaceSwitcher({ workspaces, activeId, onSwitch, onCreate, onRename, onDelete }: {
   workspaces: WorkspaceEntity[];
   activeId: string;
@@ -2074,26 +2012,6 @@ function AnalysisMetric({ label, value }: { label: string; value: string }) {
   return <div><span>{label}</span><strong>{value}</strong></div>;
 }
 
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function isDormant(project: Project, thresholdMonths = 3): boolean {
-  const match = project.updatedAt.match(/^\d{4}-\d{2}-\d{2}/);
-  if (!match) {
-    return false;
-  }
-  const lastActivity = new Date(`${match[0]}T00:00:00`);
-  if (Number.isNaN(lastActivity.getTime())) {
-    return false;
-  }
-  const monthsAgo = new Date();
-  monthsAgo.setMonth(monthsAgo.getMonth() - thresholdMonths);
-  return lastActivity < monthsAgo;
-}
-
 function GitOperationButton({ operation, activeOperation, onRun, icon }: { operation: GitOperation; activeOperation: GitOperation | null; onRun: (operation: GitOperation) => void | Promise<void>; icon: React.ReactNode }) {
   return <button className="git-operation-button" onClick={() => onRun(operation)} disabled={activeOperation !== null} title={operationLabels[operation]}>{icon}<span>{activeOperation === operation ? "执行中" : operationLabels[operation]}</span></button>;
 }
@@ -2494,29 +2412,6 @@ function renderTimeline(history: CommitEntry[], busy: boolean, revert: (hash: st
       </div>
     ))}
   </div>;
-}
-
-function formatCommitDate(iso: string): string {
-  try {
-    const date = new Date(iso);
-    return date.toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return iso;
-  }
-}
-
-function formatDayGroup(iso: string): string {
-  try {
-    const date = new Date(iso);
-    const today = new Date();
-    const isToday = date.toDateString() === today.toDateString();
-    if (isToday) {
-      return "今天";
-    }
-    return date.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
-  } catch {
-    return iso;
-  }
 }
 
 function AccountsWorkspace({ accounts, accountBusyId, onAdd, onTest, onDelete }: { accounts: Account[]; accountBusyId: string | null; onAdd: (input: { provider: RemoteProvider; token: string }) => Promise<boolean>; onTest: (accountId: string) => Promise<void>; onDelete: (accountId: string) => Promise<void> }) {
