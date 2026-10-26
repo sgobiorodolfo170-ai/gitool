@@ -40,7 +40,10 @@ function probeDataDirectory(): { path: string; writable: boolean } {
   const dataDirectory = app.getPath("userData");
   try {
     mkdirSync(dataDirectory, { recursive: true });
-    const probeFile = join(dataDirectory, `.probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    const probeFile = join(
+      dataDirectory,
+      `.probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    );
     writeFileSync(probeFile, "probe", { flag: "wx" });
     unlinkSync(probeFile);
     return { path: dataDirectory, writable: true };

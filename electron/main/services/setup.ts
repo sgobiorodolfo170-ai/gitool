@@ -120,7 +120,10 @@ function locateGitBinary(): string {
     if (existsSync(candidate)) return candidate;
   }
   try {
-    const output = execFileSync("where.exe", ["git"], { windowsHide: true, encoding: "utf8" }) as string;
+    const output = execFileSync("where.exe", ["git"], {
+      windowsHide: true,
+      encoding: "utf8",
+    }) as string;
     const first = output
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -140,7 +143,11 @@ export async function installGit(): Promise<InstallGitResult> {
     release = await fetchLatestRelease();
   } catch (error) {
     emitProgress("failed", 0, "无法获取最新版本，请检查网络或代理");
-    return { success: false, gitPath: "", message: error instanceof Error ? error.message : "获取版本失败" };
+    return {
+      success: false,
+      gitPath: "",
+      message: error instanceof Error ? error.message : "获取版本失败",
+    };
   }
   const asset = pickInstallerAsset(release);
   if (!asset) {
@@ -154,7 +161,11 @@ export async function installGit(): Promise<InstallGitResult> {
     installerPath = await downloadInstaller(asset.browser_download_url, asset.size);
   } catch (error) {
     emitProgress("failed", 0, "下载安装包失败");
-    return { success: false, gitPath: "", message: error instanceof Error ? error.message : "下载失败" };
+    return {
+      success: false,
+      gitPath: "",
+      message: error instanceof Error ? error.message : "下载失败",
+    };
   }
 
   // 阶段 3：UAC 提权 + 静默安装
@@ -163,7 +174,11 @@ export async function installGit(): Promise<InstallGitResult> {
     await runSilentInstaller(installerPath);
   } catch (error) {
     emitProgress("failed", 0, "安装未完成");
-    return { success: false, gitPath: "", message: error instanceof Error ? error.message : "安装失败" };
+    return {
+      success: false,
+      gitPath: "",
+      message: error instanceof Error ? error.message : "安装失败",
+    };
   }
 
   // 阶段 4：探测 git.exe + 写入 gitPath + 重新体检
@@ -171,7 +186,11 @@ export async function installGit(): Promise<InstallGitResult> {
   const gitPath = locateGitBinary();
   if (!gitPath) {
     emitProgress("failed", 0, "安装完成但未找到 git.exe");
-    return { success: false, gitPath: "", message: "安装已完成但未在标准路径找到 git.exe，请手动指定 Git 路径" };
+    return {
+      success: false,
+      gitPath: "",
+      message: "安装已完成但未在标准路径找到 git.exe，请手动指定 Git 路径",
+    };
   }
   // 把 gitPath 写入 settings，让运行中的实例立刻使用，无需重启应用。
   const current = loadSettings();
@@ -182,5 +201,10 @@ export async function installGit(): Promise<InstallGitResult> {
     return { success: true, gitPath, message: "Git 安装成功", environment };
   }
   emitProgress("failed", 0, "git.exe 已就位但调用失败");
-  return { success: false, gitPath, message: "git.exe 已就位但调用失败，请重启应用再试", environment };
+  return {
+    success: false,
+    gitPath,
+    message: "git.exe 已就位但调用失败，请重启应用再试",
+    environment,
+  };
 }

@@ -2,7 +2,20 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { app } from "electron";
-import type { Account, AppSettings, BackupRecord, CreateWorkspaceInput, OperationRecord, Project, RemoteProvider, RemoteRepository, RenameWorkspaceInput, TaskProfile, TaskRun, WorkspaceEntity } from "../../../shared/types";
+import type {
+  Account,
+  AppSettings,
+  BackupRecord,
+  CreateWorkspaceInput,
+  OperationRecord,
+  Project,
+  RemoteProvider,
+  RemoteRepository,
+  RenameWorkspaceInput,
+  TaskProfile,
+  TaskRun,
+  WorkspaceEntity,
+} from "../../../shared/types";
 import { deleteCredential, readCredential, saveCredential } from "./credentials";
 import { buildOperationRecordsCsv } from "./operationCsv";
 
@@ -15,7 +28,9 @@ const DEFAULT_WORKSPACE_ID = "default";
 export function listWorkspaces(): WorkspaceEntity[] {
   const connection = openDatabase();
   const rows = connection
-    .prepare(`SELECT id, name, createdAt, updatedAt FROM workspaces ORDER BY createdAt ASC, name ASC`)
+    .prepare(
+      `SELECT id, name, createdAt, updatedAt FROM workspaces ORDER BY createdAt ASC, name ASC`,
+    )
     .all() as unknown as SqlRow[];
   return rows.map(rowToWorkspace);
 }
@@ -45,11 +60,14 @@ export function renameWorkspace(input: RenameWorkspaceInput): void {
     throw new Error("工作区名称不能为空");
   }
   const connection = openDatabase();
-  const existing = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(input.id) as SqlRow | undefined;
+  const existing = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(input.id) as
+    SqlRow | undefined;
   if (!existing) {
     throw new Error("工作区不存在");
   }
-  connection.prepare("UPDATE workspaces SET name = ?, updatedAt = ? WHERE id = ?").run(name, new Date().toISOString(), input.id);
+  connection
+    .prepare("UPDATE workspaces SET name = ?, updatedAt = ? WHERE id = ?")
+    .run(name, new Date().toISOString(), input.id);
 }
 
 export function deleteWorkspace(id: string): void {
@@ -60,12 +78,17 @@ export function deleteWorkspace(id: string): void {
   if (count <= 1) {
     throw new Error("至少保留一个工作区，无法删除最后一个工作区");
   }
-  const existing = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(id) as SqlRow | undefined;
+  const existing = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(id) as
+    SqlRow | undefined;
   if (!existing) {
     throw new Error("工作区不存在");
   }
   const projectCount = Number(
-    (connection.prepare("SELECT COUNT(*) AS total FROM projects WHERE workspaceId = ?").get(id) as SqlRow).total,
+    (
+      connection
+        .prepare("SELECT COUNT(*) AS total FROM projects WHERE workspaceId = ?")
+        .get(id) as SqlRow
+    ).total,
   );
   if (projectCount > 0) {
     throw new Error(`该工作区还有 ${projectCount} 个项目，请先清空或移动项目后再删除`);
@@ -134,7 +157,9 @@ export function saveProjects(workspaceId: string, projects: Project[]): void {
     const stale = connection
       .prepare("SELECT id FROM projects WHERE workspaceId = ?")
       .all(workspaceId) as unknown as SqlRow[];
-    const deleteStatement = connection.prepare("DELETE FROM projects WHERE id = ? AND workspaceId = ?");
+    const deleteStatement = connection.prepare(
+      "DELETE FROM projects WHERE id = ? AND workspaceId = ?",
+    );
     for (const row of stale) {
       if (!ids.has(String(row.id))) {
         deleteStatement.run(String(row.id), workspaceId);
@@ -416,11 +441,13 @@ function ensureIndexes(connection: DatabaseSync): void {
 }
 
 function migrationEnsureWorkspaceColumns(connection: DatabaseSync): void {
-  const columns = connection
-    .prepare("PRAGMA table_info(projects)")
-    .all() as unknown as Array<Record<string, unknown>>;
+  const columns = connection.prepare("PRAGMA table_info(projects)").all() as unknown as Array<
+    Record<string, unknown>
+  >;
   if (!columns.some((column) => column.name === "workspaceId")) {
-    connection.exec(`ALTER TABLE projects ADD COLUMN workspaceId TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE_ID}'`);
+    connection.exec(
+      `ALTER TABLE projects ADD COLUMN workspaceId TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE_ID}'`,
+    );
   }
 }
 
@@ -436,9 +463,9 @@ function seedDefaultWorkspace(connection: DatabaseSync): void {
 }
 
 function migrationEnsureProjectColumns(connection: DatabaseSync): void {
-  const columns = connection
-    .prepare("PRAGMA table_info(projects)")
-    .all() as unknown as Array<Record<string, unknown>>;
+  const columns = connection.prepare("PRAGMA table_info(projects)").all() as unknown as Array<
+    Record<string, unknown>
+  >;
   if (!columns.some((column) => column.name === "diskSizeBytes")) {
     connection.exec("ALTER TABLE projects ADD COLUMN diskSizeBytes INTEGER NOT NULL DEFAULT 0");
   }
@@ -544,13 +571,17 @@ function rowToAccount(row: SqlRow): Account {
   };
 }
 
-function parseStringArray(value: string | number | bigint | null | Uint8Array | undefined): string[] {
+function parseStringArray(
+  value: string | number | bigint | null | Uint8Array | undefined,
+): string[] {
   if (typeof value !== "string") {
     return [];
   }
   try {
     const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
   } catch {
     return [];
   }
@@ -581,7 +612,8 @@ export function getTaskProfile(profileId: string): TaskProfile | undefined {
 
 export function saveTaskProfile(input: TaskProfile): TaskProfile {
   const connection = openDatabase();
-  const existing = connection.prepare("SELECT id FROM task_profiles WHERE id = ?").get(input.id) as SqlRow | undefined;
+  const existing = connection.prepare("SELECT id FROM task_profiles WHERE id = ?").get(input.id) as
+    SqlRow | undefined;
   if (existing) {
     connection
       .prepare(
@@ -811,9 +843,7 @@ function errorMessage(error: unknown): string {
 
 export function loadSettings(): AppSettings {
   const connection = openDatabase();
-  const rows = connection
-    .prepare("SELECT key, value FROM settings")
-    .all() as unknown as SqlRow[];
+  const rows = connection.prepare("SELECT key, value FROM settings").all() as unknown as SqlRow[];
   const values = new Map<string, string>();
   for (const row of rows) {
     values.set(String(row.key), String(row.value));

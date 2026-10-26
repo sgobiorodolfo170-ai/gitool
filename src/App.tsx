@@ -1,13 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { operationLabels } from "./lib/meta";
-import { AlertTriangle, ArrowDownToLine, Bell, Check, Command, GitBranch, Loader2 } from "lucide-react";
-import type { Account, AppSettings, AppView, GitOperation, GitSnapshot, Project, ProjectAnalysis, ProjectFilter, RemoteProvider, RemoteRepository, RepositoryDiscoveryItem, WorkspaceEntity } from "./types";
+import {
+  AlertTriangle,
+  ArrowDownToLine,
+  Bell,
+  Check,
+  Command,
+  GitBranch,
+  Loader2,
+} from "lucide-react";
+import type {
+  Account,
+  AppSettings,
+  AppView,
+  GitOperation,
+  GitSnapshot,
+  Project,
+  ProjectAnalysis,
+  ProjectFilter,
+  RemoteProvider,
+  RemoteRepository,
+  RepositoryDiscoveryItem,
+  WorkspaceEntity,
+} from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 
 import { buildNavGroups, workspaceLabel } from "./lib/navigation";
 import { projectFromSnapshot, remoteProjectMatch } from "./lib/projectMatch";
-import { ACTIVE_WORKSPACE_KEY, LAST_IMPORT_DIRECTORY_KEY, SETUP_DISMISS_KEY } from "./lib/storageKeys";
-
+import {
+  ACTIVE_WORKSPACE_KEY,
+  LAST_IMPORT_DIRECTORY_KEY,
+  SETUP_DISMISS_KEY,
+} from "./lib/storageKeys";
 
 import { OverviewWorkspace } from "./components/OverviewWorkspace";
 
@@ -24,7 +48,13 @@ import { useNotice } from "./hooks/useNotice";
 import { useUpdater } from "./hooks/useUpdater";
 
 import { loadProjects, saveProjects } from "./lib/projects";
-import { DEFAULT_WORKSPACE_ID, createWorkspace as createWorkspaceLocal, deleteWorkspace as deleteWorkspaceLocal, listWorkspaces as listWorkspacesLocal, renameWorkspace as renameWorkspaceLocal } from "./lib/workspaces";
+import {
+  DEFAULT_WORKSPACE_ID,
+  createWorkspace as createWorkspaceLocal,
+  deleteWorkspace as deleteWorkspaceLocal,
+  listWorkspaces as listWorkspacesLocal,
+  renameWorkspace as renameWorkspaceLocal,
+} from "./lib/workspaces";
 
 function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
@@ -55,8 +85,11 @@ function App() {
   const [remoteSearch, setRemoteSearch] = useState("");
   const [isLoadingRemotes, setIsLoadingRemotes] = useState(false);
   const [cloningRepositoryId, setCloningRepositoryId] = useState<string | null>(null);
-  const [cloneProgress, setCloneProgress] = useState<{ percent: number; phase: string; output: string } | null>(null);
-  
+  const [cloneProgress, setCloneProgress] = useState<{
+    percent: number;
+    phase: string;
+    output: string;
+  } | null>(null);
 
   // 三个独立领域 hook：提示、环境体检、应用更新。
   // 保留原有变量名做别名，避免一次性改动上百处引用；后续可逐步换成 hook 的原始命名。
@@ -93,9 +126,11 @@ function App() {
   } = useUpdater(showNotice);
 
   const defaultDirectoryHint = () => {
-    return appSettings?.defaultProjectDirectory?.trim()
-      || window.localStorage.getItem(LAST_IMPORT_DIRECTORY_KEY)
-      || undefined;
+    return (
+      appSettings?.defaultProjectDirectory?.trim() ||
+      window.localStorage.getItem(LAST_IMPORT_DIRECTORY_KEY) ||
+      undefined
+    );
   };
 
   /**
@@ -146,7 +181,7 @@ function App() {
     return unsubscribe;
   }, []);
 
-    useEffect(() => {
+  useEffect(() => {
     let cancelled = false;
 
     if (isDesktopRuntime()) {
@@ -156,30 +191,35 @@ function App() {
         bridge.environment(),
         bridge.loadAccounts(),
         bridge.loadSettings(),
-      ]).then(async ([loadedWorkspaces, environmentStatus, storedAccounts, storedSettings]) => {
-        if (cancelled) return;
-        setWorkspaces(loadedWorkspaces);
-        setAppSettings(storedSettings);
-        const lastActive = window.localStorage.getItem(ACTIVE_WORKSPACE_KEY);
-        const workspaceId = loadedWorkspaces.some((item) => item.id === lastActive)
-          ? lastActive!
-          : (loadedWorkspaces[0]?.id ?? DEFAULT_WORKSPACE_ID);
-        setActiveWorkspaceId(workspaceId);
-        const storedProjects = await bridge.loadProjects(workspaceId);
-        if (cancelled) return;
-        applyProjects(storedProjects);
-        setSelectedId(storedProjects[0]?.id ?? "");
-        setEnvironment(environmentStatus);
-        setAccounts(storedAccounts);
-        setSelectedAccountId(storedAccounts[0]?.id ?? "");
-        // 首启体检：Git 不可用且用户未勾选「不再提醒」时，弹出引导模态。
-        // 设计理由：小白用户不会主动进设置页，必须首启就主动暴露缺失项。
-        if (!environmentStatus.git_available && window.localStorage.getItem(SETUP_DISMISS_KEY) !== "1") {
-          setShowSetupModal(true);
-        }
-      }).catch(() => {
-        if (!cancelled) setNotice("无法读取本地工作区数据");
-      });
+      ])
+        .then(async ([loadedWorkspaces, environmentStatus, storedAccounts, storedSettings]) => {
+          if (cancelled) return;
+          setWorkspaces(loadedWorkspaces);
+          setAppSettings(storedSettings);
+          const lastActive = window.localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+          const workspaceId = loadedWorkspaces.some((item) => item.id === lastActive)
+            ? lastActive!
+            : (loadedWorkspaces[0]?.id ?? DEFAULT_WORKSPACE_ID);
+          setActiveWorkspaceId(workspaceId);
+          const storedProjects = await bridge.loadProjects(workspaceId);
+          if (cancelled) return;
+          applyProjects(storedProjects);
+          setSelectedId(storedProjects[0]?.id ?? "");
+          setEnvironment(environmentStatus);
+          setAccounts(storedAccounts);
+          setSelectedAccountId(storedAccounts[0]?.id ?? "");
+          // 首启体检：Git 不可用且用户未勾选「不再提醒」时，弹出引导模态。
+          // 设计理由：小白用户不会主动进设置页，必须首启就主动暴露缺失项。
+          if (
+            !environmentStatus.git_available &&
+            window.localStorage.getItem(SETUP_DISMISS_KEY) !== "1"
+          ) {
+            setShowSetupModal(true);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setNotice("无法读取本地工作区数据");
+        });
     } else {
       const loadedWorkspaces = listWorkspacesLocal();
       const lastActive = window.localStorage.getItem(ACTIVE_WORKSPACE_KEY);
@@ -206,16 +246,24 @@ function App() {
   }, []);
 
   const selectedProject = projects.find((project) => project.id === selectedId) ?? projects[0];
-  const allTags = useMemo(() => [...new Set(projects.flatMap((project) => project.tags))].sort(), [projects]);
+  const allTags = useMemo(
+    () => [...new Set(projects.flatMap((project) => project.tags))].sort(),
+    [projects],
+  );
   const filteredProjects = useMemo(() => {
     const query = search.trim().toLowerCase();
     return projects.filter((project) => {
       const matchesFilter =
         filter === "all" ||
         (filter === "favorite" && project.favorite) ||
-        (filter === "attention" && (project.status !== "clean" || project.tags.includes("watching")));
+        (filter === "attention" &&
+          (project.status !== "clean" || project.tags.includes("watching")));
       const matchesTag = !tagFilter || project.tags.includes(tagFilter);
-      const matchesSearch = !query || `${project.name} ${project.path} ${project.summary} ${project.tags.join(" ")}`.toLowerCase().includes(query);
+      const matchesSearch =
+        !query ||
+        `${project.name} ${project.path} ${project.summary} ${project.tags.join(" ")}`
+          .toLowerCase()
+          .includes(query);
       return matchesFilter && matchesTag && matchesSearch;
     });
   }, [filter, projects, search, tagFilter]);
@@ -264,7 +312,11 @@ function App() {
       } else {
         renameWorkspaceLocal({ id, name });
       }
-      setWorkspaces((current) => current.map((item) => item.id === id ? { ...item, name, updatedAt: new Date().toISOString() } : item));
+      setWorkspaces((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, name, updatedAt: new Date().toISOString() } : item,
+        ),
+      );
       setNotice("工作区已重命名");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "重命名失败");
@@ -308,11 +360,17 @@ function App() {
       updateProjects((prev) => prev.filter((project) => project.id !== projectId));
       return;
     }
-    updateProjects((prev) => prev.map((project) => (project.id === projectId ? { ...project, favorite: !project.favorite } : project)));
+    updateProjects((prev) =>
+      prev.map((project) =>
+        project.id === projectId ? { ...project, favorite: !project.favorite } : project,
+      ),
+    );
   };
 
   const toggleRemoteFavorite = async (repository: RemoteRepository) => {
-    const isFav = projects.some((project) => remoteProjectMatch(project, repository) && project.favorite);
+    const isFav = projects.some(
+      (project) => remoteProjectMatch(project, repository) && project.favorite,
+    );
     const match = projects.find((project) => remoteProjectMatch(project, repository));
     let rollback: (() => void) | null = null;
     if (match) {
@@ -320,8 +378,17 @@ function App() {
         updateProjects((prev) => prev.filter((project) => project.id !== match.id));
         rollback = () => updateProjects((prev) => [match, ...prev]);
       } else {
-        updateProjects((prev) => prev.map((project) => project.id === match.id ? { ...project, favorite: !project.favorite } : project));
-        rollback = () => updateProjects((prev) => prev.map((project) => project.id === match.id ? { ...project, favorite: match.favorite } : project));
+        updateProjects((prev) =>
+          prev.map((project) =>
+            project.id === match.id ? { ...project, favorite: !project.favorite } : project,
+          ),
+        );
+        rollback = () =>
+          updateProjects((prev) =>
+            prev.map((project) =>
+              project.id === match.id ? { ...project, favorite: match.favorite } : project,
+            ),
+          );
       }
     } else {
       const now = new Date().toISOString();
@@ -345,7 +412,8 @@ function App() {
         webUrl: repository.webUrl,
       };
       updateProjects((prev) => [favoriteProject, ...prev]);
-      rollback = () => updateProjects((prev) => prev.filter((project) => project.id !== favoriteProject.id));
+      rollback = () =>
+        updateProjects((prev) => prev.filter((project) => project.id !== favoriteProject.id));
     }
     if (isDesktopRuntime()) {
       try {
@@ -364,7 +432,9 @@ function App() {
   };
 
   const toggleRemoteWatch = async (repository: RemoteRepository) => {
-    const isWatched = projects.some((project) => remoteProjectMatch(project, repository) && project.tags.includes("watching"));
+    const isWatched = projects.some(
+      (project) => remoteProjectMatch(project, repository) && project.tags.includes("watching"),
+    );
     const match = projects.find((project) => remoteProjectMatch(project, repository));
     let rollback: (() => void) | null = null;
     if (match) {
@@ -375,8 +445,17 @@ function App() {
         updateProjects((prev) => prev.filter((project) => project.id !== match.id));
         rollback = () => updateProjects((prev) => [match, ...prev]);
       } else {
-        updateProjects((prev) => prev.map((project) => project.id === match.id ? { ...project, tags: nextTags } : project));
-        rollback = () => updateProjects((prev) => prev.map((project) => project.id === match.id ? { ...project, tags: match.tags } : project));
+        updateProjects((prev) =>
+          prev.map((project) =>
+            project.id === match.id ? { ...project, tags: nextTags } : project,
+          ),
+        );
+        rollback = () =>
+          updateProjects((prev) =>
+            prev.map((project) =>
+              project.id === match.id ? { ...project, tags: match.tags } : project,
+            ),
+          );
       }
     } else {
       const now = new Date().toISOString();
@@ -400,7 +479,8 @@ function App() {
         webUrl: repository.webUrl,
       };
       updateProjects((prev) => [watchedProject, ...prev]);
-      rollback = () => updateProjects((prev) => prev.filter((project) => project.id !== watchedProject.id));
+      rollback = () =>
+        updateProjects((prev) => prev.filter((project) => project.id !== watchedProject.id));
     }
     if (isDesktopRuntime()) {
       try {
@@ -421,9 +501,10 @@ function App() {
   const deleteProjectFromList = (projectId: string) => {
     const target = projects.find((project) => project.id === projectId);
     if (!target) return;
-    const message = target.path === ""
-      ? `确定移除「${target.alias || target.name}」？这是未克隆的远程收藏条目。`
-      : `确定从我的项目中移除「${target.alias || target.name}」？\n项目目录不会被删除，后续可重新导入。`;
+    const message =
+      target.path === ""
+        ? `确定移除「${target.alias || target.name}」？这是未克隆的远程收藏条目。`
+        : `确定从我的项目中移除「${target.alias || target.name}」？\n项目目录不会被删除，后续可重新导入。`;
     if (!window.confirm(message)) return;
     const wasSelected = selectedId === projectId;
     updateProjects((prev) => {
@@ -450,7 +531,9 @@ function App() {
         token: input.token,
       });
       setAccounts((current) => {
-        const without = current.filter((item) => !(item.provider === account.provider && item.username === account.username));
+        const without = current.filter(
+          (item) => !(item.provider === account.provider && item.username === account.username),
+        );
         return [account, ...without];
       });
       setSelectedAccountId((current) => current || account.id);
@@ -473,13 +556,19 @@ function App() {
     setAccountBusyId(accountId);
     try {
       const result = await requireDesktopBridge().testAccount(accountId);
-      setAccounts((current) => current.map((account) => account.id === accountId ? {
-        ...account,
-        status: result.success ? "active" : "invalid",
-        username: result.username ?? account.username,
-        scopes: result.scopes,
-        lastCheckedAt: new Date().toISOString(),
-      } : account));
+      setAccounts((current) =>
+        current.map((account) =>
+          account.id === accountId
+            ? {
+                ...account,
+                status: result.success ? "active" : "invalid",
+                username: result.username ?? account.username,
+                scopes: result.scopes,
+                lastCheckedAt: new Date().toISOString(),
+              }
+            : account,
+        ),
+      );
       setNotice(result.message);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "账号连接测试失败");
@@ -499,7 +588,9 @@ function App() {
     try {
       await requireDesktopBridge().deleteAccount(accountId);
       setAccounts((current) => current.filter((account) => account.id !== accountId));
-      setRemoteRepositories((current) => current.filter((repository) => repository.accountId !== accountId));
+      setRemoteRepositories((current) =>
+        current.filter((repository) => repository.accountId !== accountId),
+      );
       setSelectedAccountId((current) => {
         if (current !== accountId) return current;
         const remaining = accounts.filter((account) => account.id !== accountId);
@@ -514,7 +605,10 @@ function App() {
     }
   };
 
-  const loadRemoteRepositories = async (accountId = selectedAccountId, options?: { silent?: boolean }) => {
+  const loadRemoteRepositories = async (
+    accountId = selectedAccountId,
+    options?: { silent?: boolean },
+  ) => {
     if (!accountId) {
       setNotice("请先添加并选择一个远程账号");
       window.setTimeout(() => setNotice(null), 3000);
@@ -599,10 +693,16 @@ function App() {
           diskSizeBytes,
           webUrl: repository.webUrl,
         };
-        const favoriteStub = projects.find((project) => project.path === "" && project.webUrl === repository.webUrl && project.favorite);
+        const favoriteStub = projects.find(
+          (project) =>
+            project.path === "" && project.webUrl === repository.webUrl && project.favorite,
+        );
         if (favoriteStub) {
           newProject.favorite = true;
-          updateProjects((prev) => [newProject, ...prev.filter((project) => project.id !== favoriteStub.id)]);
+          updateProjects((prev) => [
+            newProject,
+            ...prev.filter((project) => project.id !== favoriteStub.id),
+          ]);
         } else {
           updateProjects((prev) => [newProject, ...prev]);
         }
@@ -622,7 +722,14 @@ function App() {
 
   const mutateRemoteRepository = async (
     action: "create" | "update" | "delete",
-    input: { accountId: string; repositoryId?: string; name: string; description: string; visibility: "public" | "private" | "internal" | ""; init: boolean },
+    input: {
+      accountId: string;
+      repositoryId?: string;
+      name: string;
+      description: string;
+      visibility: "public" | "private" | "internal" | "";
+      init: boolean;
+    },
   ) => {
     if (!isDesktopRuntime()) {
       setNotice("浏览器预览不会修改远程仓库，请使用 Windows 桌面版");
@@ -630,7 +737,9 @@ function App() {
       return false;
     }
     if (action === "delete") {
-      const confirmed = window.confirm("删除远程仓库是不可逆操作，仓库及其历史将被永久删除。确定继续吗？");
+      const confirmed = window.confirm(
+        "删除远程仓库是不可逆操作，仓库及其历史将被永久删除。确定继续吗？",
+      );
       if (!confirmed) return false;
     }
     try {
@@ -645,7 +754,12 @@ function App() {
       if (action === "create" || action === "update") {
         await loadRemoteRepositories(input.accountId);
       } else {
-        setRemoteRepositories((current) => current.filter((repository) => repository.accountId !== input.accountId || repository.id !== input.repositoryId));
+        setRemoteRepositories((current) =>
+          current.filter(
+            (repository) =>
+              repository.accountId !== input.accountId || repository.id !== input.repositoryId,
+          ),
+        );
       }
       return result.success;
     } catch (error) {
@@ -670,11 +784,17 @@ function App() {
       const result = await requireDesktopBridge().runGitOperation(selectedProject.path, operation);
       setOperationOutput(result.output);
       if (result.snapshot) {
-        updateProjects((prev) => prev.map((project) => (
-          project.id === selectedProject.id ? projectFromSnapshot(project, result.snapshot!) : project
-        )));
+        updateProjects((prev) =>
+          prev.map((project) =>
+            project.id === selectedProject.id
+              ? projectFromSnapshot(project, result.snapshot!)
+              : project,
+          ),
+        );
       }
-      setNotice(result.success ? `${operationLabels[operation]}完成` : `${operationLabels[operation]}失败`);
+      setNotice(
+        result.success ? `${operationLabels[operation]}完成` : `${operationLabels[operation]}失败`,
+      );
     } catch (error) {
       setOperationOutput(error instanceof Error ? error.message : "Git 操作失败，请查看日志");
       setNotice(`${operationLabels[operation]}失败`);
@@ -710,7 +830,9 @@ function App() {
         updated.push(project);
       }
     }
-    updateProjects((prev) => prev.map((project) => updated.find((item) => item.id === project.id) ?? project));
+    updateProjects((prev) =>
+      prev.map((project) => updated.find((item) => item.id === project.id) ?? project),
+    );
     setNotice(`批量${operationLabels[operation]}完成：成功 ${successCount}，失败 ${failureCount}`);
     window.setTimeout(() => setNotice(null), 4000);
   };
@@ -781,7 +903,8 @@ function App() {
         syncLabel: "待扫描",
         diskSizeBytes,
       };
-      if (importedSnapshot) Object.assign(newProject, projectFromSnapshot(newProject, importedSnapshot));
+      if (importedSnapshot)
+        Object.assign(newProject, projectFromSnapshot(newProject, importedSnapshot));
       window.localStorage.setItem(LAST_IMPORT_DIRECTORY_KEY, path);
       updateProjects((prev) => [newProject, ...prev]);
       setSelectedId(newProject.id);
@@ -825,14 +948,19 @@ function App() {
       window.setTimeout(() => setNotice(null), 3000);
       return;
     }
-    if (!window.confirm("移动项目会复制整个目录（含 .git）到新位置，并更新本地记录。确定继续吗？")) return;
+    if (!window.confirm("移动项目会复制整个目录（含 .git）到新位置，并更新本地记录。确定继续吗？"))
+      return;
     const bridge = requireDesktopBridge();
     const targetDirectory = await bridge.selectDirectory(defaultDirectoryHint());
     if (!targetDirectory) return;
     try {
       const result = await bridge.moveProject({ sourcePath: sourceProject.path, targetDirectory });
       if (result.success) {
-        updateProjects((prev) => prev.map((project) => project.id === sourceProject.id ? { ...project, path: result.targetPath } : project));
+        updateProjects((prev) =>
+          prev.map((project) =>
+            project.id === sourceProject.id ? { ...project, path: result.targetPath } : project,
+          ),
+        );
         setNotice("项目已移动，记录已更新");
       } else {
         setNotice(`移动失败：${result.output}`);
@@ -970,7 +1098,9 @@ function App() {
         window.setTimeout(() => setNotice(null), 3000);
         return;
       }
-      const confirmed = window.confirm(`发现 ${items.length} 个子目录，其中 ${gitRepos.length} 个是 Git 仓库。导入全部仓库？`);
+      const confirmed = window.confirm(
+        `发现 ${items.length} 个子目录，其中 ${gitRepos.length} 个是 Git 仓库。导入全部仓库？`,
+      );
       if (!confirmed) return;
       await importScannedRepositories(items);
     } catch (error) {
@@ -983,7 +1113,9 @@ function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-lockup">
-          <div className="brand-mark"><GitBranch size={18} strokeWidth={2.5} /></div>
+          <div className="brand-mark">
+            <GitBranch size={18} strokeWidth={2.5} />
+          </div>
           <div>
             <strong>Gitool</strong>
             <span>Developer workspace</span>
@@ -1004,7 +1136,11 @@ function App() {
         />
 
         <nav className="sidebar-nav" aria-label="主导航">
-          {buildNavGroups({ projects: projects.length, remotes: remoteRepositories.length, tasks: projects.filter((project) => project.tags.includes("building")).length }).map((group) => (
+          {buildNavGroups({
+            projects: projects.length,
+            remotes: remoteRepositories.length,
+            tasks: projects.filter((project) => project.tags.includes("building")).length,
+          }).map((group) => (
             <div className="nav-group" key={group.label}>
               <span className="nav-group-label">{group.label}</span>
               {group.items.map((item) => {
@@ -1028,26 +1164,44 @@ function App() {
         <div className="sidebar-version">
           v{__APP_VERSION__}
           {updateAvailable && !isDownloading && !downloadedPath && (
-            <button className="sidebar-update-btn" onClick={() => void handleUpdate()}>→ v{updateAvailable.version} 更新</button>
+            <button className="sidebar-update-btn" onClick={() => void handleUpdate()}>
+              → v{updateAvailable.version} 更新
+            </button>
           )}
           {isDownloading && updateProgress && (
             <span className="sidebar-update-progress">
-              <span className="sidebar-update-progress-bar" style={{ width: `${updateProgress.percent}%` }} />
+              <span
+                className="sidebar-update-progress-bar"
+                style={{ width: `${updateProgress.percent}%` }}
+              />
               <span className="sidebar-update-progress-text">{updateProgress.percent}%</span>
             </span>
           )}
           {downloadedPath && (
-            <button className="sidebar-update-btn install" onClick={handleInstallUpdate}>重启安装</button>
+            <button className="sidebar-update-btn install" onClick={handleInstallUpdate}>
+              重启安装
+            </button>
           )}
         </div>
       </aside>
 
       <main className="main-area">
         <header className="topbar">
-          <div className="breadcrumb"><span>Gitool</span><span className="breadcrumb-slash">/</span><strong>{workspaceLabel(workspace)}</strong></div>
+          <div className="breadcrumb">
+            <span>Gitool</span>
+            <span className="breadcrumb-slash">/</span>
+            <strong>{workspaceLabel(workspace)}</strong>
+          </div>
           <div className="topbar-actions">
-            <div className="command-hint"><Command size={13} /><span>快速查找</span><kbd>⌘ K</kbd></div>
-            <button className="icon-button" aria-label="通知"><Bell size={18} /><span className="notification-dot" /></button>
+            <div className="command-hint">
+              <Command size={13} />
+              <span>快速查找</span>
+              <kbd>⌘ K</kbd>
+            </div>
+            <button className="icon-button" aria-label="通知">
+              <Bell size={18} />
+              <span className="notification-dot" />
+            </button>
             <div className="top-avatar">L</div>
           </div>
         </header>
@@ -1056,10 +1210,29 @@ function App() {
           <div className="env-banner">
             <AlertTriangle size={14} />
             <span>未检测到 Git，仓库克隆、提交、拉取等功能不可用。</span>
-            <button className="button primary compact-button" onClick={() => void installGit()} disabled={installingGit}>
-              {installingGit ? <><Loader2 size={13} className="spin" />安装中</> : <><ArrowDownToLine size={13} />一键安装</>}
+            <button
+              className="button primary compact-button"
+              onClick={() => void installGit()}
+              disabled={installingGit}
+            >
+              {installingGit ? (
+                <>
+                  <Loader2 size={13} className="spin" />
+                  安装中
+                </>
+              ) : (
+                <>
+                  <ArrowDownToLine size={13} />
+                  一键安装
+                </>
+              )}
             </button>
-            <button className="button secondary compact-button" onClick={() => setWorkspace("settings")}>查看详情</button>
+            <button
+              className="button secondary compact-button"
+              onClick={() => setWorkspace("settings")}
+            >
+              查看详情
+            </button>
           </div>
         )}
 
@@ -1091,9 +1264,19 @@ function App() {
               onFilterChange={setFilter}
               onSearchChange={setSearch}
               onTagFilterChange={setTagFilter}
-              onSelect={(id) => { setSelectedId(id); setOperationOutput(null); setAnalysis(null); }}
+              onSelect={(id) => {
+                setSelectedId(id);
+                setOperationOutput(null);
+                setAnalysis(null);
+              }}
               onToggleFavorite={toggleFavorite}
-              onUpdateProject={(projectId, patch) => updateProjects((prev) => prev.map((project) => project.id === projectId ? { ...project, ...patch } : project))}
+              onUpdateProject={(projectId, patch) =>
+                updateProjects((prev) =>
+                  prev.map((project) =>
+                    project.id === projectId ? { ...project, ...patch } : project,
+                  ),
+                )
+              }
               onBulkGitOperation={runBulkGitOperation}
               onMoveProject={moveProject}
               onInitRepository={initNewRepository}
@@ -1110,7 +1293,28 @@ function App() {
               analysis={analysis}
             />
           ) : workspace === "remotes" ? (
-            <RemoteRepositoriesWorkspace accounts={accounts} repositories={remoteRepositories} projects={projects} selectedAccountId={selectedAccountId} syncTime={remoteSyncTime} search={remoteSearch} isLoading={isLoadingRemotes} cloningRepositoryId={cloningRepositoryId} cloneProgress={cloneProgress} onAccountChange={(accountId) => { setSelectedAccountId(accountId); setRemoteRepositories([]); void loadRemoteRepositories(accountId, { silent: true }); }} onSearchChange={setRemoteSearch} onRefresh={() => loadRemoteRepositories()} onClone={cloneRemoteRepository} onMutate={mutateRemoteRepository} onToggleFavorite={toggleRemoteFavorite} onToggleWatch={toggleRemoteWatch} />
+            <RemoteRepositoriesWorkspace
+              accounts={accounts}
+              repositories={remoteRepositories}
+              projects={projects}
+              selectedAccountId={selectedAccountId}
+              syncTime={remoteSyncTime}
+              search={remoteSearch}
+              isLoading={isLoadingRemotes}
+              cloningRepositoryId={cloningRepositoryId}
+              cloneProgress={cloneProgress}
+              onAccountChange={(accountId) => {
+                setSelectedAccountId(accountId);
+                setRemoteRepositories([]);
+                void loadRemoteRepositories(accountId, { silent: true });
+              }}
+              onSearchChange={setRemoteSearch}
+              onRefresh={() => loadRemoteRepositories()}
+              onClone={cloneRemoteRepository}
+              onMutate={mutateRemoteRepository}
+              onToggleFavorite={toggleRemoteFavorite}
+              onToggleWatch={toggleRemoteWatch}
+            />
           ) : workspace === "tasks" ? (
             <TasksWorkspace projects={projects} />
           ) : workspace === "backups" ? (
@@ -1118,24 +1322,45 @@ function App() {
           ) : workspace === "logs" ? (
             <LogsWorkspace />
           ) : workspace === "settings" ? (
-            <SettingsWorkspace environment={environment} accounts={accounts} accountBusyId={accountBusyId} onAdd={addAccount} onTest={testAccount} onDelete={deleteAccount} onSettingsChange={(next) => setAppSettings(next)} onRefreshEnvironment={refreshEnvironment} onInstallGit={installGit} installingGit={installingGit} installProgress={installProgress} />
+            <SettingsWorkspace
+              environment={environment}
+              accounts={accounts}
+              accountBusyId={accountBusyId}
+              onAdd={addAccount}
+              onTest={testAccount}
+              onDelete={deleteAccount}
+              onSettingsChange={(next) => setAppSettings(next)}
+              onRefreshEnvironment={refreshEnvironment}
+              onInstallGit={installGit}
+              installingGit={installingGit}
+              installProgress={installProgress}
+            />
           ) : (
             <ModuleWorkspace workspace={workspace} onImport={importProject} />
           )}
         </div>
       </main>
 
-      {notice && <div className="toast"><Check size={16} />{notice}</div>}
+      {notice && (
+        <div className="toast">
+          <Check size={16} />
+          {notice}
+        </div>
+      )}
 
       {/* 浮动进度块：仅当安装进行中/刚结束、且模态未打开时显示。避免与模态内的进度条重复。 */}
       {installProgress && !showSetupModal && (
-        <div className={`setup-progress-float ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}>
+        <div
+          className={`setup-progress-float ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}
+        >
           <div className="setup-progress-header">
-            {installProgress.phase === "done"
-              ? <Check size={13} />
-              : installProgress.phase === "failed"
-                ? <AlertTriangle size={13} />
-                : <Loader2 size={13} className="spin" />}
+            {installProgress.phase === "done" ? (
+              <Check size={13} />
+            ) : installProgress.phase === "failed" ? (
+              <AlertTriangle size={13} />
+            ) : (
+              <Loader2 size={13} className="spin" />
+            )}
             <span>
               {installProgress.phase === "downloading"
                 ? "下载 Git 安装包"
@@ -1148,7 +1373,9 @@ function App() {
                       : "安装未完成"}
             </span>
           </div>
-          <div className="setup-progress-bar"><div className="setup-progress-fill" style={{ width: `${installProgress.percent}%` }} /></div>
+          <div className="setup-progress-bar">
+            <div className="setup-progress-fill" style={{ width: `${installProgress.percent}%` }} />
+          </div>
           <span className="setup-progress-text">{installProgress.message}</span>
         </div>
       )}
@@ -1165,36 +1392,72 @@ function App() {
             </div>
             <div className="form-body">
               <p className="setup-intro">
-                Gitool 的克隆、提交、分支、拉取、推送等操作依赖 Git 命令行工具，当前系统未检测到 Git。
-                点击下方按钮将自动从官方（git-for-windows）下载 64 位安装包，并以管理员权限静默安装，
-                完成后无需重启即可使用。
+                Gitool 的克隆、提交、分支、拉取、推送等操作依赖 Git 命令行工具，当前系统未检测到
+                Git。 点击下方按钮将自动从官方（git-for-windows）下载 64
+                位安装包，并以管理员权限静默安装， 完成后无需重启即可使用。
               </p>
               {installProgress && (
-                <div className={`setup-progress ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}>
+                <div
+                  className={`setup-progress ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}
+                >
                   <div className="setup-progress-bar">
-                    <div className="setup-progress-fill" style={{ width: `${installProgress.percent}%` }} />
+                    <div
+                      className="setup-progress-fill"
+                      style={{ width: `${installProgress.percent}%` }}
+                    />
                   </div>
                   <span className="setup-progress-text">{installProgress.message}</span>
                 </div>
               )}
               {installProgress?.phase === "failed" && (
-                <p className="form-error">安装未完成。可关闭后重试，或在「设置 → 环境信息」手动指定已存在的 git.exe 路径。</p>
+                <p className="form-error">
+                  安装未完成。可关闭后重试，或在「设置 → 环境信息」手动指定已存在的 git.exe 路径。
+                </p>
               )}
               <div className="setup-actions">
-                <button className="button primary" onClick={() => void installGit()} disabled={installingGit || installProgress?.phase === "downloading" || installProgress?.phase === "installing" || installProgress?.phase === "verifying"}>
-                  {installingGit || (installProgress && installProgress.phase !== "done" && installProgress.phase !== "failed")
-                    ? <><Loader2 size={14} className="spin" />正在安装...</>
-                    : <><ArrowDownToLine size={14} />一键安装 Git</>}
+                <button
+                  className="button primary"
+                  onClick={() => void installGit()}
+                  disabled={
+                    installingGit ||
+                    installProgress?.phase === "downloading" ||
+                    installProgress?.phase === "installing" ||
+                    installProgress?.phase === "verifying"
+                  }
+                >
+                  {installingGit ||
+                  (installProgress &&
+                    installProgress.phase !== "done" &&
+                    installProgress.phase !== "failed") ? (
+                    <>
+                      <Loader2 size={14} className="spin" />
+                      正在安装...
+                    </>
+                  ) : (
+                    <>
+                      <ArrowDownToLine size={14} />
+                      一键安装 Git
+                    </>
+                  )}
                 </button>
-                <button className="button secondary" onClick={() => setShowSetupModal(false)} disabled={installingGit}>稍后再说</button>
+                <button
+                  className="button secondary"
+                  onClick={() => setShowSetupModal(false)}
+                  disabled={installingGit}
+                >
+                  稍后再说
+                </button>
                 <label className="checkbox-row setup-dismiss">
-                  <input type="checkbox" onChange={(event) => {
-                    if (event.target.checked) {
-                      window.localStorage.setItem(SETUP_DISMISS_KEY, "1");
-                    } else {
-                      window.localStorage.removeItem(SETUP_DISMISS_KEY);
-                    }
-                  }} />
+                  <input
+                    type="checkbox"
+                    onChange={(event) => {
+                      if (event.target.checked) {
+                        window.localStorage.setItem(SETUP_DISMISS_KEY, "1");
+                      } else {
+                        window.localStorage.removeItem(SETUP_DISMISS_KEY);
+                      }
+                    }}
+                  />
                   不再提醒（环境信息页仍可手动安装）
                 </label>
               </div>
@@ -1206,7 +1469,11 @@ function App() {
   );
 }
 
-async function mapWithConcurrency<T, R>(items: T[], limit: number, worker: (item: T) => Promise<R>): Promise<R[]> {
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
   const results = new Array<R>(items.length);
   let cursor = 0;
   async function run(): Promise<void> {

@@ -13,12 +13,16 @@ describe("mapLimit", () => {
   it("并发数不超过上限", async () => {
     let active = 0;
     let peak = 0;
-    await mapLimit(Array.from({ length: 20 }, (_, index) => index), 4, async () => {
-      active += 1;
-      peak = Math.max(peak, active);
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      active -= 1;
-    });
+    await mapLimit(
+      Array.from({ length: 20 }, (_, index) => index),
+      4,
+      async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        active -= 1;
+      },
+    );
     expect(peak).toBeLessThanOrEqual(4);
     expect(peak).toBeGreaterThan(1);
   });

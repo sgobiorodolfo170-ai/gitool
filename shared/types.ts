@@ -125,7 +125,8 @@ export type Project = {
 
 export type ProjectFilter = "all" | "favorite" | "attention";
 
-export type AppView = "overview" | "projects" | "remotes" | "tasks" | "backups" | "logs" | "settings";
+export type AppView =
+  "overview" | "projects" | "remotes" | "tasks" | "backups" | "logs" | "settings";
 
 export type WorkspaceEntity = {
   id: string;
@@ -176,7 +177,8 @@ export type CloneProgressEvent = {
   success: boolean;
 };
 
-export type ChangeFileStatus = "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted";
+export type ChangeFileStatus =
+  "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted";
 
 export type ChangeFile = {
   path: string;
@@ -494,9 +496,16 @@ export type DesktopBridge = {
   getRemoteRepositoryCacheMeta(accountId: string): Promise<{ syncedAt: string } | null>;
   searchRemoteRepositories(input: RemoteRepositorySearchInput): Promise<RemoteRepository[]>;
   toggleRepositoryInteraction(input: RepositoryInteractionInput): Promise<void>;
-  createRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
-  updateRemoteRepository(input: RemoteRepositoryWriteInput): Promise<RemoteRepositoryMutationResult>;
-  deleteRemoteRepository(accountId: string, repositoryId: string): Promise<RemoteRepositoryMutationResult>;
+  createRemoteRepository(
+    input: RemoteRepositoryWriteInput,
+  ): Promise<RemoteRepositoryMutationResult>;
+  updateRemoteRepository(
+    input: RemoteRepositoryWriteInput,
+  ): Promise<RemoteRepositoryMutationResult>;
+  deleteRemoteRepository(
+    accountId: string,
+    repositoryId: string,
+  ): Promise<RemoteRepositoryMutationResult>;
   listTaskProfiles(): Promise<TaskProfile[]>;
   saveTaskProfile(input: TaskProfile): Promise<TaskProfile>;
   deleteTaskProfile(id: string): Promise<void>;

@@ -45,7 +45,10 @@ const REPOSITORY_ENDPOINTS: Record<RemoteProvider, ProviderEndpoint> = {
   },
 };
 
-export async function resolveTokenUser(provider: RemoteProvider, token: string): Promise<{ username: string }> {
+export async function resolveTokenUser(
+  provider: RemoteProvider,
+  token: string,
+): Promise<{ username: string }> {
   const endpoint = USER_ENDPOINTS[provider];
   let response: Response;
   try {
@@ -195,7 +198,11 @@ async function fetchRemoteRepositories(
   return repositories;
 }
 
-function nextPageUrl(provider: RemoteProvider, response: Response, batchSize: number): string | null {
+function nextPageUrl(
+  provider: RemoteProvider,
+  response: Response,
+  batchSize: number,
+): string | null {
   if (batchSize < 100) {
     return null;
   }
@@ -298,14 +305,22 @@ function extractSearchItems(payload: unknown): unknown[] {
 
 type InteractionAction = "star" | "unstar" | "watch" | "unwatch";
 
-function getInteractionEndpoint(provider: RemoteProvider, owner: string, name: string, action: InteractionAction): { method: string; url: string; body?: string } {
+function getInteractionEndpoint(
+  provider: RemoteProvider,
+  owner: string,
+  name: string,
+  action: InteractionAction,
+): { method: string; url: string; body?: string } {
   const isStar = action === "star" || action === "unstar";
   const isOn = action === "star" || action === "watch";
   const encOwner = encodeURIComponent(owner);
   const encName = encodeURIComponent(name);
   if (provider === "github") {
     if (isStar) {
-      return { method: isOn ? "PUT" : "DELETE", url: `https://api.github.com/user/starred/${encOwner}/${encName}` };
+      return {
+        method: isOn ? "PUT" : "DELETE",
+        url: `https://api.github.com/user/starred/${encOwner}/${encName}`,
+      };
     }
     return {
       method: isOn ? "PUT" : "DELETE",
@@ -315,13 +330,22 @@ function getInteractionEndpoint(provider: RemoteProvider, owner: string, name: s
   }
   if (provider === "gitee") {
     if (isStar) {
-      return { method: isOn ? "PUT" : "DELETE", url: `https://gitee.com/api/v5/user/starred/${encOwner}/${encName}` };
+      return {
+        method: isOn ? "PUT" : "DELETE",
+        url: `https://gitee.com/api/v5/user/starred/${encOwner}/${encName}`,
+      };
     }
-    return { method: isOn ? "PUT" : "DELETE", url: `https://gitee.com/api/v5/user/subscriptions/${encOwner}/${encName}` };
+    return {
+      method: isOn ? "PUT" : "DELETE",
+      url: `https://gitee.com/api/v5/user/subscriptions/${encOwner}/${encName}`,
+    };
   }
   const encoded = encodeURIComponent(`${owner}/${name}`);
   if (isStar) {
-    return { method: isOn ? "POST" : "DELETE", url: `https://gitlab.com/api/v4/projects/${encoded}/${isOn ? "star" : "unstar"}` };
+    return {
+      method: isOn ? "POST" : "DELETE",
+      url: `https://gitlab.com/api/v4/projects/${encoded}/${isOn ? "star" : "unstar"}`,
+    };
   }
   throw new Error("GitLab 暂不支持关注操作");
 }
@@ -520,7 +544,11 @@ function getCreateEndpoint(provider: RemoteProvider): ProviderEndpoint {
     return { url: "https://api.github.com/user/repos", header: "Authorization", prefix: "Bearer " };
   }
   if (provider === "gitee") {
-    return { url: "https://gitee.com/api/v5/user/repos", header: "Authorization", prefix: "token " };
+    return {
+      url: "https://gitee.com/api/v5/user/repos",
+      header: "Authorization",
+      prefix: "token ",
+    };
   }
   return {
     url: "https://gitlab.com/api/v4/projects",
@@ -560,15 +588,31 @@ function getUpdateEndpoint(
   };
 }
 
-function getDeleteEndpoint(provider: RemoteProvider, owner: string, name: string): ProviderEndpoint {
+function getDeleteEndpoint(
+  provider: RemoteProvider,
+  owner: string,
+  name: string,
+): ProviderEndpoint {
   if (provider === "github") {
-    return { url: `https://api.github.com/repos/${owner}/${name}`, header: "Authorization", prefix: "Bearer " };
+    return {
+      url: `https://api.github.com/repos/${owner}/${name}`,
+      header: "Authorization",
+      prefix: "Bearer ",
+    };
   }
   if (provider === "gitee") {
-    return { url: `https://gitee.com/api/v5/repos/${owner}/${name}`, header: "Authorization", prefix: "token " };
+    return {
+      url: `https://gitee.com/api/v5/repos/${owner}/${name}`,
+      header: "Authorization",
+      prefix: "token ",
+    };
   }
   const fullPath = encodeURIComponent(`${owner}/${name}`);
-  return { url: `https://gitlab.com/api/v4/projects/${fullPath}`, header: "PRIVATE-TOKEN", prefix: "" };
+  return {
+    url: `https://gitlab.com/api/v4/projects/${fullPath}`,
+    header: "PRIVATE-TOKEN",
+    prefix: "",
+  };
 }
 
 function buildCreateBody(input: RemoteRepositoryWriteInput): Record<string, unknown> {

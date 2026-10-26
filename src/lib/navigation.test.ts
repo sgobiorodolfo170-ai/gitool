@@ -24,7 +24,15 @@ describe("buildNavGroups", () => {
     const ids = buildNavGroups({ projects: 1, remotes: 1, tasks: 1 }).flatMap((group) =>
       group.items.map((item) => item.id),
     );
-    expect(ids).toEqual(["overview", "projects", "remotes", "tasks", "backups", "logs", "settings"]);
+    expect(ids).toEqual([
+      "overview",
+      "projects",
+      "remotes",
+      "tasks",
+      "backups",
+      "logs",
+      "settings",
+    ]);
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
@@ -37,7 +45,15 @@ describe("workspaceLabel", () => {
   });
 
   it("每个视图都有标签，不返回 undefined", () => {
-    for (const view of ["overview", "projects", "remotes", "tasks", "backups", "logs", "settings"] as const) {
+    for (const view of [
+      "overview",
+      "projects",
+      "remotes",
+      "tasks",
+      "backups",
+      "logs",
+      "settings",
+    ] as const) {
       expect(workspaceLabel(view)).toBeTruthy();
     }
   });

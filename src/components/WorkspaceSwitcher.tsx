@@ -2,8 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, PenLine, Plus, Trash2 } from "lucide-react";
 import type { WorkspaceEntity } from "../types";
 
-
-export function WorkspaceSwitcher({ workspaces, activeId, onSwitch, onCreate, onRename, onDelete }: {
+export function WorkspaceSwitcher({
+  workspaces,
+  activeId,
+  onSwitch,
+  onCreate,
+  onRename,
+  onDelete,
+}: {
   workspaces: WorkspaceEntity[];
   activeId: string;
   onSwitch: (id: string) => void;
@@ -81,7 +87,10 @@ export function WorkspaceSwitcher({ workspaces, activeId, onSwitch, onCreate, on
                 <button
                   className={`workspace-menu-item ${item.id === activeId ? "active" : ""}`}
                   key={item.id}
-                  onClick={() => { setOpen(false); onSwitch(item.id); }}
+                  onClick={() => {
+                    setOpen(false);
+                    onSwitch(item.id);
+                  }}
                 >
                   <span>{item.name}</span>
                   {item.id === activeId && <Check size={14} />}
@@ -89,21 +98,39 @@ export function WorkspaceSwitcher({ workspaces, activeId, onSwitch, onCreate, on
               ))}
               <div className="workspace-menu-divider" />
               <button className="workspace-menu-item action" onClick={startCreate}>
-                <Plus size={14} />新建工作区
+                <Plus size={14} />
+                新建工作区
               </button>
               {active && (
                 <>
-                  <button className="workspace-menu-item action" onClick={() => startRename(active)}>
-                    <PenLine size={14} />重命名
+                  <button
+                    className="workspace-menu-item action"
+                    onClick={() => startRename(active)}
+                  >
+                    <PenLine size={14} />
+                    重命名
                   </button>
-                  <button className="workspace-menu-item action danger" onClick={() => { setOpen(false); onDelete(active); }}>
-                    <Trash2 size={14} />删除工作区
+                  <button
+                    className="workspace-menu-item action danger"
+                    onClick={() => {
+                      setOpen(false);
+                      onDelete(active);
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    删除工作区
                   </button>
                 </>
               )}
             </>
           ) : (
-            <form className="workspace-menu-form" onSubmit={(event) => { event.preventDefault(); commit(); }}>
+            <form
+              className="workspace-menu-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                commit();
+              }}
+            >
               <input
                 ref={inputRef}
                 value={draft}
@@ -111,8 +138,12 @@ export function WorkspaceSwitcher({ workspaces, activeId, onSwitch, onCreate, on
                 placeholder={mode === "create" ? "工作区名称" : "重命名工作区"}
               />
               <div className="workspace-menu-form-actions">
-                <button type="button" onClick={cancelEdit}>取消</button>
-                <button type="submit" disabled={!draft.trim()}>{mode === "create" ? "创建" : "保存"}</button>
+                <button type="button" onClick={cancelEdit}>
+                  取消
+                </button>
+                <button type="submit" disabled={!draft.trim()}>
+                  {mode === "create" ? "创建" : "保存"}
+                </button>
               </div>
             </form>
           )}

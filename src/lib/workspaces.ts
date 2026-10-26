@@ -42,11 +42,11 @@ export function renameWorkspace(input: RenameWorkspaceInput): void {
     throw new Error("工作区名称不能为空");
   }
   const all = listWorkspaces();
-  const next = all.map((workspace) => (
+  const next = all.map((workspace) =>
     workspace.id === input.id
       ? { ...workspace, name, updatedAt: new Date().toISOString() }
-      : workspace
-  ));
+      : workspace,
+  );
   if (!next.some((workspace) => workspace.id === input.id)) {
     throw new Error("工作区不存在");
   }

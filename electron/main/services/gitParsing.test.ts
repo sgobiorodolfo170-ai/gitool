@@ -112,9 +112,12 @@ describe("parseCloneProgress", () => {
 describe("buildCommitMessageArgs", () => {
   it("每个非空行生成一组 -m", () => {
     expect(buildCommitMessageArgs("标题\n\n正文第一行\n正文第二行")).toEqual([
-      "-m", "标题",
-      "-m", "正文第一行",
-      "-m", "正文第二行",
+      "-m",
+      "标题",
+      "-m",
+      "正文第一行",
+      "-m",
+      "正文第二行",
     ]);
   });
 

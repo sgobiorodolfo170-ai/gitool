@@ -48,9 +48,7 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 
 function cleanMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return message
-    .replace(/^Error invoking remote method '[^']*':\s*/, "")
-    .replace(/^Error:\s*/, "");
+  return message.replace(/^Error invoking remote method '[^']*':\s*/, "").replace(/^Error:\s*/, "");
 }
 
 const bridge: DesktopBridge = {
@@ -117,8 +115,7 @@ const bridge: DesktopBridge = {
     invoke<{ syncedAt: string } | null>("remoteRepositories:cacheMeta", accountId),
   searchRemoteRepositories: (input) =>
     invoke<RemoteRepository[]>("remoteRepositories:search", input),
-  toggleRepositoryInteraction: (input) =>
-    invoke<void>("remoteRepositories:interact", input),
+  toggleRepositoryInteraction: (input) => invoke<void>("remoteRepositories:interact", input),
   createRemoteRepository: (input) =>
     invoke<RemoteRepositoryMutationResult>("remoteRepositories:create", input),
   updateRemoteRepository: (input) =>
@@ -141,7 +138,8 @@ const bridge: DesktopBridge = {
   saveSettings: (settings: AppSettings) => invoke<void>("settings:save", settings),
   moveProject: (input: MoveProjectInput) => invoke<MoveProjectResult>("projects:move", input),
   initRepository: (input) => invoke<void>("projects:init", input),
-  scanDirectoryForRepositories: (path) => invoke<RepositoryDiscoveryItem[]>("projects:scanDirectory", path),
+  scanDirectoryForRepositories: (path) =>
+    invoke<RepositoryDiscoveryItem[]>("projects:scanDirectory", path),
   getFileDiff: (input) => invoke<string>("projects:fileDiff", input),
   getRunningTaskOutput: (runId) => invoke<string>("tasks:getRunningOutput", runId),
   setRemoteUrl: (input) => invoke<void>("projects:setRemoteUrl", input),
@@ -156,20 +154,26 @@ const bridge: DesktopBridge = {
   hasAiApiKey: () => invoke<boolean>("ai:hasKey"),
   checkForUpdates: () => invoke<UpdateCheckResult>("updater:check"),
   downloadUpdate: () => invoke<string>("updater:download"),
-  installUpdate: (filePath) => { invoke<void>("updater:install", filePath); },
+  installUpdate: (filePath) => {
+    invoke<void>("updater:install", filePath);
+  },
   onUpdateAvailable: (callback) => {
     const listener = (_event: unknown, payload: unknown) => {
       callback(payload as { version: string });
     };
     ipcRenderer.on("updater:available", listener);
-    return () => { ipcRenderer.removeListener("updater:available", listener); };
+    return () => {
+      ipcRenderer.removeListener("updater:available", listener);
+    };
   },
   onUpdateProgress: (callback) => {
     const listener = (_event: unknown, payload: unknown) => {
       callback(payload as UpdateProgress);
     };
     ipcRenderer.on("updater:progress", listener);
-    return () => { ipcRenderer.removeListener("updater:progress", listener); };
+    return () => {
+      ipcRenderer.removeListener("updater:progress", listener);
+    };
   },
 };
 

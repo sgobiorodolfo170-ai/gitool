@@ -14,9 +14,7 @@ describe("escapeHtml", () => {
   });
 
   it("单引号也转义，防止属性逃逸", () => {
-    expect(escapeHtml("' onmouseover='alert(1)")).toBe(
-      "&#39; onmouseover=&#39;alert(1)",
-    );
+    expect(escapeHtml("' onmouseover='alert(1)")).toBe("&#39; onmouseover=&#39;alert(1)");
   });
 });
 
@@ -28,7 +26,9 @@ describe("inlineMarkdown", () => {
   });
 
   it("只把 http/https 链接转为锚点", () => {
-    expect(inlineMarkdown("[站点](https://example.com)")).toContain('<a href="https://example.com"');
+    expect(inlineMarkdown("[站点](https://example.com)")).toContain(
+      '<a href="https://example.com"',
+    );
     expect(inlineMarkdown("[伪协议](javascript:alert(1))")).not.toContain("<a");
     expect(inlineMarkdown("[文件](file:///C:/x)")).not.toContain("<a");
   });

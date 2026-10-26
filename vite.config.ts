@@ -13,9 +13,7 @@ function contentSecurityPolicyPlugin(): Plugin {
       handler(html, context) {
         const isDev = context.server !== undefined;
         const scriptSource = isDev ? "'self' 'unsafe-inline'" : "'self'";
-        const connectSource = isDev
-          ? "'self' ws://localhost:1420 http://localhost:1420"
-          : "'self'";
+        const connectSource = isDev ? "'self' ws://localhost:1420 http://localhost:1420" : "'self'";
         const policy = [
           "default-src 'self'",
           `script-src ${scriptSource}`,

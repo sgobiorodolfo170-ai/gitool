@@ -1,4 +1,10 @@
-import type { ChangeFile, GitOperation, Project, ProjectStatus, RemoteProvider } from "../../shared/types";
+import type {
+  ChangeFile,
+  GitOperation,
+  Project,
+  ProjectStatus,
+  RemoteProvider,
+} from "../../shared/types";
 
 /**
  * 展示层的映射表。
@@ -36,11 +42,12 @@ export const remoteProviderLabels: Record<RemoteProvider, string> = {
   gitlab: "GitLab",
 };
 
-export const changeStatusMeta: Record<ChangeFile["status"], { label: string; className: string }> = {
-  added: { label: "新增", className: "change-added" },
-  modified: { label: "修改", className: "change-modified" },
-  deleted: { label: "删除", className: "change-deleted" },
-  renamed: { label: "重命名", className: "change-renamed" },
-  untracked: { label: "未跟踪", className: "change-untracked" },
-  conflicted: { label: "冲突", className: "change-conflicted" },
-};
+export const changeStatusMeta: Record<ChangeFile["status"], { label: string; className: string }> =
+  {
+    added: { label: "新增", className: "change-added" },
+    modified: { label: "修改", className: "change-modified" },
+    deleted: { label: "删除", className: "change-deleted" },
+    renamed: { label: "重命名", className: "change-renamed" },
+    untracked: { label: "未跟踪", className: "change-untracked" },
+    conflicted: { label: "冲突", className: "change-conflicted" },
+  };

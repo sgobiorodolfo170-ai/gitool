@@ -92,7 +92,10 @@ function sanitizeFileName(name: string): string {
 
 /** ISO 时间戳 → `2026-10-26_19-02-20`，保证同名项目同日多次备份互不覆盖。 */
 function formatTimestamp(iso: string): string {
-  return iso.replace(/\.\d+Z$/, "").replace("T", "_").replace(/:/g, "-");
+  return iso
+    .replace(/\.\d+Z$/, "")
+    .replace("T", "_")
+    .replace(/:/g, "-");
 }
 
 function parentOf(target: string): string {

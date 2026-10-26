@@ -6,7 +6,11 @@ const execFileAsync = promisify(execFile);
 
 export type EditorTarget = "vscode" | "cursor";
 
-export async function openInEditor(projectPath: string, editor: EditorTarget, newWindow: boolean): Promise<void> {
+export async function openInEditor(
+  projectPath: string,
+  editor: EditorTarget,
+  newWindow: boolean,
+): Promise<void> {
   assertDirectory(projectPath);
   const command = editor === "vscode" ? "code" : "cursor";
   await assertCommandExists(editor === "vscode" ? "VS Code" : "Cursor", command);

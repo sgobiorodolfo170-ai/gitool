@@ -1,4 +1,12 @@
-import { Archive, Clock3, Cloud, FolderGit2, LayoutDashboard, ListTodo, Settings2 } from "lucide-react";
+import {
+  Archive,
+  Clock3,
+  Cloud,
+  FolderGit2,
+  LayoutDashboard,
+  ListTodo,
+  Settings2,
+} from "lucide-react";
 import type { AppView } from "../../shared/types";
 
 export type NavItem = {

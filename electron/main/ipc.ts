@@ -107,11 +107,17 @@ import {
   updateTaskRun,
 } from "./services/storage";
 import { getRunningTaskOutput, runTask, stopTask } from "./services/tasks";
-import { checkForUpdates, downloadUpdate, installUpdate, isTrustedInstallerPath } from "./services/updater";
+import {
+  checkForUpdates,
+  downloadUpdate,
+  installUpdate,
+  isTrustedInstallerPath,
+} from "./services/updater";
 
 let cachedDownloadUrl = "";
 
-export function registerIpcHandlers(): void {  ipcMain.handle("system:environment", () => getEnvironmentStatus());
+export function registerIpcHandlers(): void {
+  ipcMain.handle("system:environment", () => getEnvironmentStatus());
   // system:refreshEnvironment 与 system:environment 调用同一函数，但语义独立：
   // 前者用于「一键安装完成后刷新」等显式触发场景，后者用于首启拉取。
   ipcMain.handle("system:refreshEnvironment", () => getEnvironmentStatus());
@@ -124,7 +130,8 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
     const properties = ["openDirectory", "createDirectory"] as const;
     const options = {
       properties: [...properties],
-      defaultPath: typeof defaultPath === "string" && defaultPath.length > 0 ? defaultPath : undefined,
+      defaultPath:
+        typeof defaultPath === "string" && defaultPath.length > 0 ? defaultPath : undefined,
     };
     const result = owner
       ? await dialog.showOpenDialog(owner, options)
@@ -203,9 +210,7 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   ipcMain.handle("projects:gitOperation", (_event, projectPath: unknown, operation: unknown) =>
     recordGitOperation(projectPath, operation),
   );
-  ipcMain.handle("projects:clone", (_event, input: unknown) =>
-    recordClone(input),
-  );
+  ipcMain.handle("projects:clone", (_event, input: unknown) => recordClone(input));
   ipcMain.handle("git:changedFiles", (_event, projectPath: unknown) =>
     listChangedFiles(requireString(projectPath, "项目路径")),
   );
@@ -215,9 +220,7 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   ipcMain.handle("git:unstageFiles", (_event, projectPath: unknown, files: unknown) =>
     unstageFiles(requireString(projectPath, "项目路径"), requireStringArray(files)),
   );
-  ipcMain.handle("git:commit", (_event, input: unknown) =>
-    recordCommit(input),
-  );
+  ipcMain.handle("git:commit", (_event, input: unknown) => recordCommit(input));
   ipcMain.handle("git:branches", (_event, projectPath: unknown) =>
     listBranches(requireString(projectPath, "项目路径")),
   );
@@ -270,8 +273,10 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   ipcMain.handle("remoteRepositories:load", (_event, accountId: unknown) =>
     loadRemoteRepositories(requireString(accountId, "账号 ID")),
   );
-  ipcMain.handle("remoteRepositories:loadCached", (_event, accountId: unknown) =>
-    loadRemoteRepositoryCache(requireString(accountId, "账号 ID")) ?? [],
+  ipcMain.handle(
+    "remoteRepositories:loadCached",
+    (_event, accountId: unknown) =>
+      loadRemoteRepositoryCache(requireString(accountId, "账号 ID")) ?? [],
   );
   ipcMain.handle("remoteRepositories:cacheMeta", (_event, accountId: unknown) =>
     getRemoteRepositoryCacheMeta(requireString(accountId, "账号 ID")),
@@ -384,7 +389,10 @@ export function registerIpcHandlers(): void {  ipcMain.handle("system:environmen
   });
 }
 
-async function recordGitOperation(projectPath: unknown, operation: unknown): Promise<GitOperationResult> {
+async function recordGitOperation(
+  projectPath: unknown,
+  operation: unknown,
+): Promise<GitOperationResult> {
   const path = requireString(projectPath, "项目路径");
   const op = requireGitOperation(operation);
   const result = await runGitOperation(path, op);
@@ -406,7 +414,12 @@ async function recordCommit(input: unknown): Promise<CommitResult> {
   return result;
 }
 
-function recordOperation(operation: string, path: string, detail: string, result: "ok" | "failed"): void {
+function recordOperation(
+  operation: string,
+  path: string,
+  detail: string,
+  result: "ok" | "failed",
+): void {
   try {
     insertOperationRecord({
       id: `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -429,10 +442,16 @@ function requireAppSettings(value: unknown): AppSettings {
   const candidate = value as Record<string, unknown>;
   return {
     gitPath: typeof candidate.gitPath === "string" ? candidate.gitPath : "",
-    defaultProjectDirectory: typeof candidate.defaultProjectDirectory === "string" ? candidate.defaultProjectDirectory : "",
-    defaultBackupDirectory: typeof candidate.defaultBackupDirectory === "string" ? candidate.defaultBackupDirectory : "",
-    backupExcludePatterns: typeof candidate.backupExcludePatterns === "string" ? candidate.backupExcludePatterns : "",
-    defaultSearchAccountId: typeof candidate.defaultSearchAccountId === "string" ? candidate.defaultSearchAccountId : "",
+    defaultProjectDirectory:
+      typeof candidate.defaultProjectDirectory === "string"
+        ? candidate.defaultProjectDirectory
+        : "",
+    defaultBackupDirectory:
+      typeof candidate.defaultBackupDirectory === "string" ? candidate.defaultBackupDirectory : "",
+    backupExcludePatterns:
+      typeof candidate.backupExcludePatterns === "string" ? candidate.backupExcludePatterns : "",
+    defaultSearchAccountId:
+      typeof candidate.defaultSearchAccountId === "string" ? candidate.defaultSearchAccountId : "",
     aiApiKeyConfigured: candidate.aiApiKeyConfigured === true,
     aiModel: typeof candidate.aiModel === "string" ? candidate.aiModel : "",
     aiBaseUrl: typeof candidate.aiBaseUrl === "string" ? candidate.aiBaseUrl : "",
@@ -468,7 +487,10 @@ function requireInitRepositoryInput(value: unknown): InitRepositoryInput {
   const candidate = value as Record<string, unknown>;
   return {
     path: requireString(candidate.path, "初始化路径"),
-    defaultBranch: typeof candidate.defaultBranch === "string" && candidate.defaultBranch.trim().length > 0 ? candidate.defaultBranch.trim() : undefined,
+    defaultBranch:
+      typeof candidate.defaultBranch === "string" && candidate.defaultBranch.trim().length > 0
+        ? candidate.defaultBranch.trim()
+        : undefined,
   };
 }
 
@@ -491,7 +513,10 @@ function requireSetRemoteUrlInput(value: unknown): SetRemoteUrlInput {
   return {
     path: requireString(candidate.path, "项目路径"),
     url: requireString(candidate.url, "远程地址"),
-    remote: typeof candidate.remote === "string" && candidate.remote.trim().length > 0 ? candidate.remote.trim() : undefined,
+    remote:
+      typeof candidate.remote === "string" && candidate.remote.trim().length > 0
+        ? candidate.remote.trim()
+        : undefined,
   };
 }
 
@@ -519,7 +544,8 @@ function requireCompareRequest(value: unknown): CompareRequest {
   };
 }
 
-function requireOpenEditorInput(value: unknown): OpenEditorInput {  if (typeof value !== "object" || value === null) {
+function requireOpenEditorInput(value: unknown): OpenEditorInput {
+  if (typeof value !== "object" || value === null) {
     throw new Error("编辑器参数格式不正确");
   }
   const candidate = value as Record<string, unknown>;
@@ -549,7 +575,12 @@ function requireTaskProfile(value: unknown): TaskProfile {
   const taskType = candidate.taskType;
   // 必须与 shared/types.ts 的 TaskType 完全一致：曾漏掉 deploy，
   // 导致自动检测出的部署命令（Dockerfile / deploy 脚本）一律保存失败。
-  if (taskType !== "build" && taskType !== "run" && taskType !== "package" && taskType !== "deploy") {
+  if (
+    taskType !== "build" &&
+    taskType !== "run" &&
+    taskType !== "package" &&
+    taskType !== "deploy"
+  ) {
     throw new Error("任务类型无效");
   }
   return {
@@ -572,7 +603,13 @@ function requireTaskRun(value: unknown): TaskRun {
   }
   const candidate = value as Record<string, unknown>;
   const status = candidate.status;
-  if (status !== "running" && status !== "succeeded" && status !== "failed" && status !== "stopped" && status !== "timedout") {
+  if (
+    status !== "running" &&
+    status !== "succeeded" &&
+    status !== "failed" &&
+    status !== "stopped" &&
+    status !== "timedout"
+  ) {
     throw new Error("任务状态无效");
   }
   return {
@@ -649,7 +686,12 @@ function requireProject(value: unknown, index: number): Project {
   }
   const candidate = value as Record<string, unknown>;
   const provider = candidate.provider;
-  if (provider !== "local" && provider !== "github" && provider !== "gitee" && provider !== "gitlab") {
+  if (
+    provider !== "local" &&
+    provider !== "github" &&
+    provider !== "gitee" &&
+    provider !== "gitlab"
+  ) {
     throw new Error(`第 ${index + 1} 个项目的平台无效`);
   }
 
@@ -669,17 +711,30 @@ function requireProject(value: unknown, index: number): Project {
     files: typeof candidate.files === "number" ? candidate.files : 0,
     syncLabel: typeof candidate.syncLabel === "string" ? candidate.syncLabel : "",
     language: typeof candidate.language === "string" ? candidate.language : "",
-    languageColor: typeof candidate.languageColor === "string" ? candidate.languageColor : "#8b97a8",
+    languageColor:
+      typeof candidate.languageColor === "string" ? candidate.languageColor : "#8b97a8",
     summary: typeof candidate.summary === "string" ? candidate.summary : "",
     updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : "",
     diskSizeBytes: typeof candidate.diskSizeBytes === "number" ? candidate.diskSizeBytes : 0,
-    alias: typeof candidate.alias === "string" && candidate.alias.trim().length > 0 ? candidate.alias.trim() : undefined,
-    webUrl: typeof candidate.webUrl === "string" && candidate.webUrl.trim().length > 0 ? candidate.webUrl.trim() : undefined,
+    alias:
+      typeof candidate.alias === "string" && candidate.alias.trim().length > 0
+        ? candidate.alias.trim()
+        : undefined,
+    webUrl:
+      typeof candidate.webUrl === "string" && candidate.webUrl.trim().length > 0
+        ? candidate.webUrl.trim()
+        : undefined,
   };
 }
 
 function requireProjectStatus(value: unknown): Project["status"] {
-  if (value === "clean" || value === "dirty" || value === "ahead" || value === "behind" || value === "conflicted") {
+  if (
+    value === "clean" ||
+    value === "dirty" ||
+    value === "ahead" ||
+    value === "behind" ||
+    value === "conflicted"
+  ) {
     return value;
   }
   return "clean";
@@ -842,7 +897,12 @@ function requireRemoteRepositoryWriteInput(value: unknown): RemoteRepositoryWrit
   }
   const candidate = value as Record<string, unknown>;
   const visibility = candidate.visibility;
-  if (visibility !== "" && visibility !== "public" && visibility !== "private" && visibility !== "internal") {
+  if (
+    visibility !== "" &&
+    visibility !== "public" &&
+    visibility !== "private" &&
+    visibility !== "internal"
+  ) {
     throw new Error("可见性必须为 public、private 或 internal");
   }
   const repositoryId = candidate.repositoryId;
@@ -851,7 +911,8 @@ function requireRemoteRepositoryWriteInput(value: unknown): RemoteRepositoryWrit
   }
   return {
     accountId: requireString(candidate.accountId, "账号 ID"),
-    repositoryId: typeof repositoryId === "string" && repositoryId.length > 0 ? repositoryId : undefined,
+    repositoryId:
+      typeof repositoryId === "string" && repositoryId.length > 0 ? repositoryId : undefined,
     name: requireString(candidate.name, "仓库名称"),
     description: typeof candidate.description === "string" ? candidate.description : "",
     visibility: visibility as RemoteRepositoryWriteInput["visibility"],

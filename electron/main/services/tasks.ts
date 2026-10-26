@@ -52,17 +52,18 @@ export async function runTask(profileId: string): Promise<TaskRun> {
     appendOutput(chunk);
   });
 
-  const timer = profile.timeoutSeconds > 0
-    ? setTimeout(() => {
-        killProcessTree(child);
-        runningTasks.delete(run.id);
-        run.status = "timedout";
-        run.finishedAt = new Date().toISOString();
-        run.exitCode = undefined;
-        run.output = `${output}\n[任务超时，已终止]`;
-        persistRun(run);
-      }, profile.timeoutSeconds * 1000)
-    : undefined;
+  const timer =
+    profile.timeoutSeconds > 0
+      ? setTimeout(() => {
+          killProcessTree(child);
+          runningTasks.delete(run.id);
+          run.status = "timedout";
+          run.finishedAt = new Date().toISOString();
+          run.exitCode = undefined;
+          run.output = `${output}\n[任务超时，已终止]`;
+          persistRun(run);
+        }, profile.timeoutSeconds * 1000)
+      : undefined;
 
   child.on("error", (error) => {
     if (timer) clearTimeout(timer);

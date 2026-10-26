@@ -130,7 +130,7 @@ export function parseBranchLine(raw: string): {
   return {
     name: match[1],
     current,
-    remote: tracking ? remotePart ?? undefined : undefined,
+    remote: tracking ? (remotePart ?? undefined) : undefined,
     ahead: aheadMatch ? Number(aheadMatch[1]) : 0,
     behind: behindMatch ? Number(behindMatch[1]) : 0,
   };

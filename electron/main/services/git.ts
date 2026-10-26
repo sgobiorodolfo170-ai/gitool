@@ -1,5 +1,15 @@
 import { execFile, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -109,14 +119,21 @@ export async function initRepository(input: InitRepositoryInput): Promise<void> 
   }
 }
 
-export async function scanDirectoryForRepositories(directory: string): Promise<RepositoryDiscoveryItem[]> {
+export async function scanDirectoryForRepositories(
+  directory: string,
+): Promise<RepositoryDiscoveryItem[]> {
   if (!isAbsolute(directory) || !existsSync(directory) || !statSync(directory).isDirectory()) {
     throw new Error("目录不存在或不是目录");
   }
   const items: RepositoryDiscoveryItem[] = [];
   const entries = readdirSync(directory, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.name === ".git" || entry.name === "node_modules" || entry.name === "dist" || entry.name === "build") {
+    if (
+      entry.name === ".git" ||
+      entry.name === "node_modules" ||
+      entry.name === "dist" ||
+      entry.name === "build"
+    ) {
       continue;
     }
     if (!entry.isDirectory()) {
@@ -171,10 +188,12 @@ export async function setRemoteUrl(input: SetRemoteUrlInput): Promise<void> {
 
 export async function listTags(projectPath: string): Promise<GitTag[]> {
   assertDirectory(projectPath);
-  const output = await runGit(
-    projectPath,
-    ["for-each-ref", "refs/tags", "--sort=-creatordate", '--format=%(refname:short)\n%(objectname:short)\n%(creatordate:iso8601-strict)\n%(contents:subject)'],
-  ).catch(() => "");
+  const output = await runGit(projectPath, [
+    "for-each-ref",
+    "refs/tags",
+    "--sort=-creatordate",
+    "--format=%(refname:short)\n%(objectname:short)\n%(creatordate:iso8601-strict)\n%(contents:subject)",
+  ]).catch(() => "");
   const lines = output.split(/\r?\n/);
   const tags: GitTag[] = [];
   for (let index = 0; index + 3 < lines.length; index += 4) {
@@ -201,9 +220,10 @@ export async function createTag(input: CreateTagInput): Promise<void> {
     throw new Error("标签名只能包含字母、数字、点、下划线、斜杠和连字符");
   }
   const message = input.message?.trim() ?? "";
-  const result = message.length > 0
-    ? await runGitProcess(input.path, ["tag", "-a", name, "-m", message])
-    : await runGitProcess(input.path, ["tag", name]);
+  const result =
+    message.length > 0
+      ? await runGitProcess(input.path, ["tag", "-a", name, "-m", message])
+      : await runGitProcess(input.path, ["tag", name]);
   if (!result.success) {
     throw new Error(result.output || "创建标签失败");
   }
@@ -361,7 +381,10 @@ export async function runGitOperation(
   if (operation === "pull" || operation === "sync") {
     const uncommittedFiles = await listChangedFiles(projectPath);
     if (uncommittedFiles.length > 0) {
-      const names = uncommittedFiles.slice(0, 5).map((item) => item.path).join("、");
+      const names = uncommittedFiles
+        .slice(0, 5)
+        .map((item) => item.path)
+        .join("、");
       const label = operation === "pull" ? "拉取" : "同步";
       return {
         operation,
@@ -517,10 +540,11 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<void> {
 
 export async function listCommitHistory(projectPath: string, limit = 50): Promise<CommitEntry[]> {
   assertDirectory(projectPath);
-  const output = await runGit(
-    projectPath,
-    ["log", `-n ${limit}`, '--format=%H%x1e%an%x1e%ae%x1e%aI%x1e%s%x1f%b'],
-  ).catch(() => "");
+  const output = await runGit(projectPath, [
+    "log",
+    `-n ${limit}`,
+    "--format=%H%x1e%an%x1e%ae%x1e%aI%x1e%s%x1f%b",
+  ]).catch(() => "");
   const entries: CommitEntry[] = [];
   for (const record of output.split("\x1f")) {
     if (!record) continue;
@@ -558,12 +582,19 @@ export async function revertCommit(input: RevertCommitInput): Promise<GitOperati
   return { operation: "revert", success: result.success, output: result.output, snapshot };
 }
 
-async function commitRevertProcess(projectPath: string, hash: string): Promise<{ success: boolean; output: string }> {
+async function commitRevertProcess(
+  projectPath: string,
+  hash: string,
+): Promise<{ success: boolean; output: string }> {
   try {
-    const { stdout, stderr } = await execFileAsync(getActiveGitBinary(), ["-C", projectPath, "revert", "--no-edit", hash], {
-      windowsHide: true,
-      maxBuffer: MAX_BUFFER,
-    });
+    const { stdout, stderr } = await execFileAsync(
+      getActiveGitBinary(),
+      ["-C", projectPath, "revert", "--no-edit", hash],
+      {
+        windowsHide: true,
+        maxBuffer: MAX_BUFFER,
+      },
+    );
     const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
     return { success: true, output };
   } catch (error) {
@@ -585,9 +616,7 @@ function assertDirectory(target: string): void {
   }
 }
 
-export async function cloneRepository(
-  input: CloneRepositoryInput,
-): Promise<CloneRepositoryResult> {
+export async function cloneRepository(input: CloneRepositoryInput): Promise<CloneRepositoryResult> {
   const url = input.url.trim();
   const targetPath = input.targetPath.trim();
   assertCloneUrl(url);
@@ -608,7 +637,13 @@ export async function cloneRepository(
   args.push(url, targetPath);
 
   const runId = `clone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const emitProgress = (percent: number, phase: string, output: string, done: boolean, success: boolean) => {
+  const emitProgress = (
+    percent: number,
+    phase: string,
+    output: string,
+    done: boolean,
+    success: boolean,
+  ) => {
     notifyRenderer("git:cloneProgress", { runId, percent, phase, output, done, success });
   };
 
@@ -625,11 +660,23 @@ export async function cloneRepository(
     let accumulated = "";
     child.stdout?.on("data", (chunk) => {
       accumulated += chunk.toString();
-      emitProgress(parseCloneProgress(accumulated), "拉取对象", accumulated.slice(-400), false, false);
+      emitProgress(
+        parseCloneProgress(accumulated),
+        "拉取对象",
+        accumulated.slice(-400),
+        false,
+        false,
+      );
     });
     child.stderr?.on("data", (chunk) => {
       accumulated += chunk.toString();
-      emitProgress(parseCloneProgress(accumulated), "拉取对象", accumulated.slice(-400), false, false);
+      emitProgress(
+        parseCloneProgress(accumulated),
+        "拉取对象",
+        accumulated.slice(-400),
+        false,
+        false,
+      );
     });
     child.on("error", (error) => {
       emitProgress(0, "失败", error.message, true, false);
@@ -764,9 +811,25 @@ async function computeDiskSize(projectPath: string): Promise<number> {
   return total;
 }
 
-const IGNORED_SIZE_DIRECTORIES = new Set([".git", "node_modules", "target", "dist", "build", ".next", ".venv", "__pycache__"]);
+const IGNORED_SIZE_DIRECTORIES = new Set([
+  ".git",
+  "node_modules",
+  "target",
+  "dist",
+  "build",
+  ".next",
+  ".venv",
+  "__pycache__",
+]);
 
-const README_FILE_NAMES = ["README.md", "README.MD", "readme.md", "README.markdown", "readme.txt", "README"];
+const README_FILE_NAMES = [
+  "README.md",
+  "README.MD",
+  "readme.md",
+  "README.markdown",
+  "readme.txt",
+  "README",
+];
 
 export async function readProjectReadme(projectPath: string): Promise<ReadmeResult> {
   assertDirectory(projectPath);
@@ -793,7 +856,11 @@ export async function moveProject(input: MoveProjectInput): Promise<MoveProjectR
   const sourcePath = input.sourcePath.trim();
   const targetDirectory = input.targetDirectory.trim();
   assertDirectory(sourcePath);
-  if (!isAbsolute(targetDirectory) || !existsSync(targetDirectory) || !statSync(targetDirectory).isDirectory()) {
+  if (
+    !isAbsolute(targetDirectory) ||
+    !existsSync(targetDirectory) ||
+    !statSync(targetDirectory).isDirectory()
+  ) {
     throw new Error("目标目录不存在或不是目录");
   }
   const sourceName = basename(sourcePath);

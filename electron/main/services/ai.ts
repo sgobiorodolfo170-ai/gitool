@@ -40,7 +40,10 @@ export async function generateAiSummary(input: AiSummaryRequest): Promise<AiSumm
         body: JSON.stringify({
           model,
           messages: [
-            { role: "system", content: "你是一个专业的开源项目分析助手，输出精炼、结构化、使用简体中文。" },
+            {
+              role: "system",
+              content: "你是一个专业的开源项目分析助手，输出精炼、结构化、使用简体中文。",
+            },
             { role: "user", content: prompt },
           ],
           temperature: 0.4,

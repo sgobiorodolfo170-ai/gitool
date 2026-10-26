@@ -5,11 +5,13 @@ import { registerIpcHandlers } from "./ipc.js";
 import { checkForUpdates, CHECK_INTERVAL_MS } from "./services/updater.js";
 
 function notifyUpdateIfAvailable(window: BrowserWindow): void {
-  void checkForUpdates().then((result) => {
-    if (result.hasUpdate) {
-      window.webContents.send("updater:available", { version: result.version });
-    }
-  }).catch(() => {});
+  void checkForUpdates()
+    .then((result) => {
+      if (result.hasUpdate) {
+        window.webContents.send("updater:available", { version: result.version });
+      }
+    })
+    .catch(() => {});
 }
 
 const currentDirectory = dirname(fileURLToPath(import.meta.url));
@@ -25,7 +27,13 @@ function createTray(window: BrowserWindow): void {
   const contextMenu = Menu.buildFromTemplate([
     { label: "打开 Gitool", click: () => showMainWindow(window) },
     { type: "separator" },
-    { label: "退出", click: () => { isQuitting = true; app.quit(); } },
+    {
+      label: "退出",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
   ]);
   tray.setContextMenu(contextMenu);
   tray.on("double-click", () => showMainWindow(window));
