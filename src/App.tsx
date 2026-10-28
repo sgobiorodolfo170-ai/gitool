@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { operationLabels } from "./lib/meta";
 import {
   AlertTriangle,
   ArrowDownToLine,
@@ -12,7 +11,6 @@ import {
 import type {
   AppSettings,
   AppView,
-  GitOperation,
   Project,
   ProjectAnalysis,
   RemoteProvider,
@@ -21,7 +19,7 @@ import type {
 import { isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 
 import { buildNavGroups, workspaceLabel } from "./lib/navigation";
-import { projectFromSnapshot, remoteProjectMatch } from "./lib/projectMatch";
+import { remoteProjectMatch } from "./lib/projectMatch";
 import {
   ACTIVE_WORKSPACE_KEY,
   LAST_IMPORT_DIRECTORY_KEY,
@@ -41,6 +39,7 @@ import { ModuleWorkspace } from "./components/ModuleWorkspace";
 import { useProjects } from "./hooks/useProjects";
 import { useAccounts } from "./hooks/useAccounts";
 import { useImportFlow } from "./hooks/useImportFlow";
+import { useGitOperations } from "./hooks/useGitOperations";
 import { useWorkspaces } from "./hooks/useWorkspaces";
 import { useEnvironment } from "./hooks/useEnvironment";
 import { useNotice } from "./hooks/useNotice";
@@ -56,10 +55,9 @@ function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
-  const [activeOperation, setActiveOperation] = useState<GitOperation | null>(null);
   const [operationOutput, setOperationOutput] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
   const [remoteRepositories, setRemoteRepositories] = useState<RemoteRepository[]>([]);
   const [remoteSyncTime, setRemoteSyncTime] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -194,6 +192,16 @@ function App() {
       setWorkspace("projects");
     },
   });
+
+  const { activeOperation, isAnalyzing, runGitOperation, runBulkGitOperation, analyzeProject } =
+    useGitOperations({
+      selectedProject,
+      getProjects,
+      updateProjects,
+      onNotice: showNotice,
+      setOperationOutput,
+      setAnalysis,
+    });
 
   // 跨域联动留在 App：新增账号后默认选中，删除账号后清掉它的仓库缓存
   const addAccount = async (input: { provider: RemoteProvider; token: string }) => {
@@ -592,95 +600,6 @@ function App() {
       return false;
     } finally {
       window.setTimeout(() => setNotice(null), 4000);
-    }
-  };
-
-  const runGitOperation = async (operation: GitOperation) => {
-    if (!selectedProject) return;
-    setOperationOutput(null);
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不会执行 Git 命令，请使用桌面版");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-
-    setActiveOperation(operation);
-    try {
-      const result = await requireDesktopBridge().runGitOperation(selectedProject.path, operation);
-      setOperationOutput(result.output);
-      if (result.snapshot) {
-        updateProjects((prev) =>
-          prev.map((project) =>
-            project.id === selectedProject.id
-              ? projectFromSnapshot(project, result.snapshot!)
-              : project,
-          ),
-        );
-      }
-      setNotice(
-        result.success ? `${operationLabels[operation]}完成` : `${operationLabels[operation]}失败`,
-      );
-    } catch (error) {
-      setOperationOutput(error instanceof Error ? error.message : "Git 操作失败，请查看日志");
-      setNotice(`${operationLabels[operation]}失败`);
-    } finally {
-      setActiveOperation(null);
-      window.setTimeout(() => setNotice(null), 3200);
-    }
-  };
-
-  const runBulkGitOperation = async (operation: GitOperation, ids: string[]) => {
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不会执行 Git 命令，请使用桌面版");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    const bridge = requireDesktopBridge();
-    let successCount = 0;
-    let failureCount = 0;
-    const updated: Project[] = [];
-    for (const project of projects) {
-      if (!ids.includes(project.id)) continue;
-      try {
-        const result = await bridge.runGitOperation(project.path, operation);
-        if (result.success) {
-          successCount += 1;
-          updated.push(result.snapshot ? projectFromSnapshot(project, result.snapshot!) : project);
-        } else {
-          failureCount += 1;
-          updated.push(project);
-        }
-      } catch {
-        failureCount += 1;
-        updated.push(project);
-      }
-    }
-    updateProjects((prev) =>
-      prev.map((project) => updated.find((item) => item.id === project.id) ?? project),
-    );
-    setNotice(`批量${operationLabels[operation]}完成：成功 ${successCount}，失败 ${failureCount}`);
-    window.setTimeout(() => setNotice(null), 4000);
-  };
-
-  const analyzeProject = async () => {
-    if (!selectedProject) return;
-    setAnalysis(null);
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不会扫描本地文件，请使用桌面版");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-
-    setIsAnalyzing(true);
-    try {
-      const result = await requireDesktopBridge().analyzeProject(selectedProject.path);
-      setAnalysis(result);
-      setNotice("项目结构分析完成");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "项目结构分析失败");
-    } finally {
-      setIsAnalyzing(false);
-      window.setTimeout(() => setNotice(null), 3200);
     }
   };
 
