@@ -6,7 +6,7 @@
   "type": "module",
   "description": "Windows Git repository workspace",
   "author": "gitool",
-  "main": "dist-electron/main.js",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "dev:web": "vite --mode web",

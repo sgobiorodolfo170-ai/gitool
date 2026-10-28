@@ -51,11 +51,19 @@ export default defineConfig(({ mode }) => {
                 entry: "electron/main/index.ts",
                 vite: {
                   build: {
+                    // 必须显式声明 CJS：vite-plugin-electron 会根据 package.json 的
+                    // "type": "module" 自动选 ESM，而 Electron 的 electron 模块在 ESM 下
+                    // 不支持具名导入，运行时抛 "does not provide an export named 'app'"。
+                    lib: {
+                      entry: "electron/main/index.ts",
+                      formats: ["cjs"],
+                      fileName: () => "main.cjs",
+                    },
                     rolldownOptions: {
                       external: ["electron", "@napi-rs/keyring", /^@napi-rs\/keyring-/],
                       output: {
-                        format: "es",
-                        entryFileNames: "main.js",
+                        format: "cjs",
+                        entryFileNames: "main.cjs",
                       },
                     },
                   },
@@ -84,6 +92,9 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 1420,
       strictPort: true,
+      // 显式绑 IPv4：Windows 上 localhost 默认解析到 ::1，
+      // 只监听 IPv6 会让 127.0.0.1 的访问（含部分调试工具）连不上。
+      host: "127.0.0.1",
     },
   };
 });

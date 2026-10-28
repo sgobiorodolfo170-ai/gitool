@@ -1,6 +1,5 @@
 import { BrowserWindow, Menu, Tray, app, nativeImage, shell } from "electron";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc.js";
 import { checkForUpdates, CHECK_INTERVAL_MS } from "./services/updater.js";
 
@@ -14,7 +13,8 @@ function notifyUpdateIfAvailable(window: BrowserWindow): void {
     .catch(() => {});
 }
 
-const currentDirectory = dirname(fileURLToPath(import.meta.url));
+// 主进程以 CJS 构建，直接用 __dirname（ESM 的 import.meta 在 CJS 下不可用）。
+const currentDirectory = __dirname;
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
 let tray: Tray | null = null;
