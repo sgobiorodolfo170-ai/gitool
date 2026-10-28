@@ -10,7 +10,6 @@ import {
   Loader2,
 } from "lucide-react";
 import type {
-  Account,
   AppSettings,
   AppView,
   GitOperation,
@@ -42,6 +41,7 @@ import { LogsWorkspace } from "./components/LogsWorkspace";
 import { SettingsWorkspace } from "./components/SettingsWorkspace";
 import { ModuleWorkspace } from "./components/ModuleWorkspace";
 import { useProjects } from "./hooks/useProjects";
+import { useAccounts } from "./hooks/useAccounts";
 import { useWorkspaces } from "./hooks/useWorkspaces";
 import { useEnvironment } from "./hooks/useEnvironment";
 import { useNotice } from "./hooks/useNotice";
@@ -62,8 +62,6 @@ function App() {
   const [operationOutput, setOperationOutput] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [accountBusyId, setAccountBusyId] = useState<string | null>(null);
   const [remoteRepositories, setRemoteRepositories] = useState<RemoteRepository[]>([]);
   const [remoteSyncTime, setRemoteSyncTime] = useState<string | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState("");
@@ -172,6 +170,37 @@ function App() {
     onProjectsLoaded: applyProjects,
     onResetView: resetView,
   });
+
+  const {
+    accounts,
+    accountBusyId,
+    setAccounts,
+    addAccount: addAccountRaw,
+    testAccount,
+    removeAccount,
+  } = useAccounts({ onNotice: showNotice });
+
+  // 跨域联动留在 App：新增账号后默认选中，删除账号后清掉它的仓库缓存
+  const addAccount = async (input: { provider: RemoteProvider; token: string }) => {
+    const account = await addAccountRaw(input);
+    if (!account) return false;
+    setSelectedAccountId((current) => current || account.id);
+    return true;
+  };
+
+  const deleteAccount = async (accountId: string) => {
+    if (!window.confirm("删除账号后，Gitool 将同时删除对应的本地凭据引用。继续吗？")) return;
+    const removed = await removeAccount(accountId);
+    if (!removed) return;
+    setRemoteRepositories((current) =>
+      current.filter((repository) => repository.accountId !== accountId),
+    );
+    setSelectedAccountId((current) => {
+      if (current !== accountId) return current;
+      const remaining = accounts.filter((account) => account.id !== accountId);
+      return remaining[0]?.id ?? "";
+    });
+  };
 
   useEffect(() => {
     if (!isDesktopRuntime()) return;
@@ -383,93 +412,6 @@ function App() {
         setNotice(error instanceof Error ? error.message : "平台关注操作失败");
         window.setTimeout(() => setNotice(null), 3000);
       }
-    }
-  };
-
-  const addAccount = async (input: { provider: RemoteProvider; token: string }) => {
-    if (!isDesktopRuntime()) {
-      setNotice("账号凭据管理需要使用 Windows 桌面版");
-      window.setTimeout(() => setNotice(null), 3000);
-      return false;
-    }
-
-    try {
-      const account = await requireDesktopBridge().createAccount({
-        provider: input.provider,
-        token: input.token,
-      });
-      setAccounts((current) => {
-        const without = current.filter(
-          (item) => !(item.provider === account.provider && item.username === account.username),
-        );
-        return [account, ...without];
-      });
-      setSelectedAccountId((current) => current || account.id);
-      setNotice(`账号「${account.username}」已保存`);
-      window.setTimeout(() => setNotice(null), 3000);
-      return true;
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "账号保存失败");
-      window.setTimeout(() => setNotice(null), 3000);
-      return false;
-    }
-  };
-
-  const testAccount = async (accountId: string) => {
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不会访问远程平台");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    setAccountBusyId(accountId);
-    try {
-      const result = await requireDesktopBridge().testAccount(accountId);
-      setAccounts((current) =>
-        current.map((account) =>
-          account.id === accountId
-            ? {
-                ...account,
-                status: result.success ? "active" : "invalid",
-                username: result.username ?? account.username,
-                scopes: result.scopes,
-                lastCheckedAt: new Date().toISOString(),
-              }
-            : account,
-        ),
-      );
-      setNotice(result.message);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "账号连接测试失败");
-    } finally {
-      setAccountBusyId(null);
-      window.setTimeout(() => setNotice(null), 3200);
-    }
-  };
-
-  const deleteAccount = async (accountId: string) => {
-    if (!window.confirm("删除账号后，Gitool 将同时删除对应的本地凭据引用。继续吗？")) return;
-    if (!isDesktopRuntime()) {
-      setAccounts((current) => current.filter((account) => account.id !== accountId));
-      return;
-    }
-    setAccountBusyId(accountId);
-    try {
-      await requireDesktopBridge().deleteAccount(accountId);
-      setAccounts((current) => current.filter((account) => account.id !== accountId));
-      setRemoteRepositories((current) =>
-        current.filter((repository) => repository.accountId !== accountId),
-      );
-      setSelectedAccountId((current) => {
-        if (current !== accountId) return current;
-        const remaining = accounts.filter((account) => account.id !== accountId);
-        return remaining[0]?.id ?? "";
-      });
-      setNotice("账号和对应凭据已删除");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "账号删除失败");
-    } finally {
-      setAccountBusyId(null);
-      window.setTimeout(() => setNotice(null), 3200);
     }
   };
 
