@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { operationLabels } from "./lib/meta";
 import {
   AlertTriangle,
@@ -17,7 +17,6 @@ import type {
   GitSnapshot,
   Project,
   ProjectAnalysis,
-  ProjectFilter,
   RemoteProvider,
   RemoteRepository,
   RepositoryDiscoveryItem,
@@ -43,11 +42,11 @@ import { BackupsWorkspace } from "./components/BackupsWorkspace";
 import { LogsWorkspace } from "./components/LogsWorkspace";
 import { SettingsWorkspace } from "./components/SettingsWorkspace";
 import { ModuleWorkspace } from "./components/ModuleWorkspace";
+import { useProjects } from "./hooks/useProjects";
 import { useEnvironment } from "./hooks/useEnvironment";
 import { useNotice } from "./hooks/useNotice";
 import { useUpdater } from "./hooks/useUpdater";
 
-import { loadProjects, saveProjects } from "./lib/projects";
 import {
   DEFAULT_WORKSPACE_ID,
   createWorkspace as createWorkspaceLocal,
@@ -55,24 +54,14 @@ import {
   listWorkspaces as listWorkspacesLocal,
   renameWorkspace as renameWorkspaceLocal,
 } from "./lib/workspaces";
+import { loadProjects } from "./lib/projects";
 
 function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
-  const [projects, setProjects] = useState<Project[]>([]);
-  // 项目列表的同步副本：updateProjects 需要在不等待 React 重渲染的情况下读到最新值，
-  // 否则连续两次更新会基于同一个旧快照计算。
-  const projectsRef = useRef<Project[]>([]);
-  // 串行保存队列：见 persistProjects 的注释。
-  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [workspaces, setWorkspaces] = useState<WorkspaceEntity[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
-  const [selectedId, setSelectedId] = useState("");
-  const [filter, setFilter] = useState<ProjectFilter>("all");
-  const [search, setSearch] = useState("");
-  const [tagFilter, setTagFilter] = useState("");
   const [isImporting, setIsImporting] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeOperation, setActiveOperation] = useState<GitOperation | null>(null);
   const [operationOutput, setOperationOutput] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
@@ -133,42 +122,36 @@ function App() {
     );
   };
 
-  /**
-   * 项目列表的唯一写入口：同时维护 ref 与 state，避免两者漂移。
-   */
-  const applyProjects = useCallback((next: Project[]) => {
-    projectsRef.current = next;
-    setProjects(next);
+  const clearDetail = useCallback(() => {
+    setOperationOutput(null);
+    setAnalysis(null);
   }, []);
 
-  /**
-   * 落库项目列表。
-   *
-   * 两个关键点：
-   * 1. 副作用不能写在 setState 的 updater 里——React 严格模式下 updater 可能被调用两次，
-   *    等于重复落库。
-   * 2. 必须串行：连续快速操作（如连点收藏）会并发触发保存，后发起的请求可能先返回，
-   *    旧快照会覆盖新快照。这里用 Promise 链保证落库顺序与内存顺序一致。
-   */
-  const persistProjects = useCallback((workspaceId: string, next: Project[]) => {
-    if (!isDesktopRuntime()) {
-      saveProjects(workspaceId, next);
-      return;
-    }
-    saveQueueRef.current = saveQueueRef.current
-      .catch(() => undefined)
-      .then(() => requireDesktopBridge().saveProjects(workspaceId, next))
-      .catch((error) => {
-        setNotice(error instanceof Error ? error.message : "项目数据保存失败");
-        window.setTimeout(() => setNotice(null), 4000);
-      });
-  }, []);
-
-  const updateProjects = (updater: (prev: Project[]) => Project[]) => {
-    const next = updater(projectsRef.current);
-    applyProjects(next);
-    persistProjects(activeWorkspaceId, next);
-  };
+  const {
+    projects,
+    selectedProject,
+    filteredProjects,
+    allTags,
+    filter,
+    search,
+    tagFilter,
+    isRefreshing,
+    setSelectedId,
+    setFilter,
+    setSearch,
+    setTagFilter,
+    applyProjects,
+    updateProjects,
+    toggleFavorite,
+    deleteProjectFromList,
+    refreshProjects,
+    moveProject,
+  } = useProjects({
+    activeWorkspaceId,
+    onNotice: showNotice,
+    onClearDetail: clearDetail,
+    defaultDirectoryHint,
+  });
 
   useEffect(() => {
     if (!isDesktopRuntime()) return;
@@ -244,29 +227,6 @@ function App() {
       cancelled = true;
     };
   }, []);
-
-  const selectedProject = projects.find((project) => project.id === selectedId) ?? projects[0];
-  const allTags = useMemo(
-    () => [...new Set(projects.flatMap((project) => project.tags))].sort(),
-    [projects],
-  );
-  const filteredProjects = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return projects.filter((project) => {
-      const matchesFilter =
-        filter === "all" ||
-        (filter === "favorite" && project.favorite) ||
-        (filter === "attention" &&
-          (project.status !== "clean" || project.tags.includes("watching")));
-      const matchesTag = !tagFilter || project.tags.includes(tagFilter);
-      const matchesSearch =
-        !query ||
-        `${project.name} ${project.path} ${project.summary} ${project.tags.join(" ")}`
-          .toLowerCase()
-          .includes(query);
-      return matchesFilter && matchesTag && matchesSearch;
-    });
-  }, [filter, projects, search, tagFilter]);
 
   const switchWorkspace = async (id: string) => {
     if (id === activeWorkspaceId) return;
@@ -352,19 +312,6 @@ function App() {
     setOperationOutput(null);
     setAnalysis(null);
     setWorkspace("projects");
-  };
-
-  const toggleFavorite = (projectId: string) => {
-    const target = projects.find((project) => project.id === projectId);
-    if (target && target.path === "" && target.favorite) {
-      updateProjects((prev) => prev.filter((project) => project.id !== projectId));
-      return;
-    }
-    updateProjects((prev) =>
-      prev.map((project) =>
-        project.id === projectId ? { ...project, favorite: !project.favorite } : project,
-      ),
-    );
   };
 
   const toggleRemoteFavorite = async (repository: RemoteRepository) => {
@@ -496,26 +443,6 @@ function App() {
         window.setTimeout(() => setNotice(null), 3000);
       }
     }
-  };
-
-  const deleteProjectFromList = (projectId: string) => {
-    const target = projects.find((project) => project.id === projectId);
-    if (!target) return;
-    const message =
-      target.path === ""
-        ? `确定移除「${target.alias || target.name}」？这是未克隆的远程收藏条目。`
-        : `确定从我的项目中移除「${target.alias || target.name}」？\n项目目录不会被删除，后续可重新导入。`;
-    if (!window.confirm(message)) return;
-    const wasSelected = selectedId === projectId;
-    updateProjects((prev) => {
-      const remaining = prev.filter((project) => project.id !== projectId);
-      if (wasSelected) setSelectedId(remaining[0]?.id ?? "");
-      return remaining;
-    });
-    setOperationOutput(null);
-    setAnalysis(null);
-    setNotice("已从我的项目移除");
-    window.setTimeout(() => setNotice(null), 3000);
   };
 
   const addAccount = async (input: { provider: RemoteProvider; token: string }) => {
@@ -914,61 +841,6 @@ function App() {
       setNotice("无法读取这个目录，请确认路径存在且可访问");
     } finally {
       setIsImporting(false);
-    }
-  };
-
-  const refreshProjects = async () => {
-    setIsRefreshing(true);
-    try {
-      if (!isDesktopRuntime()) {
-        setNotice("浏览器预览使用演示数据，桌面版会读取真实 Git 状态");
-        return;
-      }
-      const bridge = requireDesktopBridge();
-      const refreshed = await mapWithConcurrency(projects, 4, async (project) => {
-        try {
-          const snapshot = await bridge.getProjectSnapshot(project.path);
-          const disk = await bridge.getDiskSize(project.path).catch(() => 0);
-          return { ...projectFromSnapshot(project, snapshot), diskSizeBytes: disk };
-        } catch {
-          return project;
-        }
-      });
-      updateProjects(() => refreshed);
-      setNotice("项目状态已刷新");
-    } finally {
-      setIsRefreshing(false);
-      window.setTimeout(() => setNotice(null), 3000);
-    }
-  };
-
-  const moveProject = async (sourceProject: Project) => {
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不支持移动项目");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    if (!window.confirm("移动项目会复制整个目录（含 .git）到新位置，并更新本地记录。确定继续吗？"))
-      return;
-    const bridge = requireDesktopBridge();
-    const targetDirectory = await bridge.selectDirectory(defaultDirectoryHint());
-    if (!targetDirectory) return;
-    try {
-      const result = await bridge.moveProject({ sourcePath: sourceProject.path, targetDirectory });
-      if (result.success) {
-        updateProjects((prev) =>
-          prev.map((project) =>
-            project.id === sourceProject.id ? { ...project, path: result.targetPath } : project,
-          ),
-        );
-        setNotice("项目已移动，记录已更新");
-      } else {
-        setNotice(`移动失败：${result.output}`);
-      }
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "移动失败");
-    } finally {
-      window.setTimeout(() => setNotice(null), 4000);
     }
   };
 
@@ -1467,28 +1339,6 @@ function App() {
       )}
     </div>
   );
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let cursor = 0;
-  async function run(): Promise<void> {
-    while (true) {
-      const index = cursor;
-      cursor += 1;
-      if (index >= items.length) {
-        return;
-      }
-      results[index] = await worker(items[index]);
-    }
-  }
-  const runners = Array.from({ length: Math.min(limit, items.length) }, () => run());
-  await Promise.all(runners);
-  return results;
 }
 
 export default App;
