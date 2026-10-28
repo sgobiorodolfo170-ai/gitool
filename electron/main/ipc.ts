@@ -1,36 +1,8 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
-  AiSummaryRequest,
-  AppSettings,
-  BackupCreateInput,
-  BackupRestoreInput,
-  CloneRepositoryInput,
   CloneRepositoryResult,
-  CommitRequest,
   CommitResult,
-  CompareRequest,
-  CreateAccountInput,
-  CreateBranchInput,
-  CreateTagInput,
-  CreateWorkspaceInput,
-  DeleteBranchInput,
-  FileDiffRequest,
-  GitOperation,
   GitOperationResult,
-  InitRepositoryInput,
-  MoveProjectInput,
-  OpenEditorInput,
-  OperationRecord,
-  Project,
-  RemoteRepositoryWriteInput,
-  RemoteRepositorySearchInput,
-  RepositoryInteractionInput,
-  RenameWorkspaceInput,
-  RevertCommitInput,
-  SetRemoteUrlInput,
-  SwitchBranchInput,
-  TaskProfile,
-  TaskRun,
   UpdateProgress,
 } from "../../shared/types";
 import { analyzeProject } from "./services/analysis";
@@ -113,6 +85,37 @@ import {
   installUpdate,
   isTrustedInstallerPath,
 } from "./services/updater";
+import {
+  aiSummaryRequestSchema,
+  appSettingsSchema,
+  backupCreateInputSchema,
+  backupRestoreInputSchema,
+  cloneRepositoryInputSchema,
+  commitRequestSchema,
+  compareRequestSchema,
+  createAccountInputSchema,
+  createBranchInputSchema,
+  createTagInputSchema,
+  createWorkspaceInputSchema,
+  deleteBranchInputSchema,
+  fileDiffRequestSchema,
+  gitOperationSchema,
+  initRepositoryInputSchema,
+  moveProjectInputSchema,
+  openEditorInputSchema,
+  operationRecordSchema,
+  parseOrThrow,
+  projectsSchema,
+  remoteRepositorySearchInputSchema,
+  remoteRepositoryWriteInputSchema,
+  renameWorkspaceInputSchema,
+  repositoryInteractionInputSchema,
+  revertCommitInputSchema,
+  setRemoteUrlInputSchema,
+  switchBranchInputSchema,
+  taskProfileSchema,
+  taskRunSchema,
+} from "./ipc/schemas";
 
 let cachedDownloadUrl = "";
 
@@ -155,7 +158,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("shell:openEditor", (_event, input: unknown) => {
-    const editorInput = requireOpenEditorInput(input);
+    const editorInput = parseOrThrow(openEditorInputSchema, input, "编辑器参数");
     return openInEditor(editorInput.path, editorInput.editor, editorInput.newWindow);
   });
   ipcMain.handle("shell:openTerminal", (_event, projectPath: unknown) =>
@@ -181,22 +184,22 @@ export function registerIpcHandlers(): void {
     readProjectReadme(requireString(projectPath, "项目路径")),
   );
   ipcMain.handle("projects:init", (_event, input: unknown) =>
-    initRepository(requireInitRepositoryInput(input)),
+    initRepository(parseOrThrow(initRepositoryInputSchema, input, "初始化仓库参数")),
   );
   ipcMain.handle("projects:scanDirectory", (_event, directory: unknown) =>
     scanDirectoryForRepositories(requireString(directory, "目录")),
   );
   ipcMain.handle("projects:fileDiff", (_event, input: unknown) =>
-    getFileDiff(requireFileDiffRequest(input)),
+    getFileDiff(parseOrThrow(fileDiffRequestSchema, input, "差异查看参数")),
   );
   ipcMain.handle("projects:setRemoteUrl", (_event, input: unknown) =>
-    setRemoteUrl(requireSetRemoteUrlInput(input)),
+    setRemoteUrl(parseOrThrow(setRemoteUrlInputSchema, input, "远程地址参数")),
   );
   ipcMain.handle("git:tags", (_event, projectPath: unknown) =>
     listTags(requireString(projectPath, "项目路径")),
   );
   ipcMain.handle("git:createTag", (_event, input: unknown) =>
-    createTag(requireCreateTagInput(input)),
+    createTag(parseOrThrow(createTagInputSchema, input, "创建标签参数")),
   );
   ipcMain.handle("git:deleteTag", (_event, projectPath: unknown, name: unknown) =>
     deleteTag(requireString(projectPath, "项目路径"), requireString(name, "标签名")),
@@ -205,7 +208,7 @@ export function registerIpcHandlers(): void {
     listVersions(requireString(projectPath, "项目路径")),
   );
   ipcMain.handle("git:compareVersions", (_event, input: unknown) =>
-    compareVersions(requireCompareRequest(input)),
+    compareVersions(parseOrThrow(compareRequestSchema, input, "版本对比参数")),
   );
   ipcMain.handle("projects:gitOperation", (_event, projectPath: unknown, operation: unknown) =>
     recordGitOperation(projectPath, operation),
@@ -225,33 +228,36 @@ export function registerIpcHandlers(): void {
     listBranches(requireString(projectPath, "项目路径")),
   );
   ipcMain.handle("git:createBranch", (_event, input: unknown) =>
-    createBranch(requireCreateBranchInput(input)),
+    createBranch(parseOrThrow(createBranchInputSchema, input, "创建分支参数")),
   );
   ipcMain.handle("git:switchBranch", (_event, input: unknown) =>
-    switchBranch(requireSwitchBranchInput(input)),
+    switchBranch(parseOrThrow(switchBranchInputSchema, input, "切换分支参数")),
   );
   ipcMain.handle("git:deleteBranch", (_event, input: unknown) =>
-    deleteBranch(requireDeleteBranchInput(input)),
+    deleteBranch(parseOrThrow(deleteBranchInputSchema, input, "删除分支参数")),
   );
   ipcMain.handle("git:history", (_event, projectPath: unknown) =>
     listCommitHistory(requireString(projectPath, "项目路径")),
   );
   ipcMain.handle("git:revert", (_event, input: unknown) =>
-    revertCommit(requireRevertCommitInput(input)),
+    revertCommit(parseOrThrow(revertCommitInputSchema, input, "回退提交参数")),
   );
   ipcMain.handle("projects:load", (_event, workspaceId: unknown) =>
     loadProjects(requireString(workspaceId, "工作区 ID")),
   );
   ipcMain.handle("projects:save", (_event, workspaceId: unknown, projects: unknown) =>
-    saveProjects(requireString(workspaceId, "工作区 ID"), requireProjects(projects)),
+    saveProjects(
+      requireString(workspaceId, "工作区 ID"),
+      parseOrThrow(projectsSchema, projects, "项目数据"),
+    ),
   );
 
   ipcMain.handle("workspaces:list", () => listWorkspaces());
   ipcMain.handle("workspaces:create", (_event, input: unknown) =>
-    createWorkspace(requireCreateWorkspaceInput(input)),
+    createWorkspace(parseOrThrow(createWorkspaceInputSchema, input, "工作区数据")),
   );
   ipcMain.handle("workspaces:rename", (_event, input: unknown) =>
-    renameWorkspace(requireRenameWorkspaceInput(input)),
+    renameWorkspace(parseOrThrow(renameWorkspaceInputSchema, input, "工作区数据")),
   );
   ipcMain.handle("workspaces:delete", (_event, id: unknown) =>
     deleteWorkspace(requireString(id, "工作区 ID")),
@@ -259,7 +265,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle("accounts:load", () => loadAccounts());
   ipcMain.handle("accounts:create", async (_event, input: unknown) => {
-    const { provider, token } = requireCreateAccountInput(input);
+    const { provider, token } = parseOrThrow(createAccountInputSchema, input, "账号数据");
     const trimmed = token.trim();
     const { username } = await resolveTokenUser(provider, trimmed);
     return upsertAccount(provider, username, trimmed);
@@ -282,10 +288,10 @@ export function registerIpcHandlers(): void {
     getRemoteRepositoryCacheMeta(requireString(accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:create", (_event, input: unknown) =>
-    createRemoteRepository(requireRemoteRepositoryWriteInput(input)),
+    createRemoteRepository(parseOrThrow(remoteRepositoryWriteInputSchema, input, "远程仓库参数")),
   );
   ipcMain.handle("remoteRepositories:update", (_event, input: unknown) =>
-    updateRemoteRepository(requireRemoteRepositoryWriteInput(input)),
+    updateRemoteRepository(parseOrThrow(remoteRepositoryWriteInputSchema, input, "远程仓库参数")),
   );
   ipcMain.handle("remoteRepositories:delete", (_event, accountId: unknown, repositoryId: unknown) =>
     deleteRemoteRepository(
@@ -294,17 +300,25 @@ export function registerIpcHandlers(): void {
     ),
   );
   ipcMain.handle("remoteRepositories:search", (_event, input: unknown) => {
-    const { provider, query, accountId } = requireRemoteRepositorySearchInput(input);
+    const { provider, query, accountId } = parseOrThrow(
+      remoteRepositorySearchInputSchema,
+      input,
+      "搜索参数",
+    );
     return searchRemoteRepositories(provider, query, accountId);
   });
   ipcMain.handle("remoteRepositories:interact", (_event, input: unknown) => {
-    const { accountId, owner, name, action } = requireRepositoryInteractionInput(input);
+    const { accountId, owner, name, action } = parseOrThrow(
+      repositoryInteractionInputSchema,
+      input,
+      "交互参数",
+    );
     return toggleRepositoryInteraction(accountId, owner, name, action);
   });
 
   ipcMain.handle("tasks:listProfiles", () => listTaskProfiles());
   ipcMain.handle("tasks:saveProfile", (_event, input: unknown) =>
-    saveTaskProfile(requireTaskProfile(input)),
+    saveTaskProfile(parseOrThrow(taskProfileSchema, input, "任务配置")),
   );
   ipcMain.handle("tasks:deleteProfile", (_event, id: unknown) =>
     deleteTaskProfile(requireString(id, "任务 ID")),
@@ -322,16 +336,16 @@ export function registerIpcHandlers(): void {
     getRunningTaskOutput(requireString(runId, "运行 ID")),
   );
   ipcMain.handle("tasks:updateRun", (_event, run: unknown) => {
-    const validated = requireTaskRun(run);
+    const validated = parseOrThrow(taskRunSchema, run, "任务运行记录");
     updateTaskRun(validated);
   });
 
   ipcMain.handle("backups:list", () => listBackups());
   ipcMain.handle("backups:create", (_event, input: unknown) =>
-    createBackup(requireBackupCreateInput(input)),
+    createBackup(parseOrThrow(backupCreateInputSchema, input, "备份参数")),
   );
   ipcMain.handle("backups:restore", (_event, input: unknown) =>
-    restoreBackup(requireBackupRestoreInput(input)),
+    restoreBackup(parseOrThrow(backupRestoreInputSchema, input, "恢复参数")),
   );
 
   ipcMain.handle("operations:list", () => listOperationRecords());
@@ -340,18 +354,18 @@ export function registerIpcHandlers(): void {
     exportOperationRecords(requireString(directory, "导出目录")),
   );
   ipcMain.handle("operations:record", (_event, record: unknown) => {
-    insertOperationRecord(requireOperationRecord(record));
+    insertOperationRecord(parseOrThrow(operationRecordSchema, record, "操作记录"));
   });
 
   ipcMain.handle("settings:load", () => loadSettings());
   ipcMain.handle("settings:save", (_event, settings: unknown) => {
-    saveSettings(requireAppSettings(settings));
+    saveSettings(parseOrThrow(appSettingsSchema, settings, "设置数据"));
   });
   ipcMain.handle("projects:move", (_event, input: unknown) =>
-    moveProject(requireMoveProjectInput(input)),
+    moveProject(parseOrThrow(moveProjectInputSchema, input, "移动项目参数")),
   );
   ipcMain.handle("ai:generateSummary", (_event, input: unknown) =>
-    generateAiSummary(requireAiSummaryRequest(input)),
+    generateAiSummary(parseOrThrow(aiSummaryRequestSchema, input, "AI 摘要参数")),
   );
   ipcMain.handle("ai:saveKey", (_event, secret: unknown) => {
     saveAiApiKey(requireString(secret, "AI API Key"));
@@ -394,21 +408,21 @@ async function recordGitOperation(
   operation: unknown,
 ): Promise<GitOperationResult> {
   const path = requireString(projectPath, "项目路径");
-  const op = requireGitOperation(operation);
+  const op = parseOrThrow(gitOperationSchema, operation, "Git 操作");
   const result = await runGitOperation(path, op);
   recordOperation(op, path, result.output, result.success ? "ok" : "failed");
   return result;
 }
 
 async function recordClone(input: unknown): Promise<CloneRepositoryResult> {
-  const validated = requireCloneRepositoryInput(input);
+  const validated = parseOrThrow(cloneRepositoryInputSchema, input, "克隆参数");
   const result = await cloneRepository(validated);
   recordOperation("clone", validated.targetPath, result.output, result.success ? "ok" : "failed");
   return result;
 }
 
 async function recordCommit(input: unknown): Promise<CommitResult> {
-  const validated = requireCommitRequest(input);
+  const validated = parseOrThrow(commitRequestSchema, input, "提交参数");
   const result = await commitChanges(validated);
   recordOperation("commit", validated.path, result.output, result.success ? "ok" : "failed");
   return result;
@@ -435,131 +449,6 @@ function recordOperation(
   }
 }
 
-function requireAppSettings(value: unknown): AppSettings {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("设置数据格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    gitPath: typeof candidate.gitPath === "string" ? candidate.gitPath : "",
-    defaultProjectDirectory:
-      typeof candidate.defaultProjectDirectory === "string"
-        ? candidate.defaultProjectDirectory
-        : "",
-    defaultBackupDirectory:
-      typeof candidate.defaultBackupDirectory === "string" ? candidate.defaultBackupDirectory : "",
-    backupExcludePatterns:
-      typeof candidate.backupExcludePatterns === "string" ? candidate.backupExcludePatterns : "",
-    defaultSearchAccountId:
-      typeof candidate.defaultSearchAccountId === "string" ? candidate.defaultSearchAccountId : "",
-    aiApiKeyConfigured: candidate.aiApiKeyConfigured === true,
-    aiModel: typeof candidate.aiModel === "string" ? candidate.aiModel : "",
-    aiBaseUrl: typeof candidate.aiBaseUrl === "string" ? candidate.aiBaseUrl : "",
-  };
-}
-
-function requireAiSummaryRequest(value: unknown): AiSummaryRequest {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("AI 摘要参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    projectName: requireString(candidate.projectName, "项目名称"),
-    context: typeof candidate.context === "string" ? candidate.context : "",
-  };
-}
-
-function requireMoveProjectInput(value: unknown): MoveProjectInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("移动项目参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    sourcePath: requireString(candidate.sourcePath, "源路径"),
-    targetDirectory: requireString(candidate.targetDirectory, "目标目录"),
-  };
-}
-
-function requireInitRepositoryInput(value: unknown): InitRepositoryInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("初始化仓库参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "初始化路径"),
-    defaultBranch:
-      typeof candidate.defaultBranch === "string" && candidate.defaultBranch.trim().length > 0
-        ? candidate.defaultBranch.trim()
-        : undefined,
-  };
-}
-
-function requireFileDiffRequest(value: unknown): FileDiffRequest {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("差异查看参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    file: requireString(candidate.file, "文件路径"),
-  };
-}
-
-function requireSetRemoteUrlInput(value: unknown): SetRemoteUrlInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("远程地址参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    url: requireString(candidate.url, "远程地址"),
-    remote:
-      typeof candidate.remote === "string" && candidate.remote.trim().length > 0
-        ? candidate.remote.trim()
-        : undefined,
-  };
-}
-
-function requireCreateTagInput(value: unknown): CreateTagInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("创建标签参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    name: requireString(candidate.name, "标签名"),
-    message: typeof candidate.message === "string" ? candidate.message : undefined,
-  };
-}
-
-function requireCompareRequest(value: unknown): CompareRequest {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("版本对比参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    base: requireString(candidate.base, "基线版本"),
-    head: requireString(candidate.head, "目标版本"),
-  };
-}
-
-function requireOpenEditorInput(value: unknown): OpenEditorInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("编辑器参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  const editor = candidate.editor;
-  if (editor !== "vscode" && editor !== "cursor") {
-    throw new Error("不支持的编辑器类型");
-  }
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    editor,
-    newWindow: candidate.newWindow === true,
-  };
-}
-
 function requireString(value: unknown, label: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`${label}不能为空`);
@@ -567,355 +456,9 @@ function requireString(value: unknown, label: string): string {
   return value;
 }
 
-function requireTaskProfile(value: unknown): TaskProfile {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("任务配置格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  const taskType = candidate.taskType;
-  // 必须与 shared/types.ts 的 TaskType 完全一致：曾漏掉 deploy，
-  // 导致自动检测出的部署命令（Dockerfile / deploy 脚本）一律保存失败。
-  if (
-    taskType !== "build" &&
-    taskType !== "run" &&
-    taskType !== "package" &&
-    taskType !== "deploy"
-  ) {
-    throw new Error("任务类型无效");
-  }
-  return {
-    id: requireString(candidate.id, "任务 ID"),
-    projectId: requireString(candidate.projectId, "项目 ID"),
-    projectPath: requireString(candidate.projectPath, "任务工作目录"),
-    taskType,
-    name: requireString(candidate.name, "任务名称"),
-    command: requireString(candidate.command, "命令"),
-    args: typeof candidate.args === "string" ? candidate.args : "",
-    workingDirectory: requireString(candidate.workingDirectory, "任务工作目录"),
-    timeoutSeconds: typeof candidate.timeoutSeconds === "number" ? candidate.timeoutSeconds : 0,
-    createdAt: requireString(candidate.createdAt, "创建时间"),
-  };
-}
-
-function requireTaskRun(value: unknown): TaskRun {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("任务运行记录格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  const status = candidate.status;
-  if (
-    status !== "running" &&
-    status !== "succeeded" &&
-    status !== "failed" &&
-    status !== "stopped" &&
-    status !== "timedout"
-  ) {
-    throw new Error("任务状态无效");
-  }
-  return {
-    id: requireString(candidate.id, "运行 ID"),
-    profileId: typeof candidate.profileId === "string" ? candidate.profileId : "",
-    projectId: typeof candidate.projectId === "string" ? candidate.projectId : "",
-    name: typeof candidate.name === "string" ? candidate.name : "",
-    command: typeof candidate.command === "string" ? candidate.command : "",
-    startedAt: requireString(candidate.startedAt, "开始时间"),
-    finishedAt: typeof candidate.finishedAt === "string" ? candidate.finishedAt : undefined,
-    status: status as TaskRun["status"],
-    exitCode: typeof candidate.exitCode === "number" ? candidate.exitCode : undefined,
-    output: typeof candidate.output === "string" ? candidate.output : "",
-  };
-}
-
-function requireBackupCreateInput(value: unknown): BackupCreateInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("备份参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    projectId: requireString(candidate.projectId, "项目 ID"),
-    projectName: requireString(candidate.projectName, "项目名称"),
-    sourcePath: requireString(candidate.sourcePath, "源路径"),
-    targetDirectory: requireString(candidate.targetDirectory, "备份目录"),
-  };
-}
-
-function requireBackupRestoreInput(value: unknown): BackupRestoreInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("恢复参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    archivePath: requireString(candidate.archivePath, "备份文件"),
-    targetDirectory: requireString(candidate.targetDirectory, "恢复目录"),
-  };
-}
-
-function requireOperationRecord(value: unknown): OperationRecord {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("操作记录格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    id: requireString(candidate.id, "记录 ID"),
-    operation: requireString(candidate.operation, "操作类型"),
-    projectId: typeof candidate.projectId === "string" ? candidate.projectId : "",
-    projectPath: typeof candidate.projectPath === "string" ? candidate.projectPath : "",
-    detail: typeof candidate.detail === "string" ? candidate.detail : "",
-    result: candidate.result === "ok" || candidate.result === "failed" ? candidate.result : "ok",
-    createdAt: requireString(candidate.createdAt, "记录时间"),
-  };
-}
-
-function requireGitOperation(value: unknown): GitOperation {
-  if (value === "fetch" || value === "pull" || value === "push" || value === "sync") {
-    return value;
-  }
-  throw new Error("不支持的 Git 操作");
-}
-
-function requireProjects(value: unknown): Project[] {
-  if (!Array.isArray(value)) {
-    throw new Error("项目数据格式不正确");
-  }
-  return value.map((item, index) => requireProject(item, index));
-}
-
-function requireProject(value: unknown, index: number): Project {
-  if (typeof value !== "object" || value === null) {
-    throw new Error(`第 ${index + 1} 个项目数据格式不正确`);
-  }
-  const candidate = value as Record<string, unknown>;
-  const provider = candidate.provider;
-  if (
-    provider !== "local" &&
-    provider !== "github" &&
-    provider !== "gitee" &&
-    provider !== "gitlab"
-  ) {
-    throw new Error(`第 ${index + 1} 个项目的平台无效`);
-  }
-
-  return {
-    id: requireString(candidate.id, "项目 ID"),
-    name: requireString(candidate.name, "项目名称"),
-    path: requireString(candidate.path, "项目路径"),
-    provider,
-    branch: typeof candidate.branch === "string" ? candidate.branch : "",
-    status: requireProjectStatus(candidate.status),
-    commit: typeof candidate.commit === "string" ? candidate.commit : "",
-    favorite: candidate.favorite === true,
-    tags: Array.isArray(candidate.tags)
-      ? candidate.tags.filter((tag): tag is string => typeof tag === "string")
-      : [],
-    remote: typeof candidate.remote === "string" ? candidate.remote : undefined,
-    files: typeof candidate.files === "number" ? candidate.files : 0,
-    syncLabel: typeof candidate.syncLabel === "string" ? candidate.syncLabel : "",
-    language: typeof candidate.language === "string" ? candidate.language : "",
-    languageColor:
-      typeof candidate.languageColor === "string" ? candidate.languageColor : "#8b97a8",
-    summary: typeof candidate.summary === "string" ? candidate.summary : "",
-    updatedAt: typeof candidate.updatedAt === "string" ? candidate.updatedAt : "",
-    diskSizeBytes: typeof candidate.diskSizeBytes === "number" ? candidate.diskSizeBytes : 0,
-    alias:
-      typeof candidate.alias === "string" && candidate.alias.trim().length > 0
-        ? candidate.alias.trim()
-        : undefined,
-    webUrl:
-      typeof candidate.webUrl === "string" && candidate.webUrl.trim().length > 0
-        ? candidate.webUrl.trim()
-        : undefined,
-  };
-}
-
-function requireProjectStatus(value: unknown): Project["status"] {
-  if (
-    value === "clean" ||
-    value === "dirty" ||
-    value === "ahead" ||
-    value === "behind" ||
-    value === "conflicted"
-  ) {
-    return value;
-  }
-  return "clean";
-}
-
-function requireCreateWorkspaceInput(value: unknown): CreateWorkspaceInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("工作区数据格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    name: requireString(candidate.name, "工作区名称"),
-  };
-}
-
-function requireRenameWorkspaceInput(value: unknown): RenameWorkspaceInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("工作区数据格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    id: requireString(candidate.id, "工作区 ID"),
-    name: requireString(candidate.name, "工作区名称"),
-  };
-}
-
-function requireCreateAccountInput(value: unknown): CreateAccountInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("账号数据格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  const provider = candidate.provider;
-  if (provider !== "github" && provider !== "gitee" && provider !== "gitlab") {
-    throw new Error("不支持的远程平台");
-  }
-  return {
-    provider,
-    token: requireString(candidate.token, "令牌"),
-  };
-}
-
-function requireCloneRepositoryInput(value: unknown): CloneRepositoryInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("克隆参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  const accountId = candidate.accountId;
-  if (typeof accountId !== "undefined" && typeof accountId !== "string") {
-    throw new Error("账号标识格式不正确");
-  }
-  return {
-    url: requireString(candidate.url, "克隆地址"),
-    targetPath: requireString(candidate.targetPath, "克隆目标目录"),
-    accountId: accountId === "" ? undefined : accountId,
-  };
-}
-
 function requireStringArray(value: unknown): string[] {
   if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
     throw new Error("文件列表格式不正确");
   }
   return value;
-}
-
-function requireCommitRequest(value: unknown): CommitRequest {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("提交参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    message: requireString(candidate.message, "提交信息"),
-  };
-}
-
-function requireCreateBranchInput(value: unknown): CreateBranchInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("创建分支参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    name: requireString(candidate.name, "分支名"),
-  };
-}
-
-function requireSwitchBranchInput(value: unknown): SwitchBranchInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("切换分支参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    name: requireString(candidate.name, "分支名"),
-  };
-}
-
-function requireDeleteBranchInput(value: unknown): DeleteBranchInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("删除分支参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    name: requireString(candidate.name, "分支名"),
-  };
-}
-
-function requireRevertCommitInput(value: unknown): RevertCommitInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("回退提交参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  return {
-    path: requireString(candidate.path, "项目路径"),
-    hash: requireString(candidate.hash, "提交哈希"),
-  };
-}
-
-function requireRemoteRepositorySearchInput(value: unknown): RemoteRepositorySearchInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("搜索参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  const provider = candidate.provider;
-  if (provider !== "github" && provider !== "gitee") {
-    throw new Error("仅支持搜索 GitHub 与 Gitee 平台");
-  }
-  const accountId = candidate.accountId;
-  if (typeof accountId !== "undefined" && typeof accountId !== "string") {
-    throw new Error("账号标识格式不正确");
-  }
-  return {
-    provider,
-    query: requireString(candidate.query, "搜索关键词"),
-    accountId: typeof accountId === "string" && accountId.length > 0 ? accountId : undefined,
-  };
-}
-
-function requireRepositoryInteractionInput(value: unknown): RepositoryInteractionInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("交互参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  const action = candidate.action;
-  if (action !== "star" && action !== "unstar" && action !== "watch" && action !== "unwatch") {
-    throw new Error("不支持的操作类型");
-  }
-  return {
-    accountId: requireString(candidate.accountId, "账号 ID"),
-    owner: requireString(candidate.owner, "仓库所有者"),
-    name: requireString(candidate.name, "仓库名称"),
-    action,
-  };
-}
-
-function requireRemoteRepositoryWriteInput(value: unknown): RemoteRepositoryWriteInput {
-  if (typeof value !== "object" || value === null) {
-    throw new Error("远程仓库参数格式不正确");
-  }
-  const candidate = value as Record<string, unknown>;
-  const visibility = candidate.visibility;
-  if (
-    visibility !== "" &&
-    visibility !== "public" &&
-    visibility !== "private" &&
-    visibility !== "internal"
-  ) {
-    throw new Error("可见性必须为 public、private 或 internal");
-  }
-  const repositoryId = candidate.repositoryId;
-  if (typeof repositoryId !== "undefined" && typeof repositoryId !== "string") {
-    throw new Error("仓库标识格式不正确");
-  }
-  return {
-    accountId: requireString(candidate.accountId, "账号 ID"),
-    repositoryId:
-      typeof repositoryId === "string" && repositoryId.length > 0 ? repositoryId : undefined,
-    name: requireString(candidate.name, "仓库名称"),
-    description: typeof candidate.description === "string" ? candidate.description : "",
-    visibility: visibility as RemoteRepositoryWriteInput["visibility"],
-    init: candidate.init === true,
-  };
 }
