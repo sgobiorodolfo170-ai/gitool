@@ -20,7 +20,6 @@ import type {
   RemoteProvider,
   RemoteRepository,
   RepositoryDiscoveryItem,
-  WorkspaceEntity,
 } from "./types";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 
@@ -43,22 +42,19 @@ import { LogsWorkspace } from "./components/LogsWorkspace";
 import { SettingsWorkspace } from "./components/SettingsWorkspace";
 import { ModuleWorkspace } from "./components/ModuleWorkspace";
 import { useProjects } from "./hooks/useProjects";
+import { useWorkspaces } from "./hooks/useWorkspaces";
 import { useEnvironment } from "./hooks/useEnvironment";
 import { useNotice } from "./hooks/useNotice";
 import { useUpdater } from "./hooks/useUpdater";
 
 import {
   DEFAULT_WORKSPACE_ID,
-  createWorkspace as createWorkspaceLocal,
-  deleteWorkspace as deleteWorkspaceLocal,
   listWorkspaces as listWorkspacesLocal,
-  renameWorkspace as renameWorkspaceLocal,
 } from "./lib/workspaces";
 import { loadProjects } from "./lib/projects";
 
 function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
-  const [workspaces, setWorkspaces] = useState<WorkspaceEntity[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -153,6 +149,30 @@ function App() {
     defaultDirectoryHint,
   });
 
+  const resetView = useCallback(() => {
+    setSelectedId("");
+    setFilter("all");
+    setSearch("");
+    setTagFilter("");
+    clearDetail();
+    setWorkspace("overview");
+  }, [clearDetail]);
+
+  const {
+    workspaces,
+    setWorkspaces,
+    switchWorkspace,
+    createWorkspace,
+    renameWorkspace,
+    deleteWorkspace,
+  } = useWorkspaces({
+    activeWorkspaceId,
+    setActiveWorkspaceId,
+    onNotice: showNotice,
+    onProjectsLoaded: applyProjects,
+    onResetView: resetView,
+  });
+
   useEffect(() => {
     if (!isDesktopRuntime()) return;
     const unsubscribe = requireDesktopBridge().onCloneProgress((event) => {
@@ -227,85 +247,6 @@ function App() {
       cancelled = true;
     };
   }, []);
-
-  const switchWorkspace = async (id: string) => {
-    if (id === activeWorkspaceId) return;
-    setActiveWorkspaceId(id);
-    window.localStorage.setItem(ACTIVE_WORKSPACE_KEY, id);
-    try {
-      const stored = isDesktopRuntime()
-        ? await requireDesktopBridge().loadProjects(id)
-        : loadProjects(id);
-      applyProjects(stored);
-    } catch {
-      applyProjects([]);
-    }
-    setSelectedId("");
-    setFilter("all");
-    setSearch("");
-    setTagFilter("");
-    setOperationOutput(null);
-    setAnalysis(null);
-    setWorkspace("overview");
-  };
-
-  const createWorkspace = async (name: string) => {
-    try {
-      const created = isDesktopRuntime()
-        ? await requireDesktopBridge().createWorkspace({ name })
-        : createWorkspaceLocal({ name });
-      setWorkspaces((current) => [...current, created]);
-      setNotice(`工作区「${created.name}」已创建`);
-      window.setTimeout(() => setNotice(null), 3000);
-      return created;
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "创建工作区失败");
-      window.setTimeout(() => setNotice(null), 3000);
-      return null;
-    }
-  };
-
-  const renameWorkspace = async (id: string, name: string) => {
-    try {
-      if (isDesktopRuntime()) {
-        await requireDesktopBridge().renameWorkspace({ id, name });
-      } else {
-        renameWorkspaceLocal({ id, name });
-      }
-      setWorkspaces((current) =>
-        current.map((item) =>
-          item.id === id ? { ...item, name, updatedAt: new Date().toISOString() } : item,
-        ),
-      );
-      setNotice("工作区已重命名");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "重命名失败");
-    } finally {
-      window.setTimeout(() => setNotice(null), 3000);
-    }
-  };
-
-  const deleteWorkspace = async (id: string) => {
-    try {
-      if (isDesktopRuntime()) {
-        await requireDesktopBridge().deleteWorkspace(id);
-      } else {
-        deleteWorkspaceLocal(id);
-      }
-      setWorkspaces((current) => current.filter((item) => item.id !== id));
-      if (activeWorkspaceId === id) {
-        const remaining = workspaces.find((item) => item.id !== id);
-        if (remaining) {
-          void switchWorkspace(remaining.id);
-        }
-      }
-      setNotice("工作区已删除");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "删除失败");
-    } finally {
-      window.setTimeout(() => setNotice(null), 3000);
-    }
-  };
 
   const openProjectDetail = (id: string) => {
     setSelectedId(id);
