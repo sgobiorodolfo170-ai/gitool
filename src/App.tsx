@@ -13,14 +13,12 @@ import type {
   AppSettings,
   AppView,
   GitOperation,
-  GitSnapshot,
   Project,
   ProjectAnalysis,
   RemoteProvider,
   RemoteRepository,
-  RepositoryDiscoveryItem,
 } from "./types";
-import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
+import { isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 
 import { buildNavGroups, workspaceLabel } from "./lib/navigation";
 import { projectFromSnapshot, remoteProjectMatch } from "./lib/projectMatch";
@@ -42,6 +40,7 @@ import { SettingsWorkspace } from "./components/SettingsWorkspace";
 import { ModuleWorkspace } from "./components/ModuleWorkspace";
 import { useProjects } from "./hooks/useProjects";
 import { useAccounts } from "./hooks/useAccounts";
+import { useImportFlow } from "./hooks/useImportFlow";
 import { useWorkspaces } from "./hooks/useWorkspaces";
 import { useEnvironment } from "./hooks/useEnvironment";
 import { useNotice } from "./hooks/useNotice";
@@ -57,7 +56,6 @@ function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
   const [activeOperation, setActiveOperation] = useState<GitOperation | null>(null);
   const [operationOutput, setOperationOutput] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
@@ -136,6 +134,7 @@ function App() {
     setTagFilter,
     applyProjects,
     updateProjects,
+    getProjects,
     toggleFavorite,
     deleteProjectFromList,
     refreshProjects,
@@ -179,6 +178,22 @@ function App() {
     testAccount,
     removeAccount,
   } = useAccounts({ onNotice: showNotice });
+
+  const {
+    isImporting,
+    importProject,
+    initNewRepository,
+    scanDirectoryForImport,
+  } = useImportFlow({
+    onNotice: showNotice,
+    defaultDirectoryHint,
+    getProjects,
+    addProjects: (items) => updateProjects((prev) => [...items, ...prev]),
+    onImported: (projectId) => {
+      setSelectedId(projectId);
+      setWorkspace("projects");
+    },
+  });
 
   // 跨域联动留在 App：新增账号后默认选中，删除账号后清掉它的仓库缓存
   const addAccount = async (input: { provider: RemoteProvider; token: string }) => {
@@ -666,201 +681,6 @@ function App() {
     } finally {
       setIsAnalyzing(false);
       window.setTimeout(() => setNotice(null), 3200);
-    }
-  };
-
-  const importProject = async () => {
-    const bridge = getDesktopBridge();
-    const lastDirectory = defaultDirectoryHint();
-    const path = bridge
-      ? await bridge.selectDirectory(lastDirectory)
-      : window.prompt("输入本地 Git 仓库路径", "D:/Projects/new-project");
-    if (!path) return;
-    setIsImporting(true);
-    try {
-      let projectName = path.split(/[\\/]/).filter(Boolean).pop() ?? "新项目";
-      let isGitRepository = true;
-      let importedSnapshot: GitSnapshot | undefined;
-      if (bridge) {
-        const inspected = await bridge.inspectProject(path);
-        projectName = inspected.name;
-        isGitRepository = inspected.is_git_repository;
-        importedSnapshot = inspected.snapshot;
-      }
-      if (!isGitRepository) {
-        setNotice("这个目录还不是 Git 仓库");
-        return;
-      }
-      let diskSizeBytes = 0;
-      if (bridge) {
-        diskSizeBytes = await bridge.getDiskSize(path).catch(() => 0);
-      }
-      const newProject: Project = {
-        id: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
-        name: projectName,
-        path,
-        provider: "local",
-        branch: "main",
-        status: "clean",
-        language: "待分析",
-        languageColor: "#8b97a8",
-        summary: "刚导入的本地项目，等待结构分析。",
-        updatedAt: "刚刚",
-        commit: "未扫描",
-        favorite: false,
-        tags: ["new"],
-        files: 0,
-        syncLabel: "待扫描",
-        diskSizeBytes,
-      };
-      if (importedSnapshot)
-        Object.assign(newProject, projectFromSnapshot(newProject, importedSnapshot));
-      window.localStorage.setItem(LAST_IMPORT_DIRECTORY_KEY, path);
-      updateProjects((prev) => [newProject, ...prev]);
-      setSelectedId(newProject.id);
-      setWorkspace("projects");
-      setNotice("项目已导入");
-    } catch {
-      setNotice("无法读取这个目录，请确认路径存在且可访问");
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
-  const initNewRepository = async () => {
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不支持初始化仓库");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    const bridge = requireDesktopBridge();
-    const directory = await bridge.selectDirectory(defaultDirectoryHint());
-    if (!directory) return;
-    const projectName = window.prompt("项目名称（用于新建项目目录）", "my-project");
-    if (!projectName || !/^[a-zA-Z0-9_-]+$/.test(projectName)) {
-      setNotice("项目名称只能使用字母、数字、下划线或连字符");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    const targetPath = `${directory}\\${projectName}`;
-    let alreadyExists = false;
-    try {
-      const inspected = await bridge.inspectProject(targetPath);
-      alreadyExists = inspected.is_git_repository;
-    } catch {
-      alreadyExists = false;
-    }
-    if (alreadyExists) {
-      setNotice("该目录已经是 Git 仓库");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    setIsImporting(true);
-    try {
-      await bridge.initRepository({ path: targetPath });
-      const inspected = await bridge.inspectProject(targetPath);
-      const diskSizeBytes = await bridge.getDiskSize(targetPath).catch(() => 0);
-      const newProject: Project = {
-        id: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
-        name: inspected.name,
-        path: targetPath,
-        provider: "local",
-        branch: "main",
-        status: "clean",
-        commit: "无提交",
-        favorite: false,
-        tags: ["new"],
-        files: 0,
-        syncLabel: "已初始化",
-        language: "待分析",
-        languageColor: "#8b97a8",
-        summary: "刚初始化的新 Git 仓库。",
-        updatedAt: "刚刚",
-        diskSizeBytes,
-      };
-      updateProjects((prev) => [newProject, ...prev]);
-      setSelectedId(newProject.id);
-      setWorkspace("projects");
-      setNotice("新 Git 仓库初始化完成");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "初始化失败");
-    } finally {
-      setIsImporting(false);
-      window.setTimeout(() => setNotice(null), 3500);
-    }
-  };
-
-  const importScannedRepositories = async (items: RepositoryDiscoveryItem[]) => {
-    if (!isDesktopRuntime()) return;
-    const bridge = requireDesktopBridge();
-    setIsImporting(true);
-    let imported = 0;
-    try {
-      const existingPaths = new Set(projects.map((project) => project.path.toLowerCase()));
-      const newProjects: Project[] = [];
-      for (const item of items) {
-        if (!item.isGitRepository || existingPaths.has(item.path.toLowerCase())) {
-          continue;
-        }
-        const inspected = await bridge.inspectProject(item.path);
-        const snapshot = inspected.snapshot;
-        const diskSizeBytes = await bridge.getDiskSize(item.path).catch(() => 0);
-        newProjects.push({
-          id: `${item.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          name: inspected.name,
-          path: item.path,
-          provider: "local",
-          branch: snapshot?.branch ?? "main",
-          status: snapshot?.status ?? "clean",
-          commit: snapshot?.commit ?? "未扫描",
-          favorite: false,
-          tags: ["new"],
-          files: snapshot?.files ?? 0,
-          syncLabel: snapshot?.sync_label ?? "待扫描",
-          language: "待分析",
-          languageColor: "#8b97a8",
-          summary: "批量扫描导入的本地项目。",
-          updatedAt: snapshot?.updated_at ?? "刚刚",
-          diskSizeBytes,
-        });
-        existingPaths.add(item.path.toLowerCase());
-        imported += 1;
-      }
-      if (newProjects.length > 0) {
-        updateProjects((prev) => [...newProjects, ...prev]);
-      }
-    } finally {
-      setIsImporting(false);
-    }
-    setNotice(imported > 0 ? `已导入 ${imported} 个仓库` : "没有可导入的新仓库");
-    window.setTimeout(() => setNotice(null), 3500);
-  };
-
-  const scanDirectoryForImport = async () => {
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不支持批量导入");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    const bridge = requireDesktopBridge();
-    const directory = await bridge.selectDirectory(defaultDirectoryHint());
-    if (!directory) return;
-    try {
-      const items = await bridge.scanDirectoryForRepositories(directory);
-      const gitRepos = items.filter((item) => item.isGitRepository);
-      if (gitRepos.length === 0) {
-        setNotice("该目录下没有发现 Git 仓库");
-        window.setTimeout(() => setNotice(null), 3000);
-        return;
-      }
-      const confirmed = window.confirm(
-        `发现 ${items.length} 个子目录，其中 ${gitRepos.length} 个是 Git 仓库。导入全部仓库？`,
-      );
-      if (!confirmed) return;
-      await importScannedRepositories(items);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "扫描失败");
-      window.setTimeout(() => setNotice(null), 3000);
     }
   };
 

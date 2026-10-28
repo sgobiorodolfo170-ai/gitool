@@ -33,6 +33,8 @@ export type ProjectsApi = {
   applyProjects: (next: Project[]) => void;
   /** 基于最新列表做不可变更新，并串行落库。 */
   updateProjects: (updater: (prev: Project[]) => Project[]) => void;
+  /** 读取最新列表（ref 同步值，不受渲染时序影响）。 */
+  getProjects: () => Project[];
   toggleFavorite: (projectId: string) => void;
   deleteProjectFromList: (projectId: string) => void;
   refreshProjects: () => Promise<void>;
@@ -232,6 +234,7 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
     setTagFilter,
     applyProjects,
     updateProjects,
+    getProjects: () => projectsRef.current,
     toggleFavorite,
     deleteProjectFromList,
     refreshProjects,
