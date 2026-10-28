@@ -14,3 +14,4 @@
 | v0.2.1 | 2026-10-26 | 代码评估后的缺陷修复：部署任务无法保存、终端打开命令注入、撤销提交类型错标、版本对比参数注入、备份同日覆盖、更新包路径未校验；任务停止改杀进程树并记 stopped；备份恢复含 .git；新增 61 个单测与 CI |
 | v0.2.2 | 2026-10-26 | 代码结构治理：App.tsx 3217→1494 行（抽 4 个 lib 模块、14 个组件、3 个 hook；格式化前 1228 行）；引入 prettier 统一格式；CSS 提取 26 个设计 token |
 | v0.2.3 | 2026-10-29 | 阶段 C 完成：抽出 useProjects/useWorkspaces/useAccounts/useImportFlow/useGitOperations/useRemotes 六个领域 hook，App.tsx 1494→672 行（逻辑部分约 270 行） |
+| v0.2.4 | 2026-10-29 | zod 收敛 IPC 入参校验：32 个手写 validator → 29 个 schema，ipc.ts 921→464 行，新增 22 个用例；至此技术债清单仅剩代码签名与更新包哈希（暂缓） |

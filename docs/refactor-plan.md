@@ -16,10 +16,13 @@
 | P2-1 C | 抽领域 hooks | ✅ 完成 | 6 个 hook 全部落地，App 1494 → 672 |
 | P2-1 D | App 收敛编排层 | 🚧 部分 | 672 行，其中约 400 行是 8 个工作区的条件渲染 JSX |
 | P2-2 | prettier | ✅ 完成 | 3 次提交，最长行 2962 → 144 |
-| P2-3 | zod 收敛 IPC | ⬜ 未开始 | 需引入 zod + 重写 26 个 validator |
+| P2-3 | zod 收敛 IPC | ✅ 完成 | 32 个 validator → 29 个 schema，ipc.ts 921 → 464 行，+22 用例 |
 | P2-5 | CSS token | ✅ 完成 | 26 个 token，硬编码 482 → 287 |
 | P2-9 | 代码签名 | ⏸ 暂缓 | 用户明确暂不碰 |
 | P1-5b | 更新包 SHA256 | ⏸ 暂缓 | 用户明确暂不碰 |
+
+**全部代码项已完成**（2026-10-29）：P2-1 四阶段、P2-2、P2-3、P2-5 全部落地。
+仅剩 P2-9（代码签名）与 P1-5b（更新包 SHA256）——按用户要求暂缓。
 
 **阶段 C 已完成**（2026-10-29）：useProjects / useWorkspaces / useAccounts / useImportFlow /
 useGitOperations / useRemotes 六个 hook 全部落地，App 从 1494 行降到 672 行。
