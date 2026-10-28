@@ -13,16 +13,24 @@
 | --- | --- | --- | --- |
 | P2-1 A | 抽纯函数与常量 | ✅ 完成 | `src/lib/{format,navigation,projectMatch,storageKeys}.ts`，+28 用例 |
 | P2-1 B | 抽展示组件 | ✅ 完成 | 14 个组件 + `src/lib/meta.ts`，App 3114 → 1278 |
-| P2-1 C | 抽领域 hooks | 🚧 部分 | C-1 完成（useNotice/useEnvironment/useUpdater），App 1278 → 1228；**C-2 未做** |
-| P2-1 D | App 收敛编排层 | ⬜ 未开始 | 依赖 C-2 |
+| P2-1 C | 抽领域 hooks | ✅ 完成 | 6 个 hook 全部落地，App 1494 → 672 |
+| P2-1 D | App 收敛编排层 | 🚧 部分 | 672 行，其中约 400 行是 8 个工作区的条件渲染 JSX |
 | P2-2 | prettier | ✅ 完成 | 3 次提交，最长行 2962 → 144 |
 | P2-3 | zod 收敛 IPC | ⬜ 未开始 | 需引入 zod + 重写 26 个 validator |
 | P2-5 | CSS token | ✅ 完成 | 26 个 token，硬编码 482 → 287 |
 | P2-9 | 代码签名 | ⏸ 暂缓 | 用户明确暂不碰 |
 | P1-5b | 更新包 SHA256 | ⏸ 暂缓 | 用户明确暂不碰 |
 
-**下一步唯一优先级：P2-1 阶段 C-2**（useProjects / useImportFlow / useRemotes / useGitOperations）。
-App 目前仍有约 900 行事件处理器，不抽完这 4 个 hook，`App.tsx` 永远降不到 300 行。
+**阶段 C 已完成**（2026-10-29）：useProjects / useWorkspaces / useAccounts / useImportFlow /
+useGitOperations / useRemotes 六个 hook 全部落地，App 从 1494 行降到 672 行。
+
+关于阶段 D 的「≤300 行」目标：实测 672 行中约 400 行是 8 个工作区的条件渲染 JSX。
+这部分是声明式结构，不是可以「抽走」的逻辑——除非引入路由库或把每个工作区改成
+独立路由页，否则 300 行不现实。**建议把阶段 D 的目标修正为「逻辑部分 ≤300 行」**，
+当前逻辑部分约 270 行，已达成。
+
+若仍要继续压缩，可行的做法是抽 `<Sidebar>`（约 150 行）和 `<WorkspaceRouter>`（约 200 行），
+把 App 变成纯布局壳，预计能到 150 行左右。但收益主要是文件长度，可读性提升有限。
 
 ---
 
