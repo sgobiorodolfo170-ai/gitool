@@ -67,7 +67,9 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
           );
         }
         onNotice(
-          result.success ? `${operationLabels[operation]}完成` : `${operationLabels[operation]}失败`,
+          result.success
+            ? `${operationLabels[operation]}完成`
+            : `${operationLabels[operation]}失败`,
         );
       } catch (error) {
         setOperationOutput(error instanceof Error ? error.message : "Git 操作失败，请查看日志");
@@ -96,9 +98,7 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
           const result = await bridge.runGitOperation(project.path, operation);
           if (result.success) {
             successCount += 1;
-            updated.push(
-              result.snapshot ? projectFromSnapshot(project, result.snapshot) : project,
-            );
+            updated.push(result.snapshot ? projectFromSnapshot(project, result.snapshot) : project);
           } else {
             failureCount += 1;
             updated.push(project);

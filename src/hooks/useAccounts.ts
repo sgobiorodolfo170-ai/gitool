@@ -40,8 +40,7 @@ export function useAccounts(params: { onNotice: (message: string) => void }): Ac
         // 同平台同用户名视为覆盖：先剔除旧记录再插到最前
         setAccounts((current) => {
           const without = current.filter(
-            (item) =>
-              !(item.provider === account.provider && item.username === account.username),
+            (item) => !(item.provider === account.provider && item.username === account.username),
           );
           return [account, ...without];
         });

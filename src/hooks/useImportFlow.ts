@@ -230,5 +230,11 @@ export function useImportFlow(params: ImportFlowParams): ImportFlowApi {
     }
   }, [defaultDirectoryHint, importScannedRepositories, onNotice]);
 
-  return { isImporting, importProject, initNewRepository, scanDirectoryForImport, importScannedRepositories };
+  return {
+    isImporting,
+    importProject,
+    initNewRepository,
+    scanDirectoryForImport,
+    importScannedRepositories,
+  };
 }

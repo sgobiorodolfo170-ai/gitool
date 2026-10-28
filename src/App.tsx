@@ -8,18 +8,10 @@ import {
   GitBranch,
   Loader2,
 } from "lucide-react";
-import type {
-  AppSettings,
-  AppView,
-  Project,
-  ProjectAnalysis,
-  RemoteProvider,
-  RemoteRepository,
-} from "./types";
+import type { AppSettings, AppView, ProjectAnalysis, RemoteProvider } from "./types";
 import { isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 
 import { buildNavGroups, workspaceLabel } from "./lib/navigation";
-import { remoteProjectMatch } from "./lib/projectMatch";
 import {
   ACTIVE_WORKSPACE_KEY,
   LAST_IMPORT_DIRECTORY_KEY,
@@ -41,14 +33,12 @@ import { useAccounts } from "./hooks/useAccounts";
 import { useImportFlow } from "./hooks/useImportFlow";
 import { useGitOperations } from "./hooks/useGitOperations";
 import { useWorkspaces } from "./hooks/useWorkspaces";
+import { useRemotes } from "./hooks/useRemotes";
 import { useEnvironment } from "./hooks/useEnvironment";
 import { useNotice } from "./hooks/useNotice";
 import { useUpdater } from "./hooks/useUpdater";
 
-import {
-  DEFAULT_WORKSPACE_ID,
-  listWorkspaces as listWorkspacesLocal,
-} from "./lib/workspaces";
+import { DEFAULT_WORKSPACE_ID, listWorkspaces as listWorkspacesLocal } from "./lib/workspaces";
 import { loadProjects } from "./lib/projects";
 
 function App() {
@@ -57,18 +47,6 @@ function App() {
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [operationOutput, setOperationOutput] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
-
-  const [remoteRepositories, setRemoteRepositories] = useState<RemoteRepository[]>([]);
-  const [remoteSyncTime, setRemoteSyncTime] = useState<string | null>(null);
-  const [selectedAccountId, setSelectedAccountId] = useState("");
-  const [remoteSearch, setRemoteSearch] = useState("");
-  const [isLoadingRemotes, setIsLoadingRemotes] = useState(false);
-  const [cloningRepositoryId, setCloningRepositoryId] = useState<string | null>(null);
-  const [cloneProgress, setCloneProgress] = useState<{
-    percent: number;
-    phase: string;
-    output: string;
-  } | null>(null);
 
   // 三个独立领域 hook：提示、环境体检、应用更新。
   // 保留原有变量名做别名，避免一次性改动上百处引用；后续可逐步换成 hook 的原始命名。
@@ -169,6 +147,33 @@ function App() {
   });
 
   const {
+    repositories: remoteRepositories,
+    syncTime: remoteSyncTime,
+    selectedAccountId,
+    search: remoteSearch,
+    isLoading: isLoadingRemotes,
+    cloningRepositoryId,
+    cloneProgress,
+    setSelectedAccountId,
+    setSearch: setRemoteSearch,
+    setRepositories: setRemoteRepositories,
+    forgetAccount,
+    loadRemoteRepositories,
+    cloneRemoteRepository,
+    mutateRemoteRepository,
+    toggleRemoteFavorite,
+    toggleRemoteWatch,
+  } = useRemotes({
+    getProjects,
+    updateProjects,
+    onNotice: showNotice,
+    onCloned: (projectId) => {
+      setSelectedId(projectId);
+      setWorkspace("projects");
+    },
+  });
+
+  const {
     accounts,
     accountBusyId,
     setAccounts,
@@ -177,12 +182,7 @@ function App() {
     removeAccount,
   } = useAccounts({ onNotice: showNotice });
 
-  const {
-    isImporting,
-    importProject,
-    initNewRepository,
-    scanDirectoryForImport,
-  } = useImportFlow({
+  const { isImporting, importProject, initNewRepository, scanDirectoryForImport } = useImportFlow({
     onNotice: showNotice,
     defaultDirectoryHint,
     getProjects,
@@ -215,26 +215,11 @@ function App() {
     if (!window.confirm("删除账号后，Gitool 将同时删除对应的本地凭据引用。继续吗？")) return;
     const removed = await removeAccount(accountId);
     if (!removed) return;
-    setRemoteRepositories((current) =>
-      current.filter((repository) => repository.accountId !== accountId),
+    forgetAccount(
+      accountId,
+      accounts.filter((account) => account.id !== accountId).map((account) => account.id),
     );
-    setSelectedAccountId((current) => {
-      if (current !== accountId) return current;
-      const remaining = accounts.filter((account) => account.id !== accountId);
-      return remaining[0]?.id ?? "";
-    });
   };
-
-  useEffect(() => {
-    if (!isDesktopRuntime()) return;
-    const unsubscribe = requireDesktopBridge().onCloneProgress((event) => {
-      setCloneProgress({ percent: event.percent, phase: event.phase, output: event.output });
-      if (event.done) {
-        window.setTimeout(() => setCloneProgress(null), 2000);
-      }
-    });
-    return unsubscribe;
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -305,302 +290,6 @@ function App() {
     setOperationOutput(null);
     setAnalysis(null);
     setWorkspace("projects");
-  };
-
-  const toggleRemoteFavorite = async (repository: RemoteRepository) => {
-    const isFav = projects.some(
-      (project) => remoteProjectMatch(project, repository) && project.favorite,
-    );
-    const match = projects.find((project) => remoteProjectMatch(project, repository));
-    let rollback: (() => void) | null = null;
-    if (match) {
-      if (match.path === "" && !match.tags.includes("watching")) {
-        updateProjects((prev) => prev.filter((project) => project.id !== match.id));
-        rollback = () => updateProjects((prev) => [match, ...prev]);
-      } else {
-        updateProjects((prev) =>
-          prev.map((project) =>
-            project.id === match.id ? { ...project, favorite: !project.favorite } : project,
-          ),
-        );
-        rollback = () =>
-          updateProjects((prev) =>
-            prev.map((project) =>
-              project.id === match.id ? { ...project, favorite: match.favorite } : project,
-            ),
-          );
-      }
-    } else {
-      const now = new Date().toISOString();
-      const favoriteProject: Project = {
-        id: `fav:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
-        name: repository.name,
-        path: "",
-        provider: repository.provider,
-        branch: repository.defaultBranch || "main",
-        status: "clean",
-        commit: "未克隆",
-        favorite: true,
-        tags: ["remote", "favorite"],
-        files: 0,
-        syncLabel: "未克隆",
-        language: "未克隆",
-        languageColor: "#8b97a8",
-        summary: repository.description || "远程收藏项目，尚未克隆到本地。",
-        updatedAt: now,
-        diskSizeBytes: 0,
-        webUrl: repository.webUrl,
-      };
-      updateProjects((prev) => [favoriteProject, ...prev]);
-      rollback = () =>
-        updateProjects((prev) => prev.filter((project) => project.id !== favoriteProject.id));
-    }
-    if (isDesktopRuntime()) {
-      try {
-        await requireDesktopBridge().toggleRepositoryInteraction({
-          accountId: repository.accountId,
-          owner: repository.owner,
-          name: repository.name,
-          action: isFav ? "unstar" : "star",
-        });
-      } catch (error) {
-        rollback?.();
-        setNotice(error instanceof Error ? error.message : "平台收藏操作失败");
-        window.setTimeout(() => setNotice(null), 3000);
-      }
-    }
-  };
-
-  const toggleRemoteWatch = async (repository: RemoteRepository) => {
-    const isWatched = projects.some(
-      (project) => remoteProjectMatch(project, repository) && project.tags.includes("watching"),
-    );
-    const match = projects.find((project) => remoteProjectMatch(project, repository));
-    let rollback: (() => void) | null = null;
-    if (match) {
-      const nextTags = isWatched
-        ? match.tags.filter((tag) => tag !== "watching")
-        : [...match.tags, "watching"];
-      if (match.path === "" && !match.favorite && isWatched) {
-        updateProjects((prev) => prev.filter((project) => project.id !== match.id));
-        rollback = () => updateProjects((prev) => [match, ...prev]);
-      } else {
-        updateProjects((prev) =>
-          prev.map((project) =>
-            project.id === match.id ? { ...project, tags: nextTags } : project,
-          ),
-        );
-        rollback = () =>
-          updateProjects((prev) =>
-            prev.map((project) =>
-              project.id === match.id ? { ...project, tags: match.tags } : project,
-            ),
-          );
-      }
-    } else {
-      const now = new Date().toISOString();
-      const watchedProject: Project = {
-        id: `watch:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
-        name: repository.name,
-        path: "",
-        provider: repository.provider,
-        branch: repository.defaultBranch || "main",
-        status: "clean",
-        commit: "未克隆",
-        favorite: false,
-        tags: ["remote", "watching"],
-        files: 0,
-        syncLabel: "已关注",
-        language: "未克隆",
-        languageColor: "#8b97a8",
-        summary: repository.description || "远程关注项目，尚未克隆到本地。",
-        updatedAt: now,
-        diskSizeBytes: 0,
-        webUrl: repository.webUrl,
-      };
-      updateProjects((prev) => [watchedProject, ...prev]);
-      rollback = () =>
-        updateProjects((prev) => prev.filter((project) => project.id !== watchedProject.id));
-    }
-    if (isDesktopRuntime()) {
-      try {
-        await requireDesktopBridge().toggleRepositoryInteraction({
-          accountId: repository.accountId,
-          owner: repository.owner,
-          name: repository.name,
-          action: isWatched ? "unwatch" : "watch",
-        });
-      } catch (error) {
-        rollback?.();
-        setNotice(error instanceof Error ? error.message : "平台关注操作失败");
-        window.setTimeout(() => setNotice(null), 3000);
-      }
-    }
-  };
-
-  const loadRemoteRepositories = async (
-    accountId = selectedAccountId,
-    options?: { silent?: boolean },
-  ) => {
-    if (!accountId) {
-      setNotice("请先添加并选择一个远程账号");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不会访问远程平台，请使用 Windows 桌面版");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    const bridge = requireDesktopBridge();
-
-    setIsLoadingRemotes(true);
-    try {
-      // 先展示本地缓存（上次已同步的数据），避免每次启动都等待网络
-      const cached = await bridge.loadCachedRemoteRepositories(accountId);
-      if (cached.length > 0) {
-        setRemoteRepositories(cached);
-        const meta = await bridge.getRemoteRepositoryCacheMeta(accountId).catch(() => null);
-        if (meta) {
-          setRemoteSyncTime(meta.syncedAt);
-        }
-      }
-      const repositories = await bridge.loadRemoteRepositories(accountId);
-      setRemoteRepositories(repositories);
-      const meta = await bridge.getRemoteRepositoryCacheMeta(accountId).catch(() => null);
-      if (meta) {
-        setRemoteSyncTime(meta.syncedAt);
-      }
-      if (!options?.silent) {
-        setNotice(`已同步 ${repositories.length} 个远程仓库（已缓存）`);
-      }
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "远程仓库同步失败");
-    } finally {
-      setIsLoadingRemotes(false);
-      window.setTimeout(() => setNotice(null), 3200);
-    }
-  };
-
-  const cloneRemoteRepository = async (repository: RemoteRepository) => {
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不会执行克隆，请使用 Windows 桌面版");
-      window.setTimeout(() => setNotice(null), 3000);
-      return;
-    }
-    const bridge = requireDesktopBridge();
-    const defaultDirectory = window.localStorage.getItem(LAST_IMPORT_DIRECTORY_KEY) ?? undefined;
-    const parentDirectory = await bridge.selectDirectory(defaultDirectory);
-    if (!parentDirectory) {
-      return;
-    }
-    const targetPath = `${parentDirectory}\\${repository.name}`;
-    setCloningRepositoryId(repository.id);
-    try {
-      const result = await bridge.cloneRepository({
-        url: repository.httpsUrl,
-        targetPath,
-        accountId: repository.accountId,
-      });
-      if (result.success) {
-        const inspected = await bridge.inspectProject(targetPath);
-        const snapshot = inspected.snapshot;
-        const diskSizeBytes = await bridge.getDiskSize(targetPath).catch(() => 0);
-        window.localStorage.setItem(LAST_IMPORT_DIRECTORY_KEY, parentDirectory);
-        const newProject: Project = {
-          id: `${repository.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
-          name: inspected.name,
-          path: targetPath,
-          provider: repository.provider,
-          branch: snapshot?.branch ?? repository.defaultBranch,
-          status: snapshot?.status ?? "clean",
-          commit: snapshot?.commit ?? "未扫描",
-          favorite: false,
-          tags: ["cloned"],
-          files: snapshot?.files ?? 0,
-          syncLabel: snapshot?.sync_label ?? "已克隆",
-          language: "待分析",
-          languageColor: "#8b97a8",
-          summary: repository.description || "从远程平台克隆的项目。",
-          updatedAt: snapshot?.updated_at ?? "刚刚",
-          diskSizeBytes,
-          webUrl: repository.webUrl,
-        };
-        const favoriteStub = projects.find(
-          (project) =>
-            project.path === "" && project.webUrl === repository.webUrl && project.favorite,
-        );
-        if (favoriteStub) {
-          newProject.favorite = true;
-          updateProjects((prev) => [
-            newProject,
-            ...prev.filter((project) => project.id !== favoriteStub.id),
-          ]);
-        } else {
-          updateProjects((prev) => [newProject, ...prev]);
-        }
-        setSelectedId(newProject.id);
-        setWorkspace("projects");
-        setNotice("仓库克隆完成，已加入我的项目");
-      } else {
-        setNotice(`克隆失败：${result.output.slice(0, 200)}`);
-      }
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "克隆失败，请查看日志");
-    } finally {
-      setCloningRepositoryId(null);
-      window.setTimeout(() => setNotice(null), 4000);
-    }
-  };
-
-  const mutateRemoteRepository = async (
-    action: "create" | "update" | "delete",
-    input: {
-      accountId: string;
-      repositoryId?: string;
-      name: string;
-      description: string;
-      visibility: "public" | "private" | "internal" | "";
-      init: boolean;
-    },
-  ) => {
-    if (!isDesktopRuntime()) {
-      setNotice("浏览器预览不会修改远程仓库，请使用 Windows 桌面版");
-      window.setTimeout(() => setNotice(null), 3000);
-      return false;
-    }
-    if (action === "delete") {
-      const confirmed = window.confirm(
-        "删除远程仓库是不可逆操作，仓库及其历史将被永久删除。确定继续吗？",
-      );
-      if (!confirmed) return false;
-    }
-    try {
-      const bridge = requireDesktopBridge();
-      const result =
-        action === "create"
-          ? await bridge.createRemoteRepository({ ...input, repositoryId: undefined })
-          : action === "update"
-            ? await bridge.updateRemoteRepository(input)
-            : await bridge.deleteRemoteRepository(input.accountId, input.repositoryId!);
-      setNotice(result.message);
-      if (action === "create" || action === "update") {
-        await loadRemoteRepositories(input.accountId);
-      } else {
-        setRemoteRepositories((current) =>
-          current.filter(
-            (repository) =>
-              repository.accountId !== input.accountId || repository.id !== input.repositoryId,
-          ),
-        );
-      }
-      return result.success;
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "远程仓库操作失败");
-      return false;
-    } finally {
-      window.setTimeout(() => setNotice(null), 4000);
-    }
   };
 
   return (
