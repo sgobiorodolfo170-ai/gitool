@@ -12,6 +12,8 @@ export type UpdaterApi = {
   progress: { percent: number } | null;
   downloadedPath: string | null;
   isDownloading: boolean;
+  /** 手动触发一次远程版本检查；有更新则填充 available。 */
+  check: () => Promise<boolean>;
   download: () => Promise<void>;
   install: () => void;
   dismiss: () => void;
@@ -36,6 +38,23 @@ export function useUpdater(onError: (message: string) => void): UpdaterApi {
     };
   }, []);
 
+  const check = useCallback(async (): Promise<boolean> => {
+    const bridge = getDesktopBridge();
+    if (!bridge) return false;
+    try {
+      const result = await bridge.checkForUpdates();
+      if (result.hasUpdate && result.downloadUrl) {
+        setAvailable({ version: result.version });
+        return true;
+      }
+      onError("当前已是最新版本");
+      return false;
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "检查更新失败");
+      return false;
+    }
+  }, [onError]);
+
   const download = useCallback(async () => {
     const bridge = getDesktopBridge();
     if (!bridge) return;
@@ -58,5 +77,5 @@ export function useUpdater(onError: (message: string) => void): UpdaterApi {
 
   const dismiss = useCallback(() => setAvailable(null), []);
 
-  return { available, progress, downloadedPath, isDownloading, download, install, dismiss };
+  return { available, progress, downloadedPath, isDownloading, check, download, install, dismiss };
 }

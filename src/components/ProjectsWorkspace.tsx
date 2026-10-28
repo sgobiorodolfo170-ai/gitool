@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { GitOperation, Project, ProjectAnalysis, ProjectFilter } from "../types";
 
+import { useSplitWidth } from "../hooks/useSplitWidth";
 import { EmptyProjects, FilterButton, ProjectRow } from "./common";
 
 import { ProjectDetail } from "./ProjectDetail";
@@ -82,6 +83,8 @@ export function ProjectsWorkspace({
     (project) => project.status !== "clean" || project.tags.includes("watching"),
   ).length;
   const favoriteCount = projects.filter((project) => project.favorite).length;
+  // 列表/详情分栏宽度：存 localStorage，拖拽分隔条调整，双击恢复默认
+  const split = useSplitWidth("gitool.projects.split", 58);
   const searchRef = useRef<HTMLInputElement>(null);
   const [selectedBulkIds, setSelectedBulkIds] = useState<string[]>([]);
 
@@ -215,7 +218,11 @@ export function ProjectsWorkspace({
         </div>
       )}
 
-      <section className="project-layout">
+      <section
+        className="project-layout"
+        ref={split.containerRef}
+        style={{ "--project-list-width": `${split.percent}%` } as React.CSSProperties}
+      >
         <div className="project-list-panel">
           <div className="panel-heading">
             <div>
@@ -258,6 +265,15 @@ export function ProjectsWorkspace({
             )}
           </div>
         </div>
+        <div
+          className="project-splitter"
+          role="separator"
+          aria-orientation="vertical"
+          aria-valuenow={Math.round(split.percent)}
+          aria-label="调整项目列表宽度，双击恢复默认"
+          title="拖动调整宽度，双击恢复默认"
+          {...split.splitterHandlers}
+        />
         {selectedProject ? (
           <ProjectDetail
             project={selectedProject}

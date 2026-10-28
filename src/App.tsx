@@ -40,11 +40,13 @@ import { useUpdater } from "./hooks/useUpdater";
 
 import { DEFAULT_WORKSPACE_ID, listWorkspaces as listWorkspacesLocal } from "./lib/workspaces";
 import { loadProjects } from "./lib/projects";
+import { applyFontScale, FONT_SCALE_DEFAULT, loadFontScale, saveFontScale } from "./lib/uiPrefs";
 
 function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [fontScale, setFontScale] = useState(FONT_SCALE_DEFAULT);
   const [operationOutput, setOperationOutput] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
 
@@ -78,9 +80,34 @@ function App() {
     progress: updateProgress,
     downloadedPath,
     isDownloading,
+    check: checkForUpdate,
     download: handleUpdate,
     install: handleInstallUpdate,
   } = useUpdater(showNotice);
+
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const handleCheckUpdate = async () => {
+    if (isCheckingUpdate) return;
+    setIsCheckingUpdate(true);
+    try {
+      await checkForUpdate();
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  // 字号偏好存在 localStorage，首帧就应用，避免闪一下默认字号
+  useEffect(() => {
+    const initial = loadFontScale();
+    setFontScale(initial);
+    applyFontScale(initial);
+  }, []);
+
+  const changeFontScale = useCallback((scale: number) => {
+    setFontScale(scale);
+    saveFontScale(scale);
+    applyFontScale(scale);
+  }, []);
 
   const defaultDirectoryHint = () => {
     return (
@@ -345,7 +372,15 @@ function App() {
         </nav>
 
         <div className="sidebar-version">
-          v{__APP_VERSION__}
+          <button
+            className="sidebar-version-label"
+            onClick={() => void handleCheckUpdate()}
+            disabled={isCheckingUpdate}
+            title="检查更新"
+          >
+            v{__APP_VERSION__}
+            {isCheckingUpdate && <span className="sidebar-version-checking">检查中…</span>}
+          </button>
           {updateAvailable && !isDownloading && !downloadedPath && (
             <button className="sidebar-update-btn" onClick={() => void handleUpdate()}>
               → v{updateAvailable.version} 更新
@@ -517,6 +552,8 @@ function App() {
               onInstallGit={installGit}
               installingGit={installingGit}
               installProgress={installProgress}
+              fontScale={fontScale}
+              onFontScaleChange={changeFontScale}
             />
           ) : (
             <ModuleWorkspace workspace={workspace} onImport={importProject} />

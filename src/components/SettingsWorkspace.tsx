@@ -21,6 +21,12 @@ import type {
   InstallProgress,
   RemoteProvider,
 } from "../types";
+import {
+  FONT_SCALE_DEFAULT,
+  FONT_SCALE_MAX,
+  FONT_SCALE_MIN,
+  FONT_SCALE_STEP,
+} from "../lib/uiPrefs";
 import { getDesktopBridge } from "../lib/bridge";
 
 export function AccountsWorkspace({
@@ -205,6 +211,8 @@ export function SettingsWorkspace({
   onInstallGit,
   installingGit,
   installProgress,
+  fontScale,
+  onFontScaleChange,
 }: {
   environment: EnvironmentStatus | null;
   accounts: Account[];
@@ -217,6 +225,8 @@ export function SettingsWorkspace({
   onInstallGit: () => Promise<InstallGitResult | null>;
   installingGit: boolean;
   installProgress: InstallProgress | null;
+  fontScale: number;
+  onFontScaleChange: (scale: number) => void;
 }) {
   const bridge = getDesktopBridge();
   const [settings, setSettings] = useState<AppSettings>({
@@ -642,6 +652,29 @@ export function SettingsWorkspace({
               操作系统
               <div className="setting-value mono">
                 {environment?.platform === "web" ? "浏览器预览" : "Windows x64"}
+              </div>
+            </label>
+            {/* 字号缩放：只影响 font-size，不改布局尺寸 */}
+            <label>
+              前端字号
+              <div className="font-scale-control">
+                <input
+                  type="range"
+                  min={FONT_SCALE_MIN}
+                  max={FONT_SCALE_MAX}
+                  step={FONT_SCALE_STEP}
+                  value={fontScale}
+                  onChange={(event) => onFontScaleChange(Number(event.target.value))}
+                  aria-label="前端字号缩放比例"
+                />
+                <span className="setting-value mono">{Math.round(fontScale * 100)}%</span>
+                <button
+                  className="bare-button"
+                  onClick={() => onFontScaleChange(FONT_SCALE_DEFAULT)}
+                  disabled={fontScale === FONT_SCALE_DEFAULT}
+                >
+                  重置
+                </button>
               </div>
             </label>
             {installProgress && (
