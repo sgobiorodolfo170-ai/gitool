@@ -76,6 +76,12 @@ function createMainWindow(): BrowserWindow {
 
   window.once("ready-to-show", () => window.show());
 
+  // 页面加载失败时窗口会一直隐藏（show: false + ready-to-show 不触发），
+  // 用户只看到「应用没反应」。这里把失败原因打到主进程日志，便于定位白屏。
+  window.webContents.on("did-fail-load", (_event, code, description, url) => {
+    console.error("[gitool] 页面加载失败", { code, description, url });
+  });
+
   window.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();

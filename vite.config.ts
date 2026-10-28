@@ -3,6 +3,12 @@ import react from "@vitejs/plugin-react";
 import electron from "vite-plugin-electron/simple";
 import { readFileSync } from "node:fs";
 
+// 某些环境（CI、容器、部分 IDE 终端）会预设 ELECTRON_RUN_AS_NODE=1，
+// 这会让 electron.exe 以纯 Node 模式启动：require("electron") 只返回二进制路径，
+// 主进程一读 app.requestSingleInstanceLock() 就崩。
+// vite 与 electron 都由本进程派生，在这里清掉即可，不影响 vite 自身（它跑在 node 上）。
+delete process.env.ELECTRON_RUN_AS_NODE;
+
 const appVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
 
 function contentSecurityPolicyPlugin(): Plugin {
