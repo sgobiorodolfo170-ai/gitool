@@ -2001,19 +2001,24 @@ body.is-resizing {
   font-size: calc(8px * var(--font-scale));
   font-weight: 400;
 }
+/* README 阅读区。渲染的是 markdown 转成的 HTML，不是终端输出，
+   所以用正文无衬线字体 + 正常换行，不要 monospace / pre-wrap。 */
 .readme-body {
-  max-height: 200px;
+  /* 600px = 原 200px 的 3 倍。README 是这一页的主体，200px 只够看三四行。 */
+  max-height: 600px;
   margin-top: 10px;
-  padding: 9px 10px;
+  padding: 16px 18px;
   overflow: auto;
-  color: var(--text-secondary);
+  color: var(--text-body);
   border: 1px solid var(--border-muted);
-  border-radius: 5px;
-  background: var(--bg-muted);
-  font-family: "DM Mono", monospace;
-  font-size: calc(9px * var(--font-scale));
-  line-height: 1.6;
-  white-space: pre-wrap;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  font-family: inherit;
+  font-size: calc(13px * var(--font-scale));
+  line-height: 1.75;
+  /* pre-wrap 会把 markdown 块之间的换行当成正文保留，导致段落间距翻倍、
+     列表项之间多出空行。HTML 渲染必须用 normal。 */
+  white-space: normal;
   word-break: break-word;
 }
 .alias-badge {
@@ -2147,53 +2152,126 @@ body.is-resizing {
 .markdown-body h1,
 .markdown-body h2,
 .markdown-body h3,
-.markdown-body h4 {
-  margin: 10px 0 6px;
-  color: #34434c;
-  font-size: calc(12px * var(--font-scale));
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 20px 0 10px;
+  color: #263740;
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.35;
+}
+.markdown-body > :first-child {
+  margin-top: 0;
 }
 .markdown-body h1 {
-  font-size: calc(14px * var(--font-scale));
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: calc(21px * var(--font-scale));
 }
 .markdown-body h2 {
-  font-size: calc(13px * var(--font-scale));
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: calc(17px * var(--font-scale));
+}
+.markdown-body h3 {
+  font-size: calc(15px * var(--font-scale));
+}
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  font-size: calc(13.5px * var(--font-scale));
 }
 .markdown-body p {
-  margin: 6px 0;
+  margin: 10px 0;
+}
+.markdown-body ul,
+.markdown-body ol {
+  margin: 10px 0;
+  padding-left: 24px;
 }
 .markdown-body ul {
-  margin: 6px 0;
-  padding-left: 18px;
   list-style: disc;
 }
+.markdown-body ol {
+  list-style: decimal;
+}
 .markdown-body li {
-  margin: 3px 0;
+  margin: 4px 0;
+}
+.markdown-body li > ul,
+.markdown-body li > ol {
+  margin: 4px 0;
 }
 .markdown-body code {
-  padding: 1px 4px;
-  color: var(--text-secondary);
-  background: #eef2f3;
-  border-radius: 3px;
+  padding: 2px 5px;
+  color: var(--accent-strong);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-subtle);
   font-family: "DM Mono", monospace;
-  font-size: calc(9px * var(--font-scale));
+  font-size: calc(12px * var(--font-scale));
 }
 .markdown-body pre {
-  margin: 8px 0;
-  padding: 9px;
+  margin: 12px 0;
+  padding: 12px 14px;
   overflow: auto;
-  background: #f0f4f5;
-  border-radius: 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  line-height: 1.6;
 }
 .markdown-body pre code {
   padding: 0;
+  color: var(--text-body);
+  border: 0;
   background: transparent;
+  font-size: calc(12px * var(--font-scale));
 }
 .markdown-body a {
   color: var(--accent-strong);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
+.markdown-body a:hover {
+  color: var(--accent);
+}
+.markdown-body blockquote {
+  margin: 12px 0;
+  padding: 4px 14px;
+  color: var(--text-secondary);
+  border-left: 3px solid var(--border-accent);
+  background: var(--bg-accent-soft);
+}
+.markdown-body hr {
+  margin: 18px 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.markdown-body table {
+  width: 100%;
+  margin: 12px 0;
+  border-collapse: collapse;
+  font-size: calc(12px * var(--font-scale));
+}
+.markdown-body th,
+.markdown-body td {
+  padding: 7px 10px;
+  border: 1px solid var(--border-subtle);
+  text-align: left;
+}
+.markdown-body th {
+  background: var(--bg-subtle);
+  font-weight: 600;
+}
+.markdown-body tr:nth-child(even) td {
+  background: var(--bg-muted);
+}
+
 .setting-row {
   display: flex;
   align-items: center;
@@ -3127,4 +3205,115 @@ body.is-resizing {
   margin: 10px 0 0;
   color: var(--text-tertiary);
   font-size: calc(12px * var(--font-scale));
+}
+
+/* README 标题行的右侧操作区：文件名 + 放大阅读 */
+.readme-heading-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 相对路径图片的占位：桌面端没有 web 基址，渲染出来必然是裂图 */
+.md-image-placeholder {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  color: var(--text-tertiary);
+  border: 1px dashed var(--border-default);
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  font-size: calc(11px * var(--font-scale));
+}
+
+/* ---- README 全屏阅读层 ---- */
+.readme-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(21, 35, 43, 0.44);
+  backdrop-filter: blur(2px);
+}
+
+.readme-overlay-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(1040px, 100%);
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: 0 24px 60px rgba(21, 35, 43, 0.3);
+}
+
+.readme-overlay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+}
+
+.readme-overlay-head > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.readme-overlay-head span {
+  overflow: hidden;
+  color: #263740;
+  font-size: calc(13px * var(--font-scale));
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.readme-overlay-head small {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-size: calc(10px * var(--font-scale));
+}
+
+.readme-overlay-body {
+  /* 正文比卡片内大一号；行宽限到 860px——全宽铺满一行上百字符反而更难读 */
+  flex: 1;
+  width: 100%;
+  max-width: 860px;
+  min-height: 0;
+  margin: 0 auto;
+  padding: 26px 30px 40px;
+  overflow: auto;
+  color: var(--text-body);
+  font-size: calc(15px * var(--font-scale));
+  line-height: 1.8;
+}
+
+/* 正文字号放大后，标题层级要按同一比例上调，否则层级感被压平 */
+.readme-overlay-body h1 {
+  font-size: calc(26px * var(--font-scale));
+}
+.readme-overlay-body h2 {
+  font-size: calc(21px * var(--font-scale));
+}
+.readme-overlay-body h3 {
+  font-size: calc(17px * var(--font-scale));
+}
+.readme-overlay-body h4,
+.readme-overlay-body h5,
+.readme-overlay-body h6 {
+  font-size: calc(15px * var(--font-scale));
+}
+.readme-overlay-body code,
+.readme-overlay-body pre code,
+.readme-overlay-body table {
+  font-size: calc(13px * var(--font-scale));
 }

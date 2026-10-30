@@ -18,6 +18,7 @@ import {
   GitCommitHorizontal,
   Github,
   LayoutDashboard,
+  Maximize2,
   PenLine,
   Plus,
   RefreshCw,
@@ -33,6 +34,9 @@ import { renderMarkdownSafe } from "../lib/markdown";
 import { formatBytes } from "../lib/format";
 import { AnalysisMetric, DetailStat, GitOperationButton } from "./common";
 import { GitActionsPanel } from "./GitActionsPanel";
+import { ReadmeOverlay } from "./ReadmeOverlay";
+import type { ReadmeState } from "../hooks/useReadme";
+import { useReadme } from "../hooks/useReadme";
 
 type DetailTabId = "overview" | "readme" | "git";
 
@@ -73,6 +77,14 @@ export function ProjectDetail({
   const [tab, setTab] = useState<DetailTabId>("overview");
   // 已访问过的分区：首次访问才挂载，之后保持挂载，避免 README 反复读盘
   const [visitedTabs, setVisitedTabs] = useState<Set<DetailTabId>>(() => new Set(["overview"]));
+
+  const readme = useReadme(project.path);
+  const [readmeExpanded, setReadmeExpanded] = useState(false);
+
+  // 换项目时收起全屏阅读层，避免读到上一个项目的文档
+  useEffect(() => {
+    setReadmeExpanded(false);
+  }, [project.id]);
 
   // 换项目时回到概览：否则从 A 的 Git 页切到 B 会直接落在 B 的 Git 页
   useEffect(() => {
@@ -426,7 +438,9 @@ export function ProjectDetail({
       </div>
 
       <div className="detail-tab-panel" hidden={tab !== "readme"}>
-        {visitedTabs.has("readme") && <ReadmeSection projectPath={project.path} />}
+        {visitedTabs.has("readme") && (
+          <ReadmeSection readme={readme} onExpand={() => setReadmeExpanded(true)} />
+        )}
       </div>
 
       <div className="detail-tab-panel" hidden={tab !== "git"}>
@@ -492,6 +506,14 @@ export function ProjectDetail({
           </>
         )}
       </div>
+
+      {readmeExpanded && (
+        <ReadmeOverlay
+          readme={readme}
+          projectName={project.alias || project.name}
+          onClose={() => setReadmeExpanded(false)}
+        />
+      )}
     </aside>
   );
 }
@@ -598,36 +620,8 @@ export function TagEditor({ tags, onAdd }: { tags: string[]; onAdd: (tag: string
   );
 }
 
-export function ReadmeSection({ projectPath }: { projectPath: string }) {
-  const [state, setState] = useState<{ found: boolean; content: string; fileName: string } | null>(
-    null,
-  );
-  const [loading, setLoading] = useState(false);
-  const bridge = getDesktopBridge();
-
-  useEffect(() => {
-    let cancelled = false;
-    setState(null);
-    if (!bridge) return;
-    setLoading(true);
-    void bridge
-      .readProjectReadme(projectPath)
-      .then((result) => {
-        if (!cancelled) setState(result);
-      })
-      .catch(() => {
-        if (!cancelled) setState({ found: false, content: "", fileName: "" });
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectPath]);
-
-  if (loading) {
+export function ReadmeSection({ readme, onExpand }: { readme: ReadmeState; onExpand: () => void }) {
+  if (readme.status === "loading") {
     return (
       <div className="detail-section readme-section">
         <div className="detail-section-heading">
@@ -637,9 +631,9 @@ export function ReadmeSection({ projectPath }: { projectPath: string }) {
       </div>
     );
   }
-  // 现在 README 独占一个选项卡，找不到时要给明确提示，
+  // README 独占一个选项卡，找不到时要给明确提示，
   // 否则用户切过去只看到一片空白，会以为是加载失败。
-  if (!state?.found || !state.content.trim()) {
+  if (readme.status === "missing") {
     return (
       <div className="detail-section readme-section">
         <div className="detail-section-heading">
@@ -653,11 +647,16 @@ export function ReadmeSection({ projectPath }: { projectPath: string }) {
     <div className="detail-section readme-section">
       <div className="detail-section-heading">
         <span>README</span>
-        <small>{state.fileName}</small>
+        <div className="readme-heading-actions">
+          <small>{readme.fileName}</small>
+          <button className="bare-button" onClick={onExpand} aria-label="放大阅读" title="放大阅读">
+            <Maximize2 size={14} />
+          </button>
+        </div>
       </div>
       <div
         className="readme-body markdown-body"
-        dangerouslySetInnerHTML={{ __html: renderMarkdownSafe(state.content) }}
+        dangerouslySetInnerHTML={{ __html: renderMarkdownSafe(readme.content) }}
       />
     </div>
   );
