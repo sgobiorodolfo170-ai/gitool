@@ -3071,3 +3071,60 @@ body.is-resizing {
 .sidebar-version-checking {
   color: var(--accent-light);
 }
+
+/* 详情卡片分区选项卡：概览 / README / Git 操作 */
+.detail-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 4px 0 15px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.detail-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.detail-tab:hover {
+  color: var(--accent-strong);
+}
+
+.detail-tab.active {
+  color: var(--accent-strong);
+  border-bottom-color: var(--accent);
+}
+
+/* 有未读的 Git 输出时在 tab 上打个小圆点，避免切走后错过结果 */
+.detail-tab-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* hidden 属性默认 display:none，这里显式声明以免被面板的布局规则覆盖 */
+.detail-tab-panel[hidden] {
+  display: none;
+}
+
+/* 面板内的首个区块不需要再留顶部间距（tab 条已提供分隔） */
+.detail-tab-panel > .detail-summary:first-child {
+  margin-top: 0;
+}
+
+.detail-empty-hint {
+  margin: 10px 0 0;
+  color: var(--text-tertiary);
+  font-size: calc(12px * var(--font-scale));
+}

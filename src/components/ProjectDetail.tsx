@@ -6,6 +6,7 @@ import {
   ArrowDownToLine,
   ArrowUpRight,
   Blocks,
+  BookOpen,
   Check,
   Clock3,
   Cloud,
@@ -16,6 +17,7 @@ import {
   GitBranch,
   GitCommitHorizontal,
   Github,
+  LayoutDashboard,
   PenLine,
   Plus,
   RefreshCw,
@@ -31,6 +33,15 @@ import { renderMarkdownSafe } from "../lib/markdown";
 import { formatBytes } from "../lib/format";
 import { AnalysisMetric, DetailStat, GitOperationButton } from "./common";
 import { GitActionsPanel } from "./GitActionsPanel";
+
+type DetailTabId = "overview" | "readme" | "git";
+
+/** 详情卡片的分区。新增分区时只需在这里加一项，并在下面加对应的面板。 */
+const DETAIL_TABS: { id: DetailTabId; label: string; icon: typeof Github }[] = [
+  { id: "overview", label: "概览", icon: LayoutDashboard },
+  { id: "readme", label: "README", icon: BookOpen },
+  { id: "git", label: "Git 操作", icon: TerminalSquare },
+];
 
 export function ProjectDetail({
   project,
@@ -59,6 +70,20 @@ export function ProjectDetail({
   const ProviderIcon = providerIcons[project.provider];
   const bridge = getDesktopBridge();
   const [actionMessage, setActionMessage] = useState("");
+  const [tab, setTab] = useState<DetailTabId>("overview");
+  // 已访问过的分区：首次访问才挂载，之后保持挂载，避免 README 反复读盘
+  const [visitedTabs, setVisitedTabs] = useState<Set<DetailTabId>>(() => new Set(["overview"]));
+
+  // 换项目时回到概览：否则从 A 的 Git 页切到 B 会直接落在 B 的 Git 页
+  useEffect(() => {
+    setTab("overview");
+    setVisitedTabs(new Set(["overview"]));
+  }, [project.id]);
+
+  const selectTab = (id: DetailTabId) => {
+    setTab(id);
+    setVisitedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  };
 
   const runOpen = (editor: "vscode" | "cursor", newWindow: boolean) => {
     if (!bridge) {
@@ -273,151 +298,200 @@ export function ProjectDetail({
           {project.updatedAt}
         </span>
       </div>
-      <p className="detail-summary">{project.summary}</p>
-      <div className="detail-tags">
-        {project.tags.map((tag) => (
-          <span className="tag" key={tag}>
-            <Tag size={11} />
-            {tag}
-            <button
-              className="tag-remove"
-              aria-label={`删除标签 ${tag}`}
-              onClick={() => onUpdateProject({ tags: project.tags.filter((item) => item !== tag) })}
-            >
-              <X size={9} />
-            </button>
-          </span>
-        ))}
-        <TagEditor
-          tags={project.tags}
-          onAdd={(tag) => onUpdateProject({ tags: [...project.tags, tag] })}
-        />
-      </div>
-      <div className="detail-actions">
-        <button
-          className="button primary wide"
-          onClick={() => onRunGitOperation("pull")}
-          disabled={activeOperation !== null}
-        >
-          <ArrowDownToLine size={15} />
-          {activeOperation === "pull" ? "拉取中..." : "拉取更新"}
-        </button>
-        <button
-          className="button secondary square"
-          onClick={() => onRunGitOperation("sync")}
-          disabled={activeOperation !== null}
-          aria-label="同步项目"
-        >
-          <RefreshCw size={17} className={activeOperation === "sync" ? "spin" : ""} />
-        </button>
-      </div>
-      <div className="git-operation-grid">
-        <GitOperationButton
-          operation="fetch"
-          activeOperation={activeOperation}
-          onRun={onRunGitOperation}
-          icon={<Cloud size={14} />}
-        />
-        <GitOperationButton
-          operation="push"
-          activeOperation={activeOperation}
-          onRun={onRunGitOperation}
-          icon={<ArrowUpRight size={14} />}
-        />
-        <GitOperationButton
-          operation="sync"
-          activeOperation={activeOperation}
-          onRun={onRunGitOperation}
-          icon={<RefreshCw size={14} />}
-        />
-      </div>
-      {operationOutput && (
-        <div className="operation-output">
-          <div>
-            <span>最近一次 Git 输出</span>
-            <button
-              className="bare-button"
-              onClick={() => onRunGitOperation("fetch")}
-              aria-label="重新获取远程更新"
-            >
-              <RefreshCw size={13} />
-            </button>
-          </div>
-          <pre>{operationOutput}</pre>
-        </div>
-      )}
-      <div className="detail-section">
-        <div className="detail-section-heading">
-          <span>项目概览</span>
+      <nav className="detail-tabs" aria-label="项目详情分区">
+        {DETAIL_TABS.map((item) => (
           <button
-            className="bare-button"
-            onClick={openFolder}
-            aria-label="在资源管理器中打开"
-            title="在资源管理器中打开"
+            key={item.id}
+            aria-pressed={tab === item.id}
+            className={`detail-tab ${tab === item.id ? "active" : ""}`}
+            onClick={() => selectTab(item.id)}
           >
-            <ExternalLink size={14} />
+            <item.icon size={14} />
+            {item.label}
+            {item.id === "git" && operationOutput && <span className="detail-tab-dot" />}
           </button>
-        </div>
-        <div className="detail-stats">
-          <DetailStat icon={<GitBranch size={14} />} label="当前分支" value={project.branch} />
-          <DetailStat
-            icon={<GitCommitHorizontal size={14} />}
-            label="最近提交"
-            value={project.commit}
-          />
-          <DetailStat icon={<FileCode2 size={14} />} label="文件数量" value={`${project.files}`} />
-        </div>
-      </div>
-      <ReadmeSection projectPath={project.path} />
-      <div className="detail-section">
-        <div className="detail-section-heading">
-          <span>快捷入口</span>
-        </div>
-        <div className="quick-links">
-          <button onClick={openTerminal}>
-            <TerminalSquare size={15} />
-            打开终端
-            <ArrowUpRight size={13} />
-          </button>
-          <button onClick={() => runOpen("vscode", false)}>
-            <Code2 size={15} />
-            VS Code
-            <ArrowUpRight size={13} />
-          </button>
-          <button onClick={() => runOpen("cursor", false)}>
-            <Blocks size={15} />
-            Cursor
-            <ArrowUpRight size={13} />
-          </button>
-          <button onClick={copyPath}>
-            <FileCode2 size={15} />
-            复制路径
-            <ArrowUpRight size={13} />
-          </button>
-          <button onClick={onAnalyzeProject} disabled={isAnalyzing}>
-            <Blocks size={15} />
-            {isAnalyzing ? "分析中..." : "结构分析"}
-            <ArrowUpRight size={13} />
-          </button>
-          <button onClick={generateSummary}>
-            <Sparkles size={15} />
-            生成摘要
-            <ArrowUpRight size={13} />
-          </button>
-          <button onClick={onMoveProject}>
-            <FolderGit2 size={15} />
-            移动项目
-            <ArrowUpRight size={13} />
-          </button>
-        </div>
-        {actionMessage && (
-          <div className="git-output">
-            <pre>{actionMessage}</pre>
-          </div>
+        ))}
+      </nav>
+
+      {/* 面板首次访问后才挂载，之后保持挂载：README 不会每次切回都重新读盘，
+          Git 操作的历史输出也不会因为切页而丢失。 */}
+      <div className="detail-tab-panel" hidden={tab !== "overview"}>
+        {visitedTabs.has("overview") && (
+          <>
+            <p className="detail-summary">{project.summary}</p>
+            <div className="detail-tags">
+              {project.tags.map((tag) => (
+                <span className="tag" key={tag}>
+                  <Tag size={11} />
+                  {tag}
+                  <button
+                    className="tag-remove"
+                    aria-label={`删除标签 ${tag}`}
+                    onClick={() =>
+                      onUpdateProject({ tags: project.tags.filter((item) => item !== tag) })
+                    }
+                  >
+                    <X size={9} />
+                  </button>
+                </span>
+              ))}
+              <TagEditor
+                tags={project.tags}
+                onAdd={(tag) => onUpdateProject({ tags: [...project.tags, tag] })}
+              />
+            </div>
+
+            <div className="detail-section">
+              <div className="detail-section-heading">
+                <span>项目概览</span>
+                <button
+                  className="bare-button"
+                  onClick={openFolder}
+                  aria-label="在资源管理器中打开"
+                  title="在资源管理器中打开"
+                >
+                  <ExternalLink size={14} />
+                </button>
+              </div>
+              <div className="detail-stats">
+                <DetailStat
+                  icon={<GitBranch size={14} />}
+                  label="当前分支"
+                  value={project.branch}
+                />
+                <DetailStat
+                  icon={<GitCommitHorizontal size={14} />}
+                  label="最近提交"
+                  value={project.commit}
+                />
+                <DetailStat
+                  icon={<FileCode2 size={14} />}
+                  label="文件数量"
+                  value={`${project.files}`}
+                />
+              </div>
+            </div>
+
+            <div className="detail-section">
+              <div className="detail-section-heading">
+                <span>快捷入口</span>
+              </div>
+              <div className="quick-links">
+                <button onClick={openTerminal}>
+                  <TerminalSquare size={15} />
+                  打开终端
+                  <ArrowUpRight size={13} />
+                </button>
+                <button onClick={() => runOpen("vscode", false)}>
+                  <Code2 size={15} />
+                  VS Code
+                  <ArrowUpRight size={13} />
+                </button>
+                <button onClick={() => runOpen("cursor", false)}>
+                  <Blocks size={15} />
+                  Cursor
+                  <ArrowUpRight size={13} />
+                </button>
+                <button onClick={copyPath}>
+                  <FileCode2 size={15} />
+                  复制路径
+                  <ArrowUpRight size={13} />
+                </button>
+                <button onClick={onAnalyzeProject} disabled={isAnalyzing}>
+                  <Blocks size={15} />
+                  {isAnalyzing ? "分析中..." : "结构分析"}
+                  <ArrowUpRight size={13} />
+                </button>
+                <button onClick={generateSummary}>
+                  <Sparkles size={15} />
+                  生成摘要
+                  <ArrowUpRight size={13} />
+                </button>
+                <button onClick={onMoveProject}>
+                  <FolderGit2 size={15} />
+                  移动项目
+                  <ArrowUpRight size={13} />
+                </button>
+              </div>
+              {actionMessage && (
+                <div className="git-output">
+                  <pre>{actionMessage}</pre>
+                </div>
+              )}
+            </div>
+
+            {analysis && <ProjectAnalysisPanel analysis={analysis} />}
+          </>
         )}
       </div>
-      {analysis && <ProjectAnalysisPanel analysis={analysis} />}
-      <GitActionsPanel projectPath={project.path} />
+
+      <div className="detail-tab-panel" hidden={tab !== "readme"}>
+        {visitedTabs.has("readme") && <ReadmeSection projectPath={project.path} />}
+      </div>
+
+      <div className="detail-tab-panel" hidden={tab !== "git"}>
+        {visitedTabs.has("git") && (
+          <>
+            <div className="detail-actions">
+              <button
+                className="button primary wide"
+                onClick={() => onRunGitOperation("pull")}
+                disabled={activeOperation !== null}
+              >
+                <ArrowDownToLine size={15} />
+                {activeOperation === "pull" ? "拉取中..." : "拉取更新"}
+              </button>
+              <button
+                className="button secondary square"
+                onClick={() => onRunGitOperation("sync")}
+                disabled={activeOperation !== null}
+                aria-label="同步项目"
+              >
+                <RefreshCw size={17} className={activeOperation === "sync" ? "spin" : ""} />
+              </button>
+            </div>
+
+            <div className="git-operation-grid">
+              <GitOperationButton
+                operation="fetch"
+                activeOperation={activeOperation}
+                onRun={onRunGitOperation}
+                icon={<Cloud size={14} />}
+              />
+              <GitOperationButton
+                operation="push"
+                activeOperation={activeOperation}
+                onRun={onRunGitOperation}
+                icon={<ArrowUpRight size={14} />}
+              />
+              <GitOperationButton
+                operation="sync"
+                activeOperation={activeOperation}
+                onRun={onRunGitOperation}
+                icon={<RefreshCw size={14} />}
+              />
+            </div>
+
+            {operationOutput && (
+              <div className="operation-output">
+                <div>
+                  <span>最近一次 Git 输出</span>
+                  <button
+                    className="bare-button"
+                    onClick={() => onRunGitOperation("fetch")}
+                    aria-label="重新获取远程更新"
+                  >
+                    <RefreshCw size={13} />
+                  </button>
+                </div>
+                <pre>{operationOutput}</pre>
+              </div>
+            )}
+
+            <GitActionsPanel projectPath={project.path} />
+          </>
+        )}
+      </div>
     </aside>
   );
 }
@@ -563,8 +637,17 @@ export function ReadmeSection({ projectPath }: { projectPath: string }) {
       </div>
     );
   }
+  // 现在 README 独占一个选项卡，找不到时要给明确提示，
+  // 否则用户切过去只看到一片空白，会以为是加载失败。
   if (!state?.found || !state.content.trim()) {
-    return null;
+    return (
+      <div className="detail-section readme-section">
+        <div className="detail-section-heading">
+          <span>README</span>
+        </div>
+        <p className="detail-empty-hint">该项目没有 README 文件。</p>
+      </div>
+    );
   }
   return (
     <div className="detail-section readme-section">
