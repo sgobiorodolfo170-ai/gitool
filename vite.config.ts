@@ -101,6 +101,11 @@ export default defineConfig(({ mode }) => {
       // 显式绑 IPv4：Windows 上 localhost 默认解析到 ::1，
       // 只监听 IPv6 会让 127.0.0.1 的访问（含部分调试工具）连不上。
       host: "127.0.0.1",
+      watch: {
+        // 排除项目数据目录。vite 会把根目录下新出现的 .html 当成入口并触发
+        // page reload —— 在这里生成一个预览页就会把正在运行的窗口刷掉。
+        ignored: ["**/.workbuddy-ai/**"],
+      },
     },
   };
 });
