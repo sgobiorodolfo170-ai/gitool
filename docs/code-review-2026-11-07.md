@@ -67,7 +67,7 @@
 - ⬜ 超长组件拆分：GitActionsPanel（759 行/19 useState，按 tab 拆）、SettingsWorkspace（698 行内嵌 4 组件）、ProjectDetail（713 行）、TasksWorkspace（603 行）。
 - ✅ v0.7.4 `App.tsx` 编排下沉（治理轮-3）：新增 Workspace 级 ProjectsPage 承接筛选域（filter/search/tagFilter + 派生列表）与 Git 操作域（useGitOperations + operationOutput/analysis）；ProjectsWorkspace 28 个 props 收敛为 projectsApi/filterDomain/importDomain/gitDomain 四个领域对象；项目列表与选中项留 App（总览/侧栏徽标/任务备份下拉/克隆导入跳转跨页消费）。gitBusyRef 全局互斥改模块级单例，页面卸载重挂不再重置（P1-7 语义保持）。
 - ✅ v0.7.1–v0.7.3 重复代码（治理轮-3）：新增 useAsyncData（加载 + 轮询 + 卸载取消 + 错误兜底，零依赖核心 createAsyncDataCore 配 10 个单测），四个 Workspace 的 `load()` 模板迁移并补上原先缺失的错误提示（不再 unhandled rejection 静默失败）；本地 toast 4 处删除，统一走全局 useNotice（`errorMessage()`/`assertDirectory` 已于 v0.6.6 下沉）。
-- ⬜ 远程匹配逻辑三处口径不一（`lib/projectMatch.ts` vs 两处 `provider:name` 键）。
+- ✅ v0.7.5 远程匹配口径统一（治理轮-4①）：`remoteMatchKeys` 抽入 `lib/projectMatch.ts`（name 键恒有、web 键有 webUrl 才有，「键集合交集非空」与 remoteProjectMatch 语义严格等价），RemoteRepositoriesWorkspace 星标/关注键与 RemoteRepositorySearch 收藏键改由同一函数产键——原三处手写 `provider:name`，克隆后本地目录改名/平台仓库改名时 webUrl 匹配但键失配，星标图标丢失；同名不同 owner 的退化取舍保持并单测锁定（含 72 组合等价性矩阵）。顺路登记：`useRemotes.ts` cloneRemoteRepository 的 favoriteStub 匹配用裸 `webUrl ===` 比较（webUrl 双缺时 `undefined === undefined` 可能误配他仓库占位记录），属同族第四处口径，实际风险低（平台 API 恒返回 webUrl），留待后续轮次随匹配语义一起收敛。
 - ⬜ 内联色值（TasksWorkspace 等）收入 styles.css token 体系。
 
 **收尾补录（第二轮修复）**
@@ -78,7 +78,7 @@
 **工程流程**
 - ✅ v0.6.0 覆盖率度量与门禁落地（纯函数层 95/85/90/95，CI 已接入）；✅ v0.7.0 storage 域纳入门槛（database 基座 + 7 个域模块；accounts 因写真实凭据管理器暂缓，进度见 vitest.config.ts 注释）。
 - ✅ 2026-11-07 已按第五条款补适配记录块与「适配标记」列（无架构性变更）。
-- ⬜ `electron-builder.yml` files 显式含 `node_modules/**/*`，建议跑一次 `npm run dist` 核对安装包体积是否混入 devDependencies（CI 未覆盖 dist 环节）。
+- ✅ v0.7.6 `electron-builder.yml` 冗余 `node_modules/**/*` 移除（治理轮-4②，npm run dist 实测，CI 未覆盖 dist 环节仍为观察项）：electron-builder 26.15.3 无论规则写不写都用自带生产依赖收集器（日志 `searching for node modules pm=npm`）只拷 dependencies。基线（含该行）与移除后两次打包 asar 内容 4484 条目逐条一致（diff 为空）、app.asar 均为 39,847,595 B，安装包 115,957,222 B vs 115,957,152 B（差 70 B，NSIS 时间戳噪声）；asar 内 node_modules 顶层 13 个 scope/包（14 包）与 `npm ls --omit=dev` 生产依赖树完全一致，12 类 devDependencies（typescript/vite/vitest/electron/electron-builder/prettier/@types/*/@vitejs/@vitest）零混入。验证产物留在本地 release-verify/ 与 release-verify-nm/（因运行中的 Gitool.exe 锁定 release/win-unpacked，经 `-c.directories.output` 覆写输出，未杀用户进程），可整目录删除。
 
 ## 修复轮次记录
 
@@ -108,8 +108,10 @@
 | v0.7.2 | load() 模板迁移（治理轮-3②） | `refactor(ui): 四个 Workspace 的 load() 模板迁移 useAsyncData` |
 | v0.7.3 | Toast 双轨统一（治理轮-3③） | `refactor(ui): Toast 双轨统一——四个 Workspace 本地 notice 收敛全局 showNotice` |
 | v0.7.4 | App 编排下沉（治理轮-3④） | `refactor(ui): App 编排下沉——ProjectsPage 承接筛选域与 Git 操作域，props 收敛为领域对象` |
+| v0.7.5 | 远程匹配口径统一（治理轮-4①） | `fix(remotes): 远程匹配口径统一——星标/关注/收藏键与 remoteProjectMatch 同源` |
+| v0.7.6 | electron-builder 冗余规则移除 + dist 实测（治理轮-4②） | `build(builder): 移除 electron-builder 冗余 node_modules 规则（dist 实测验证）` |
 
-> 验证基线：v0.6.16 时 typecheck ✓、142 单测 ✓、覆盖率门禁 ✓、生产构建 ✓（每笔拆分提交前三门禁均独立跑绿）；v0.7.0 时 typecheck ✓、179 单测 ✓、覆盖率 96.1/89.5/95.7/96.2 ✓、生产构建 ✓；v0.7.4 时 typecheck ✓、189 单测 ✓、覆盖率 96.14/89.49/95.65/96.23 ✓、生产构建 ✓（治理轮-3 每笔提交前三门禁均独立跑绿）。
+> 验证基线：v0.6.16 时 typecheck ✓、142 单测 ✓、覆盖率门禁 ✓、生产构建 ✓（每笔拆分提交前三门禁均独立跑绿）；v0.7.0 时 typecheck ✓、179 单测 ✓、覆盖率 96.1/89.5/95.7/96.2 ✓、生产构建 ✓；v0.7.4 时 typecheck ✓、189 单测 ✓、覆盖率 96.14/89.49/95.65/96.23 ✓、生产构建 ✓（治理轮-3 每笔提交前三门禁均独立跑绿）；v0.7.5 时 typecheck ✓、197 单测 ✓、覆盖率 96.19/89.31/95.74/96.26 ✓（projectMatch.ts 100%）、生产构建 ✓；v0.7.6 仅改 electron-builder.yml/docs/版本号（代码零改动），构建系统验证由两次 npm run dist 实测承载。
 >
 > **治理轮-2 组件拆分（v0.6.11–v0.6.16）**：四个超长组件全部拆分完毕——
 > - GitActionsPanel 805 行 → 壳 227 行 + git/ 目录 6 文件（tab 数据与 loading 下放子组件，per-kind 序号守卫随迁为 useLoadSequence；挂载沿用 visitedTabs 惰性挂载范式保证切 tab 保留数据；跨 tab 历史联动经 registerReload 登记，未挂载时兜底拉取角标计数）
@@ -132,4 +134,10 @@
 >
 > **治理轮-3 顺路登记（未修，留后续轮次）**：Tasks 的 deleteProfile、Logs 的 clear 等非加载写路径仍无 try/catch（失败为 unhandled rejection 且无提示），待随 useAsyncData 错误出口的推广补齐；src/ 下 6 文件（OverviewPanel/ChangesTab/GitActionsPanel/EnvironmentTab/TaskForm/TaskProfilesList）存在治理轮-2 遗留的 prettier 格式偏差（format:check 非 CI 门禁，未阻断）。
 >
-> **仍遗留（大拆分类，留待独立轮次）**：远程匹配三处口径统一；`npm run dist` 安装包体积验证；accounts 域凭据层可注入后补齐 upsert/delete 测试并纳入门槛。
+> **治理轮-4 匹配统一 + 发布验证（v0.7.5–v0.7.6）**：
+> - 匹配统一机制：remoteProjectMatch 的语义（webUrl 相等 ∨ 平台+名称相等）与「候选键集合交集非空」严格等价——`remoteMatchKeys()` 产键（name 键恒有、web 键有 webUrl 才有），remoteProjectMatch 改为基于键实现，语义只在 projectMatch.ts 一处定义；UI 两处（星标/关注/收藏 Set 构建 + 仓库键查询）与 useRemotes 的 toggle/clone 匹配全部走同一事实源，机制上不再漂移。键集合是 useMemo 运行时产物不落盘，改键格式（`provider:name` → `name:provider:name` + `web:url` 前缀防互撞）无迁移负担。
+> - 统一后 UI 行为变化：克隆后本地目录改名/平台仓库改名（name ≠ repository.name 且 webUrl 相等）场景，星标/关注/收藏图标由「丢失」修复为「点亮」；同名不同 owner 的退化误匹配为注释明示的既有取舍，三处一致保持并由单测锁定（未升级为 owner 精确匹配——那是对事实源语义的变更，不在本轮「统一」范围内，如需升级须单独评估 webUrl 双有时的严格化方案）。alias 仅展示用，本就不参与匹配。
+> - dist 实测（electron-builder 26.15.3，win x64，electron 44.4.3）：安装包 110.6 MB（115,957,222 B）、app.asar 38.0 MB（39,847,595 B、4484 条目）；asar 内 node_modules 与 `npm ls --omit=dev` 生产依赖树（14 包）完全一致，devDependencies 零混入；移除显式 `node_modules/**/*` 规则后两次打包 asar 逐条 diff 一致，冗余实锤后移除并在 yml 注释留痕防回退。CI 不覆盖 dist 环节——本次为一次性人工验证，登记为观察项（如需持续防回归，可在 CI 加 asar 清单抽查，未实施）。
+> - 验证过程登记：运行中的 4 个 Gitool.exe 进程锁定 release/win-unpacked（EBUSY），未杀用户进程，经 `-c.directories.output=release-verify*/` 覆写输出完成两次实测；产物仅存本地未上传未发布。
+>
+> **仍遗留（留待独立轮次）**：accounts 域凭据层可注入后补齐 upsert/delete 测试并纳入门槛（治理轮-4 后唯一剩余项）；GitActionsPanel 切项目时部分视图状态不清空（治理轮-2 顺路登记项）；Tasks/Logs 非加载写路径无 try/catch（治理轮-3 顺路登记项）；useRemotes favoriteStub 裸 webUrl 比较（治理轮-4 顺路登记项）；src/ 下 6 文件 prettier 格式偏差（非门禁）。

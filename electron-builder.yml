@@ -9,7 +9,9 @@ directories:
 files:
   - dist/**/*
   - dist-electron/**/*
-  - node_modules/**/*
+  # node_modules 不列出：electron-builder 始终用自带生产依赖收集器只拷
+  # dependencies。v0.7.6 实测（npm run dist）：显式列出与否 asar 内容逐条
+  # 一致（4484 条目）、devDependencies 零混入，此行纯属冗余，勿加回。
   - package.json
   - build/icon.png
 
