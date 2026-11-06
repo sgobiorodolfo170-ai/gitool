@@ -1,11 +1,29 @@
 import { useEffect, useRef, useState } from "react";
-import { changeStatusMeta } from "../lib/meta";
-import { CircleAlert, GitBranch, GitCommitHorizontal, RefreshCw, X } from "lucide-react";
-import type { BranchInfo, ChangeFile, CommitEntry, GitTag } from "../types";
+import { GitBranch, RefreshCw } from "lucide-react";
 import { getDesktopBridge } from "../lib/bridge";
+import { ChangesTab } from "./git/ChangesTab";
+import { BranchesTab } from "./git/BranchesTab";
+import { HistoryTab } from "./git/HistoryTab";
+import { TagsTab } from "./git/TagsTab";
 
-import { formatCommitDate, formatDayGroup } from "../lib/format";
+type GitTabId = "changes" | "branches" | "history" | "tags";
 
+/**
+ * Git 操作面板（提交、分支、历史、标签与远程）。
+ *
+ * 为什么这么拆：面板只保留跨 tab 共享的状态——激活 tab、写操作 busy、共享输出区、
+ * 远程地址编辑器；各 tab 的数据与 loading 由 ChangesTab/BranchesTab/HistoryTab/TagsTab
+ * 自持（序号守卫随迁），projectPath/bridge/busy/互斥 isBusy 经 props 下发。
+ *
+ * 挂载策略沿用 ProjectDetail 的 visitedTabs 范式：首次访问才挂载，之后保持挂载、
+ * 以 hidden 隐藏——切 tab 时保留已加载数据，且每次激活仍会重载（等价原实现
+ * refreshActive 的 [projectPath, tab] 副作用）；头部刷新按钮通过 refreshSeq
+ * 递增序号通知「激活中的 tab」重载。
+ *
+ * 跨 tab 联动（提交/切分支成功后刷新历史）：历史数据归 HistoryTab 所有，面板
+ * 通过 registerReload 登记的重载入口触发；历史页从未挂载时兜底拉取一次历史
+ * 以更新角标计数，保持旧行为（角标无需访问过历史页也会刷新）。
+ */
 export function GitActionsPanel({
   projectPath,
   externalBusy = false,
@@ -14,139 +32,58 @@ export function GitActionsPanel({
   /** Git 操作全局互斥（单个/批量操作执行中）：禁用本面板全部写操作按钮。 */
   externalBusy?: boolean;
 }) {
-  const [changedFiles, setChangedFiles] = useState<ChangeFile[]>([]);
-  const [branches, setBranches] = useState<BranchInfo[]>([]);
-  const [history, setHistory] = useState<CommitEntry[]>([]);
-  const [commitMessage, setCommitMessage] = useState("");
-  const [tab, setTab] = useState<"changes" | "branches" | "history" | "tags">("changes");
-  const [loading, setLoading] = useState(false);
+  const bridge = getDesktopBridge();
+  const [tab, setTab] = useState<GitTabId>("changes");
+  // 已访问过的 tab：首次访问才挂载，之后保持挂载（hidden 隐藏），切回不丢数据
+  const [visitedTabs, setVisitedTabs] = useState<Set<GitTabId>>(() => new Set(["changes"]));
   const [busy, setBusy] = useState(false);
   const [output, setOutput] = useState("");
-  const [newBranchName, setNewBranchName] = useState("");
-  const [diffFor, setDiffFor] = useState<string | null>(null);
-  const [diffText, setDiffText] = useState("");
-  const [tags, setTags] = useState<GitTag[]>([]);
-  const [newTagName, setNewTagName] = useState("");
-  const [newTagMessage, setNewTagMessage] = useState("");
   const [remoteUrl, setRemoteUrl] = useState("");
   const [showRemoteEditor, setShowRemoteEditor] = useState(false);
-  const [compareBase, setCompareBase] = useState("");
-  const [compareHead, setCompareHead] = useState("");
-  const [compareResult, setCompareResult] = useState<{
-    changedFiles: string[];
-    insertions: number;
-    deletions: number;
-    output: string;
-  } | null>(null);
-  const [timelineMode, setTimelineMode] = useState(false);
-  const [allBranches, setAllBranches] = useState<BranchInfo[]>([]);
-  const [allTags, setAllTags] = useState<GitTag[]>([]);
-
-  const bridge = getDesktopBridge();
+  const [refreshSeq, setRefreshSeq] = useState(0);
+  // 头部刷新按钮旋转态：镜像「正在加载数据的一方」（激活 tab 上报，或历史页
+  // 未挂载时的兜底计数请求）。原实现为单一共享 loading 变量，此处语义等价。
+  const [loading, setLoading] = useState(false);
+  // tab 角标计数：数据归各 tab 所有，加载后上报上来
+  const [changedCount, setChangedCount] = useState(0);
+  const [historyCount, setHistoryCount] = useState(0);
+  const [tagsCount, setTagsCount] = useState(0);
   // 面板级互斥：本地 busy（写操作进行中）或全局 externalBusy（单个/批量 Git 操作）。
   const isBusy = busy || externalBusy;
-  // 每类数据的加载序号：快速切 tab / 连点文件时，慢的旧请求后返回不得覆盖
-  // 新数据、不得抢走共享 loading 状态（2026-11-07 审查 P1-8）。
-  const loadSeqRef = useRef<Record<string, number>>({});
-  const beginLoad = (kind: string): number => {
-    const seq = (loadSeqRef.current[kind] ?? 0) + 1;
-    loadSeqRef.current[kind] = seq;
-    return seq;
-  };
-  const isStaleLoad = (kind: string, seq: number): boolean => loadSeqRef.current[kind] !== seq;
+  // HistoryTab 登记的「仅重载历史」入口；未挂载时为 null
+  const historyReloadRef = useRef<(() => void | Promise<void>) | null>(null);
 
-  const loadDiff = async (filePath: string) => {
+  // 历史页未挂载时的角标兜底：提交/切分支成功后拉取历史只为了刷新计数
+  // （与原实现 loadHistory 的成功/失败路径一致：失败记 0，loading 照常起落）
+  const refreshHistoryCount = async () => {
     if (!bridge) return;
-    const seq = beginLoad("diff");
-    setDiffFor(filePath);
-    setDiffText("正在读取差异...");
-    try {
-      const text = await bridge.getFileDiff({ path: projectPath, file: filePath });
-      if (isStaleLoad("diff", seq)) return;
-      setDiffText(text);
-    } catch (error) {
-      if (isStaleLoad("diff", seq)) return;
-      setDiffText(error instanceof Error ? error.message : "读取差异失败");
-    }
-  };
-
-  const loadChangedFiles = async () => {
-    if (!bridge) return;
-    const seq = beginLoad("changed");
-    setLoading(true);
-    try {
-      const files = await bridge.listChangedFiles(projectPath);
-      if (isStaleLoad("changed", seq)) return;
-      setChangedFiles(files);
-    } catch {
-      if (isStaleLoad("changed", seq)) return;
-      setChangedFiles([]);
-    } finally {
-      if (!isStaleLoad("changed", seq)) setLoading(false);
-    }
-  };
-
-  const loadBranches = async () => {
-    if (!bridge) return;
-    const seq = beginLoad("branches");
-    setLoading(true);
-    try {
-      const list = await bridge.listBranches(projectPath);
-      if (isStaleLoad("branches", seq)) return;
-      setBranches(list);
-    } catch {
-      if (isStaleLoad("branches", seq)) return;
-      setBranches([]);
-    } finally {
-      if (!isStaleLoad("branches", seq)) setLoading(false);
-    }
-  };
-
-  const loadHistory = async () => {
-    if (!bridge) return;
-    const seq = beginLoad("history");
     setLoading(true);
     try {
       const list = await bridge.listCommitHistory(projectPath);
-      if (isStaleLoad("history", seq)) return;
-      setHistory(list);
+      setHistoryCount(list.length);
     } catch {
-      if (isStaleLoad("history", seq)) return;
-      setHistory([]);
+      setHistoryCount(0);
     } finally {
-      if (!isStaleLoad("history", seq)) setLoading(false);
+      setLoading(false);
     }
   };
 
-  const loadTags = async () => {
-    if (!bridge) return;
-    const seq = beginLoad("tags");
-    setLoading(true);
-    try {
-      const list = await bridge.listTags(projectPath);
-      if (isStaleLoad("tags", seq)) return;
-      setTags(list);
-    } catch {
-      if (isStaleLoad("tags", seq)) return;
-      setTags([]);
-    } finally {
-      if (!isStaleLoad("tags", seq)) setLoading(false);
-    }
+  const reloadHistory = (): void | Promise<void> => {
+    const reload = historyReloadRef.current;
+    if (reload) return reload();
+    return refreshHistoryCount();
   };
 
-  const loadVersions = async () => {
-    if (!bridge) return;
-    const seq = beginLoad("versions");
-    try {
-      const versions = await bridge.listVersions(projectPath);
-      if (isStaleLoad("versions", seq)) return;
-      setAllBranches(versions.branches);
-      setAllTags(versions.tags);
-    } catch {
-      if (isStaleLoad("versions", seq)) return;
-      setAllBranches([]);
-      setAllTags([]);
-    }
+  // 换项目时重置角标计数；挂载中的 tab 自行清数据并在激活态下重载
+  useEffect(() => {
+    setChangedCount(0);
+    setHistoryCount(0);
+    setTagsCount(0);
+  }, [projectPath]);
+
+  const selectTab = (id: GitTabId) => {
+    setTab(id);
+    setVisitedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   };
 
   const updateRemoteUrl = async () => {
@@ -163,205 +100,6 @@ export function GitActionsPanel({
     }
   };
 
-  const addTag = async () => {
-    if (!bridge || !newTagName.trim()) return;
-    setBusy(true);
-    try {
-      await bridge.createTag({
-        path: projectPath,
-        name: newTagName.trim(),
-        message: newTagMessage.trim() || undefined,
-      });
-      setOutput(`标签 ${newTagName.trim()} 已创建`);
-      setNewTagName("");
-      setNewTagMessage("");
-      await loadTags();
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "创建标签失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const removeTag = async (name: string) => {
-    if (!bridge) return;
-    if (!window.confirm(`删除标签 ${name}？`)) return;
-    setBusy(true);
-    try {
-      await bridge.deleteTag(projectPath, name);
-      setOutput(`标签 ${name} 已删除`);
-      await loadTags();
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "删除标签失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const runCompare = async () => {
-    if (!bridge || !compareBase || !compareHead) return;
-    setBusy(true);
-    try {
-      const result = await bridge.compareVersions({
-        path: projectPath,
-        base: compareBase,
-        head: compareHead,
-      });
-      setCompareResult({
-        changedFiles: result.changedFiles,
-        insertions: result.insertions,
-        deletions: result.deletions,
-        output: result.output,
-      });
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "版本对比失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const refreshActive = () => {
-    if (tab === "changes") void loadChangedFiles();
-    if (tab === "branches") void loadBranches();
-    if (tab === "history") {
-      void loadHistory();
-      void loadVersions();
-    }
-    if (tab === "tags") void loadTags();
-  };
-
-  useEffect(() => {
-    setChangedFiles([]);
-    setBranches([]);
-    setHistory([]);
-    setTags([]);
-    setOutput("");
-    // 提交草稿只在切换项目时清空：切 tab 保留用户正在输入的内容
-    setCommitMessage("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectPath]);
-
-  useEffect(() => {
-    refreshActive();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectPath, tab]);
-
-  const toggleStage = async (file: ChangeFile) => {
-    if (!bridge) return;
-    setBusy(true);
-    try {
-      if (file.staged) {
-        await bridge.unstageFiles(projectPath, [file.path]);
-      } else {
-        await bridge.stageFiles(projectPath, [file.path]);
-      }
-      await loadChangedFiles();
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "操作失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const commit = async () => {
-    if (!bridge) return;
-    setBusy(true);
-    try {
-      const result = await bridge.commitChanges({ path: projectPath, message: commitMessage });
-      setOutput(result.output);
-      if (result.success) {
-        setCommitMessage("");
-        await loadChangedFiles();
-        await loadHistory();
-      }
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "提交失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const stageAllResolved = async () => {
-    if (!bridge) return;
-    const unresolved = changedFiles.filter((file) => file.status === "conflicted" && !file.staged);
-    if (unresolved.length === 0) {
-      setOutput("没有待暂存的冲突文件");
-      return;
-    }
-    setBusy(true);
-    try {
-      await bridge.stageFiles(
-        projectPath,
-        unresolved.map((file) => file.path),
-      );
-      setOutput(`已暂存 ${unresolved.length} 个已解决的冲突文件`);
-      await loadChangedFiles();
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "暂存失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const createBranch = async () => {
-    if (!bridge || !newBranchName.trim()) return;
-    setBusy(true);
-    try {
-      await bridge.createBranch({ path: projectPath, name: newBranchName.trim() });
-      setNewBranchName("");
-      await loadBranches();
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "创建分支失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const switchBranch = async (name: string) => {
-    if (!bridge) return;
-    setBusy(true);
-    try {
-      await bridge.switchBranch({ path: projectPath, name });
-      setOutput(`已切换到分支 ${name}`);
-      await loadBranches();
-      await loadHistory();
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "切换分支失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const deleteBranch = async (name: string) => {
-    if (!bridge) return;
-    if (!window.confirm(`确定删除分支 ${name}？未合并的提交会一并丢弃。`)) return;
-    setBusy(true);
-    try {
-      await bridge.deleteBranch({ path: projectPath, name });
-      setOutput(`已删除分支 ${name}`);
-      await loadBranches();
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "删除分支失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const revert = async (hash: string) => {
-    if (!bridge) return;
-    if (!window.confirm(`对提交 ${hash.slice(0, 7)} 执行 revert？这会生成一个反向提交。`)) return;
-    setBusy(true);
-    try {
-      const result = await bridge.revertCommit({ path: projectPath, hash });
-      setOutput(result.output);
-      await loadHistory();
-    } catch (error) {
-      setOutput(error instanceof Error ? error.message : "回退提交失败");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div className="git-actions-panel">
       <div className="analysis-heading">
@@ -369,22 +107,26 @@ export function GitActionsPanel({
           <span>Git 操作</span>
           <small>提交、分支、历史、标签与远程</small>
         </div>
-        <button className="bare-button" onClick={refreshActive} aria-label="刷新 Git 状态">
+        <button
+          className="bare-button"
+          onClick={() => setRefreshSeq((seq) => seq + 1)}
+          aria-label="刷新 Git 状态"
+        >
           <RefreshCw size={14} className={loading ? "spin" : ""} />
         </button>
       </div>
       <div className="git-tabs">
-        <button className={tab === "changes" ? "active" : ""} onClick={() => setTab("changes")}>
-          变更 {changedFiles.length > 0 ? `(${changedFiles.length})` : ""}
+        <button className={tab === "changes" ? "active" : ""} onClick={() => selectTab("changes")}>
+          变更 {changedCount > 0 ? `(${changedCount})` : ""}
         </button>
-        <button className={tab === "branches" ? "active" : ""} onClick={() => setTab("branches")}>
+        <button className={tab === "branches" ? "active" : ""} onClick={() => selectTab("branches")}>
           分支
         </button>
-        <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>
-          历史 {history.length > 0 ? `(${history.length})` : ""}
+        <button className={tab === "history" ? "active" : ""} onClick={() => selectTab("history")}>
+          历史 {historyCount > 0 ? `(${historyCount})` : ""}
         </button>
-        <button className={tab === "tags" ? "active" : ""} onClick={() => setTab("tags")}>
-          标签 {tags.length > 0 ? `(${tags.length})` : ""}
+        <button className={tab === "tags" ? "active" : ""} onClick={() => selectTab("tags")}>
+          标签 {tagsCount > 0 ? `(${tagsCount})` : ""}
         </button>
       </div>
       <div className="remote-url-row">
@@ -410,335 +152,66 @@ export function GitActionsPanel({
         </div>
       )}
 
-      {tab === "changes" && (
-        <div className="git-tab-content">
-          {(() => {
-            const conflictedFiles = changedFiles.filter((file) => file.status === "conflicted");
-            if (conflictedFiles.length > 0) {
-              return (
-                <div className="conflict-wizard">
-                  <div className="conflict-heading">
-                    <CircleAlert size={14} />
-                    <strong>存在 {conflictedFiles.length} 个冲突文件</strong>
-                  </div>
-                  <p>拉取/合并产生冲突，已停止自动操作。请逐个解决冲突后暂存并提交。</p>
-                  <div className="conflict-files">
-                    {conflictedFiles.map((file) => (
-                      <code key={file.path}>{file.path}</code>
-                    ))}
-                  </div>
-                  <ol className="conflict-steps">
-                    <li>
-                      打开冲突文件，保留需要的改动（`&lt;&lt;&lt;&lt;&lt;&lt;&lt;` 到
-                      `&gt;&gt;&gt;&gt;&gt;&gt;&gt;` 之间的内容）
-                    </li>
-                    <li>删除冲突标记</li>
-                    <li>回到此面板勾选暂存该文件</li>
-                    <li>填写提交信息完成合并</li>
-                  </ol>
-                  <button
-                    className="button secondary compact-button conflict-resolve-button"
-                    onClick={stageAllResolved}
-                    disabled={isBusy}
-                  >
-                    暂存已解决的文件（{conflictedFiles.filter((file) => !file.staged).length}）
-                  </button>
-                </div>
-              );
-            }
-            return changedFiles.length === 0 ? (
-              <div className="git-empty">
-                {loading ? "正在读取变更..." : "工作区干净，没有待提交的变更。"}
-              </div>
-            ) : (
-              <div className="change-list">
-                {changedFiles.map((file) => (
-                  <div className="change-row" key={file.path}>
-                    <label className="change-check">
-                      <input
-                        type="checkbox"
-                        checked={file.staged}
-                        disabled={isBusy}
-                        onChange={() => toggleStage(file)}
-                      />
-                      <span className={`change-status ${file.staged ? "staged" : ""}`}>
-                        {changeStatusMeta[file.status].label}
-                      </span>
-                    </label>
-                    <code
-                      className="change-path"
-                      onClick={() => loadDiff(file.path)}
-                      title="点击查看差异"
-                    >
-                      {file.path}
-                    </code>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
-          <textarea
-            className="commit-message"
-            value={commitMessage}
-            onChange={(event) => setCommitMessage(event.target.value)}
-            placeholder="填写提交信息（subject / body）"
-            rows={3}
-          />
-          <button
-            className="button primary wide"
-            onClick={commit}
-            disabled={
-              isBusy ||
-              !commitMessage.trim() ||
-              changedFiles.filter((file) => file.staged).length === 0
-            }
-          >
-            {busy ? "提交中..." : "提交暂存的变更"}
-          </button>
-          {diffFor && (
-            <div className="diff-viewer">
-              <div className="diff-heading">
-                <span>差异 · {diffFor}</span>
-                <button
-                  className="bare-button"
-                  onClick={() => setDiffFor(null)}
-                  aria-label="关闭差异"
-                >
-                  <X size={13} />
-                </button>
-              </div>
-              <pre>{diffText}</pre>
-            </div>
-          )}
-        </div>
+      {visitedTabs.has("changes") && (
+        <ChangesTab
+          projectPath={projectPath}
+          bridge={bridge}
+          active={tab === "changes"}
+          refreshSeq={refreshSeq}
+          busy={busy}
+          isBusy={isBusy}
+          setBusy={setBusy}
+          setOutput={setOutput}
+          onLoadingChange={setLoading}
+          onCountChange={setChangedCount}
+          onHistoryChanged={reloadHistory}
+        />
       )}
 
-      {tab === "branches" && (
-        <div className="git-tab-content">
-          {branches.length === 0 ? (
-            <div className="git-empty">{loading ? "正在读取分支..." : "没有分支"}</div>
-          ) : (
-            <div className="branch-list">
-              {branches.map((branch) => (
-                <div className="branch-row" key={branch.name}>
-                  <div className="branch-main">
-                    <span className={`branch-name ${branch.current ? "current" : ""}`}>
-                      {branch.current ? "· " : ""}
-                      {branch.name}
-                    </span>
-                    {branch.remote && (
-                      <small>
-                        {branch.remote}
-                        {branch.ahead > 0 ? ` · 领先 ${branch.ahead}` : ""}
-                        {branch.behind > 0 ? ` · 落后 ${branch.behind}` : ""}
-                      </small>
-                    )}
-                  </div>
-                  <div className="branch-actions">
-                    {!branch.current && (
-                      <button
-                        className="bare-button"
-                        onClick={() => switchBranch(branch.name)}
-                        disabled={isBusy}
-                      >
-                        切换
-                      </button>
-                    )}
-                    {!branch.current && (
-                      <button
-                        className="bare-button danger"
-                        onClick={() => deleteBranch(branch.name)}
-                        disabled={isBusy}
-                      >
-                        删除
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="new-branch-row">
-            <input
-              value={newBranchName}
-              onChange={(event) => setNewBranchName(event.target.value)}
-              placeholder="新分支名称"
-            />
-            <button
-              className="button secondary compact-button"
-              onClick={createBranch}
-              disabled={isBusy || !newBranchName.trim()}
-            >
-              创建
-            </button>
-          </div>
-        </div>
+      {visitedTabs.has("branches") && (
+        <BranchesTab
+          projectPath={projectPath}
+          bridge={bridge}
+          active={tab === "branches"}
+          refreshSeq={refreshSeq}
+          isBusy={isBusy}
+          setBusy={setBusy}
+          setOutput={setOutput}
+          onLoadingChange={setLoading}
+          onHistoryChanged={reloadHistory}
+        />
       )}
 
-      {tab === "history" && (
-        <div className="git-tab-content">
-          <div className="history-toolbar">
-            <button
-              className={`bare-button history-toggle ${timelineMode ? "active" : ""}`}
-              onClick={() => setTimelineMode((value) => !value)}
-            >
-              <GitCommitHorizontal size={12} />
-              {timelineMode ? "列表" : "时间线"}
-            </button>
-          </div>
-          {history.length === 0 ? (
-            <div className="git-empty">{loading ? "正在读取提交历史..." : "还没有提交"}</div>
-          ) : timelineMode ? (
-            renderTimeline(history, isBusy, revert)
-          ) : (
-            <div className="history-list">
-              {history.map((entry) => (
-                <div className="history-row" key={entry.hash}>
-                  <div className="history-main">
-                    <div className="history-title">
-                      <strong>{entry.subject}</strong>
-                      <code>{entry.shortHash}</code>
-                    </div>
-                    <small>
-                      {entry.author} · {formatCommitDate(entry.date)}
-                    </small>
-                  </div>
-                  <button
-                    className="bare-button"
-                    onClick={() => revert(entry.hash)}
-                    disabled={isBusy}
-                    title="生成反向提交"
-                  >
-                    回退
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="compare-section">
-            <div className="compare-heading">
-              <GitCommitHorizontal size={13} />
-              版本对比（提交 / 分支 / 标签）
-            </div>
-            <div className="compare-inputs">
-              <select value={compareBase} onChange={(event) => setCompareBase(event.target.value)}>
-                <option value="">基线版本</option>
-                <optgroup label="分支">
-                  {allBranches.map((branch) => (
-                    <option value={branch.name} key={`b-br-${branch.name}`}>
-                      {branch.name}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="标签">
-                  {allTags.map((tag) => (
-                    <option value={tag.name} key={`b-tg-${tag.name}`}>
-                      {tag.name}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="提交">
-                  {history.slice(0, 20).map((entry) => (
-                    <option value={entry.hash} key={`b-cm-${entry.hash}`}>
-                      {entry.shortHash} · {entry.subject.slice(0, 24)}
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
-              <select value={compareHead} onChange={(event) => setCompareHead(event.target.value)}>
-                <option value="">目标版本</option>
-                <optgroup label="分支">
-                  {allBranches.map((branch) => (
-                    <option value={branch.name} key={`h-br-${branch.name}`}>
-                      {branch.name}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="标签">
-                  {allTags.map((tag) => (
-                    <option value={tag.name} key={`h-tg-${tag.name}`}>
-                      {tag.name}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="提交">
-                  {history.slice(0, 20).map((entry) => (
-                    <option value={entry.hash} key={`h-cm-${entry.hash}`}>
-                      {entry.shortHash} · {entry.subject.slice(0, 24)}
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
-              <button
-                className="button secondary compact-button"
-                onClick={runCompare}
-                disabled={isBusy || !compareBase || !compareHead}
-              >
-                {busy ? "对比中..." : "对比"}
-              </button>
-            </div>
-            {compareResult && (
-              <div className="compare-result">
-                <div className="compare-stats">
-                  <span>变更文件 {compareResult.changedFiles.length}</span>
-                  <span className="compare-add">+{compareResult.insertions}</span>
-                  <span className="compare-del">-{compareResult.deletions}</span>
-                </div>
-                {compareResult.changedFiles.slice(0, 10).map((file) => (
-                  <code key={file}>{file}</code>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+      {visitedTabs.has("history") && (
+        <HistoryTab
+          projectPath={projectPath}
+          bridge={bridge}
+          active={tab === "history"}
+          refreshSeq={refreshSeq}
+          busy={busy}
+          isBusy={isBusy}
+          setBusy={setBusy}
+          setOutput={setOutput}
+          onLoadingChange={setLoading}
+          onCountChange={setHistoryCount}
+          registerReload={(reload) => {
+            historyReloadRef.current = reload;
+          }}
+        />
       )}
 
-      {tab === "tags" && (
-        <div className="git-tab-content">
-          {tags.length === 0 ? (
-            <div className="git-empty">{loading ? "正在读取标签..." : "还没有标签"}</div>
-          ) : (
-            <div className="tag-list">
-              {tags.map((tag) => (
-                <div className="tag-row" key={tag.name}>
-                  <div className="tag-main">
-                    <strong>{tag.name}</strong>
-                    <small>
-                      {tag.shortCommit}
-                      {tag.message ? ` · ${tag.message}` : ""}
-                    </small>
-                  </div>
-                  <button
-                    className="bare-button danger"
-                    onClick={() => removeTag(tag.name)}
-                    disabled={isBusy}
-                  >
-                    删除
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="tag-create">
-            <input
-              value={newTagName}
-              onChange={(event) => setNewTagName(event.target.value)}
-              placeholder="标签名称（如 v0.1.0）"
-            />
-            <input
-              value={newTagMessage}
-              onChange={(event) => setNewTagMessage(event.target.value)}
-              placeholder="标签说明（可选）"
-            />
-            <button
-              className="button secondary compact-button"
-              onClick={addTag}
-              disabled={isBusy || !newTagName.trim()}
-            >
-              创建
-            </button>
-          </div>
-        </div>
+      {visitedTabs.has("tags") && (
+        <TagsTab
+          projectPath={projectPath}
+          bridge={bridge}
+          active={tab === "tags"}
+          refreshSeq={refreshSeq}
+          isBusy={isBusy}
+          setBusy={setBusy}
+          setOutput={setOutput}
+          onLoadingChange={setLoading}
+          onCountChange={setTagsCount}
+        />
       )}
 
       {output && (
@@ -749,57 +222,6 @@ export function GitActionsPanel({
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-export function renderTimeline(
-  history: CommitEntry[],
-  busy: boolean,
-  revert: (hash: string) => void,
-): React.ReactNode {
-  const groups: Array<{ label: string; entries: CommitEntry[] }> = [];
-  for (const entry of history) {
-    const label = formatDayGroup(entry.date);
-    const lastGroup = groups[groups.length - 1];
-    if (lastGroup && lastGroup.label === label) {
-      lastGroup.entries.push(entry);
-    } else {
-      groups.push({ label, entries: [entry] });
-    }
-  }
-  return (
-    <div className="timeline-list">
-      {groups.map((group) => (
-        <div className="timeline-group" key={group.label}>
-          <div className="timeline-day">
-            {group.label}
-            <span>{group.entries.length} 次提交</span>
-          </div>
-          {group.entries.map((entry) => (
-            <div className="timeline-item" key={entry.hash}>
-              <span className="timeline-dot" />
-              <div className="timeline-main">
-                <div className="timeline-title">
-                  <strong>{entry.subject}</strong>
-                  <code>{entry.shortHash}</code>
-                </div>
-                <small>
-                  {entry.author} · {formatCommitDate(entry.date)}
-                </small>
-              </div>
-              <button
-                className="bare-button"
-                onClick={() => revert(entry.hash)}
-                disabled={busy}
-                title="生成反向提交"
-              >
-                回退
-              </button>
-            </div>
-          ))}
-        </div>
-      ))}
     </div>
   );
 }
