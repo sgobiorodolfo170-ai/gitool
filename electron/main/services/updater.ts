@@ -36,6 +36,9 @@ export function isTrustedInstallerPath(filePath: string): boolean {
 
 export async function checkForUpdates(): Promise<UpdateCheckResult> {
   const currentVersion = app.getVersion();
+  // fetch 必须带超时：挂起的连接会让 30 分钟轮询任务持续堆叠（审查 P2-17）
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
   try {
     const response = await fetch(
       `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`,
@@ -44,6 +47,7 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
           Accept: "application/vnd.github+json",
           "User-Agent": "Gitool-Updater",
         },
+        signal: controller.signal,
       },
     );
     if (!response.ok) {
@@ -64,6 +68,8 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     };
   } catch {
     return { hasUpdate: false, version: currentVersion, downloadUrl: "" };
+  } finally {
+    clearTimeout(timer);
   }
 }
 

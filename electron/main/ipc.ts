@@ -119,6 +119,8 @@ import {
 } from "./ipc/schemas";
 
 let cachedDownloadUrl = "";
+// 下载中再点「更新」会写同一个临时文件互相踩踏，用进行中标记挡住
+let updateDownloadInFlight = false;
 
 export function registerIpcHandlers(): void {
   ipcMain.handle("system:environment", () => getEnvironmentStatus());
@@ -385,13 +387,21 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("updater:download", async (event) => {
+    if (updateDownloadInFlight) {
+      throw new Error("更新包正在下载中，请稍候");
+    }
     if (!cachedDownloadUrl) {
       throw new Error("没有可用的更新");
     }
     const win = BrowserWindow.fromWebContents(event.sender);
-    return downloadUpdate(cachedDownloadUrl, (progress: UpdateProgress) => {
-      win?.webContents.send("updater:progress", progress);
-    });
+    updateDownloadInFlight = true;
+    try {
+      return await downloadUpdate(cachedDownloadUrl, (progress: UpdateProgress) => {
+        win?.webContents.send("updater:progress", progress);
+      });
+    } finally {
+      updateDownloadInFlight = false;
+    }
   });
 
   ipcMain.handle("updater:install", async (_event, filePath: unknown) => {
@@ -481,9 +491,7 @@ function requireStringArray(value: unknown): string[] {
   if (
     !Array.isArray(value) ||
     value.length > MAX_IPC_ARRAY_ITEMS ||
-    !value.every(
-      (item) => typeof item === "string" && item.length <= MAX_IPC_ITEM_LENGTH,
-    )
+    !value.every((item) => typeof item === "string" && item.length <= MAX_IPC_ITEM_LENGTH)
   ) {
     throw new Error("文件列表格式不正确");
   }

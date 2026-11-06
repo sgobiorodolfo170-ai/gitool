@@ -24,7 +24,11 @@ export function detectProjectCommands(projectPath: string): DetectCommandsResult
     builder[category].push(...commands);
   };
 
-  const npmCommands = detectPackageScripts(projectPath, packageManager);
+  // package.json 只读一次，scripts 共享给 npm 脚本与部署命令两条探测路径
+  // （原先 detectPackageScripts 与 detectDeployCommands 各自 readFileSync +
+  // JSON.parse 同一文件，审查 P2-15）
+  const npmScripts = readPackageScripts(projectPath);
+  const npmCommands = detectPackageScripts(npmScripts, packageManager);
   for (const cmd of npmCommands) {
     const category = classifyScript(cmd.args, cmd.label);
     push(category, [{ ...cmd, category, osSupport: OS_ALL }]);
@@ -45,7 +49,7 @@ export function detectProjectCommands(projectPath: string): DetectCommandsResult
   push("run", detectDotnetCommands(projectPath, "run"));
   push("package", detectDotnetCommands(projectPath, "package"));
 
-  push("deploy", detectDeployCommands(projectPath, packageManager));
+  push("deploy", detectDeployCommands(projectPath, packageManager, npmScripts));
 
   const commands = [...builder.build, ...builder.run, ...builder.package, ...builder.deploy];
   return { commands, packageManager };
@@ -98,10 +102,11 @@ function detectPackageManager(projectPath: string): string {
   return "";
 }
 
-function detectPackageScripts(projectPath: string, packageManager: string): DetectedCommand[] {
+/** 读取 package.json 的 scripts 段；文件缺失/损坏/无脚本时返回 null。 */
+function readPackageScripts(projectPath: string): Record<string, string> | null {
   const manifestPath = join(projectPath, "package.json");
   if (!existsSync(manifestPath)) {
-    return [];
+    return null;
   }
   let parsed: Record<string, unknown>;
   try {
@@ -110,12 +115,29 @@ function detectPackageScripts(projectPath: string, packageManager: string): Dete
       unknown
     >;
   } catch {
+    return null;
+  }
+  const raw = parsed.scripts;
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const scripts: Record<string, string> = {};
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === "string") {
+      scripts[name] = value;
+    }
+  }
+  return Object.keys(scripts).length > 0 ? scripts : null;
+}
+
+function detectPackageScripts(
+  npmScripts: Record<string, string> | null,
+  packageManager: string,
+): DetectedCommand[] {
+  if (!npmScripts) {
     return [];
   }
-  const scripts = parsed.scripts;
-  if (typeof scripts !== "object" || scripts === null) {
-    return [];
-  }
+  const scripts = npmScripts;
   const manager = packageManager || "npm";
   const commands: DetectedCommand[] = [];
   for (const [name, value] of Object.entries(scripts as Record<string, unknown>)) {
@@ -323,40 +345,28 @@ function detectDotnetCommands(projectPath: string, category: TaskType): Detected
   ];
 }
 
-function detectDeployCommands(projectPath: string, packageManager: string): DetectedCommand[] {
+function detectDeployCommands(
+  projectPath: string,
+  packageManager: string,
+  npmScripts: Record<string, string> | null,
+): DetectedCommand[] {
   const commands: DetectedCommand[] = [];
   const manager = packageManager || "npm";
 
-  const manifestPath = join(projectPath, "package.json");
-  if (existsSync(manifestPath)) {
-    try {
-      const parsed = JSON.parse(readFileSync(manifestPath, { encoding: "utf8" })) as Record<
-        string,
-        unknown
-      >;
-      const scripts = parsed.scripts;
-      if (typeof scripts === "object" && scripts !== null) {
-        for (const [name, value] of Object.entries(scripts as Record<string, unknown>)) {
-          if (typeof value !== "string") continue;
-          const lower = value.toLowerCase();
-          if (
-            lower.includes("deploy") ||
-            (lower.includes("publish") && lower.includes("gh-pages"))
-          ) {
-            commands.push({
-              label: `${manager} run ${name}`,
-              command: manager,
-              args: `run ${name}`,
-              source: "npm-script",
-              category: "deploy",
-              osSupport: OS_ALL,
-              description: describeNpmScript(name, value),
-            });
-          }
-        }
+  if (npmScripts) {
+    for (const [name, value] of Object.entries(npmScripts)) {
+      const lower = value.toLowerCase();
+      if (lower.includes("deploy") || (lower.includes("publish") && lower.includes("gh-pages"))) {
+        commands.push({
+          label: `${manager} run ${name}`,
+          command: manager,
+          args: `run ${name}`,
+          source: "npm-script",
+          category: "deploy",
+          osSupport: OS_ALL,
+          description: describeNpmScript(name, value),
+        });
       }
-    } catch {
-      // ignore
     }
   }
 

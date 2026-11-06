@@ -154,7 +154,8 @@ export function saveProjects(workspaceId: string, projects: Project[]): void {
         workspaceId,
       );
     }
-    // 清理已不在列表中的项目（保留软删除语义）
+    // 清理已不在列表中的项目：直接删行（本项目无软删除语义，
+    // 从列表移除即不再展示，磁盘目录不受影响）
     const stale = connection
       .prepare("SELECT id FROM projects WHERE workspaceId = ?")
       .all(workspaceId) as unknown as SqlRow[];
