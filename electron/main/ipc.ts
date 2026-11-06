@@ -65,9 +65,8 @@ import {
   exportOperationRecords,
   insertOperationRecord,
   listOperationRecords,
-  loadSettings,
-  saveSettings,
-} from "./services/storage";
+} from "./services/storage/operations";
+import { loadSettings, saveSettings } from "./services/storage";
 import {
   deleteTaskProfile,
   insertTaskRun,

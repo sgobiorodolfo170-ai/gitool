@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import type {
   Account,
   BackupRecord,
+  OperationRecord,
   Project,
   RemoteProvider,
   TaskProfile,
@@ -388,6 +389,18 @@ export function rowToBackup(row: SqlRow): BackupRecord {
     sizeBytes: Number(row.sizeBytes),
     status: String(row.status) as BackupRecord["status"],
     error: row.error === null ? undefined : String(row.error),
+    createdAt: String(row.createdAt),
+  };
+}
+
+export function rowToOperationRecord(row: SqlRow): OperationRecord {
+  return {
+    id: String(row.id),
+    operation: String(row.operation),
+    projectId: String(row.projectId),
+    projectPath: String(row.projectPath),
+    detail: String(row.detail),
+    result: String(row.result) as OperationRecord["result"],
     createdAt: String(row.createdAt),
   };
 }

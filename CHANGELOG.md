@@ -45,3 +45,4 @@
 | v0.6.15 | 2026-11-07 | storage 分域拆分⑤：tasks 域迁出（task_profiles/task_runs 七个函数与 rowToTaskProfile/rowToTaskRun 原样搬移），ipc 与任务执行服务 tasks.ts 改从 storage/tasks 导入；纯代码搬移 |
 | v0.6.16 | 2026-11-07 | TasksWorkspace 组件拆分（治理轮-2④）：任务表单抽为 tasks/TaskForm（命令/参数候选项由 detectedCommands × draft 派生，留表单层），任务配置/运行记录两份列表抽为 TaskProfilesList/TaskRunsList（taskTypeLabel/runStatusMeta 随列表走）；draft 与 detectedCommands/customs 是跨 tab 状态（配置页编辑写入草稿、save 成功切页重置）按「跨 tab 共享才上提」留父级，1 秒实时日志轮询（runsRef 范式）与启停编排留壳；纯代码搬移，UI 行为等价 |
 | v0.6.17 | 2026-11-07 | storage 分域拆分⑥：backups 域迁出（listBackups/insertBackup 原样搬移），ipc 与备份服务 backups.ts 改从 storage/backups 导入；纯代码搬移 |
+| v0.6.18 | 2026-11-07 | storage 分域拆分⑦：operations 域迁出（审计记录写入/查询/清空/CSV 导出原样搬移，2000 条保留上限与 BOM 行为不变），ipc 改从 storage/operations 导入；纯代码搬移 |
