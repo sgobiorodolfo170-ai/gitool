@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { remoteMatchKeys } from "../lib/projectMatch";
 import { remoteProviderLabels } from "../lib/meta";
 import {
   ArrowDownToLine,
@@ -81,10 +82,13 @@ export function RemoteRepositoriesWorkspace({
   const [formNotice, setFormNotice] = useState("");
   const [interactingRepo, setInteractingRepo] = useState<string | null>(null);
 
+  // 星标/关注键与 remoteProjectMatch 同源（remoteMatchKeys）：
+  // 项目收藏后克隆到不同名目录或平台仓库改名，webUrl 键仍能命中（审查遗留 A）。
   const starredKeys = useMemo(() => {
     const set = new Set<string>();
     for (const project of projects) {
-      if (project.favorite) set.add(`${project.provider}:${project.name}`);
+      if (!project.favorite) continue;
+      for (const key of remoteMatchKeys(project)) set.add(key);
     }
     return set;
   }, [projects]);
@@ -92,15 +96,16 @@ export function RemoteRepositoriesWorkspace({
   const watchedKeys = useMemo(() => {
     const set = new Set<string>();
     for (const project of projects) {
-      if (project.tags.includes("watching")) set.add(`${project.provider}:${project.name}`);
+      if (!project.tags.includes("watching")) continue;
+      for (const key of remoteMatchKeys(project)) set.add(key);
     }
     return set;
   }, [projects]);
 
   const isStarred = (repository: RemoteRepository) =>
-    starredKeys.has(`${repository.provider}:${repository.name}`);
+    remoteMatchKeys(repository).some((key) => starredKeys.has(key));
   const isWatched = (repository: RemoteRepository) =>
-    watchedKeys.has(`${repository.provider}:${repository.name}`);
+    remoteMatchKeys(repository).some((key) => watchedKeys.has(key));
 
   const handleToggleFavorite = async (repository: RemoteRepository) => {
     setInteractingRepo(repository.fullName);

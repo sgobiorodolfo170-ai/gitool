@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ArrowDownToLine, Cloud, Github, Search, Star } from "lucide-react";
 import type { Project, RemoteRepository } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
+import { remoteMatchKeys } from "../lib/projectMatch";
 
 export function RemoteRepositorySearch({
   projects,
@@ -23,16 +24,19 @@ export function RemoteRepositorySearch({
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // 收藏键与 remoteProjectMatch 同源（remoteMatchKeys）：
+  // 本地项目改名后 webUrl 键仍能命中，不再依赖 provider:name（审查遗留 A）。
   const favoriteKeys = useMemo(() => {
     const set = new Set<string>();
     for (const project of projects) {
-      if (project.favorite) set.add(`${project.provider}:${project.name}`);
+      if (!project.favorite) continue;
+      for (const key of remoteMatchKeys(project)) set.add(key);
     }
     return set;
   }, [projects]);
 
   const isFavorite = (repository: RemoteRepository) =>
-    favoriteKeys.has(`${repository.provider}:${repository.name}`);
+    remoteMatchKeys(repository).some((key) => favoriteKeys.has(key));
 
   const openRepository = (repository: RemoteRepository, event?: React.MouseEvent) => {
     event?.stopPropagation();
