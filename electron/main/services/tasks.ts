@@ -1,7 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import type { TaskRun } from "../../../shared/types";
-import { splitCommandLine } from "./commandLine";
+import { quoteWindowsArg, splitCommandLine } from "./commandLine";
 import { getTaskProfile, updateTaskRun } from "./storage";
 
 const runningTasks = new Map<string, { process: ReturnType<typeof spawn>; output: () => string }>();
@@ -28,7 +28,11 @@ export async function runTask(profileId: string): Promise<TaskRun> {
     output: "",
   };
 
-  const args = splitCommandLine(profile.args);
+  const parsedArgs = splitCommandLine(profile.args);
+  // Windows 下走 shell:true：Node 只把 command 与 args 空格拼接后交给 cmd.exe，
+  // 不会替参数加引号。必须在此手工转义，否则含空格的参数会被重新拆开、
+  // 含 & | 的参数会被 cmd 解释成新命令（2026-11-07 审查 P1-4）。
+  const args = process.platform === "win32" ? parsedArgs.map(quoteWindowsArg) : parsedArgs;
   let output = "";
   // Windows 上 npm/pnpm/yarn 等是 .cmd 脚本，必须通过 shell 执行
   const child = spawn(profile.command, args, {
@@ -77,14 +81,18 @@ export async function runTask(profileId: string): Promise<TaskRun> {
   child.on("close", (code) => {
     if (timer) clearTimeout(timer);
     runningTasks.delete(run.id);
-    if (run.status === "running") {
-      // 主动停止与自然失败必须区分：TaskRun 定义了 stopped 状态，
-      // 旧实现只 kill 不改状态，用户点「停止」后记录显示为 failed。
-      if (stopRequested.has(run.id)) {
-        run.status = "stopped";
-      } else {
-        run.status = code === 0 ? "succeeded" : "failed";
-      }
+    // 超时路径已在定时器回调里定稿（含 [任务超时，已终止] 标注）：
+    // 这里无条件回填会抹掉标注并重复持久化（2026-11-07 审查 P2-1）。
+    if (run.status !== "running") {
+      stopRequested.delete(run.id);
+      return;
+    }
+    // 主动停止与自然失败必须区分：TaskRun 定义了 stopped 状态，
+    // 旧实现只 kill 不改状态，用户点「停止」后记录显示为 failed。
+    if (stopRequested.has(run.id)) {
+      run.status = "stopped";
+    } else {
+      run.status = code === 0 ? "succeeded" : "failed";
     }
     stopRequested.delete(run.id);
     run.exitCode = code ?? undefined;
