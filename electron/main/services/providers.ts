@@ -8,13 +8,8 @@ import type {
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
 import { errorMessage } from "./serviceUtils";
-import {
-  getAccount,
-  loadAccounts,
-  loadRemoteRepositoryCache,
-  saveRemoteRepositoryCache,
-  updateAccount,
-} from "./storage";
+import { getAccount, loadAccounts, updateAccount } from "./storage/accounts";
+import { loadRemoteRepositoryCache, saveRemoteRepositoryCache } from "./storage";
 
 type ProviderEndpoint = {
   url: string;

@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Project, WorkspaceEntity } from "../../../../shared/types";
+import type { Account, Project, RemoteProvider, WorkspaceEntity } from "../../../../shared/types";
 import { errorMessage } from "../serviceUtils";
 
 export type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
@@ -319,6 +319,22 @@ export function rowToWorkspace(row: SqlRow): WorkspaceEntity {
   return {
     id: String(row.id),
     name: String(row.name),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+export function rowToAccount(row: SqlRow): Account {
+  return {
+    id: String(row.id),
+    provider: String(row.provider) as RemoteProvider,
+    username: String(row.username),
+    displayName: String(row.displayName),
+    authType: String(row.authType) as Account["authType"],
+    credentialRef: String(row.credentialRef),
+    status: String(row.status) as Account["status"],
+    scopes: parseStringArray(row.scopes),
+    lastCheckedAt: row.lastCheckedAt === null ? null : String(row.lastCheckedAt),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
   };

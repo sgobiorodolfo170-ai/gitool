@@ -1,4 +1,8 @@
-import type { CreateWorkspaceInput, RenameWorkspaceInput, WorkspaceEntity } from "../../../../shared/types";
+import type {
+  CreateWorkspaceInput,
+  RenameWorkspaceInput,
+  WorkspaceEntity,
+} from "../../../../shared/types";
 import { openDatabase, rowToWorkspace, type SqlRow } from "./database";
 
 /**

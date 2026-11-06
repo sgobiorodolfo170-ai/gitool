@@ -50,13 +50,8 @@ import {
   testAccount,
   updateRemoteRepository,
 } from "./services/providers";
-import {
-  deleteAccount,
-  getRemoteRepositoryCacheMeta,
-  loadAccounts,
-  loadRemoteRepositoryCache,
-  upsertAccount,
-} from "./services/storage";
+import { deleteAccount, loadAccounts, upsertAccount } from "./services/storage/accounts";
+import { getRemoteRepositoryCacheMeta, loadRemoteRepositoryCache } from "./services/storage";
 import { loadProjects, saveProjects } from "./services/storage/projects";
 import {
   createWorkspace,

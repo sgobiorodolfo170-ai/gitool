@@ -39,3 +39,4 @@
 | v0.6.9 | 2026-11-07 | storage 分域拆分②：workspaces 域迁出（list/create/rename/delete + 删除守卫原样搬移），ipc.ts 改从 storage/workspaces 导入；纯代码搬移 |
 | v0.6.10 | 2026-11-07 | storage 分域拆分③：projects 域迁出（loadProjects/saveProjects 事务与 stale 清理逐字搬移，前端 saveQueueRef 串行落库语义不受影响），rowToProject 收入 database.ts；纯代码搬移 |
 | v0.6.11 | 2026-11-07 | GitActionsPanel 组件拆分（治理轮-2①）：805 行面板按 tab 拆为 ChangesTab/BranchesTab/HistoryTab/TagsTab 四个子组件（数据与 loading 各自持有，per-kind 序号守卫随迁为 useLoadSequence hook），renderTimeline 移入 git/CommitTimeline.tsx；挂载沿用 ProjectDetail 的 visitedTabs 惰性挂载范式（首次访问才挂载、之后 hidden 隐藏保持状态），切 tab 保留数据与草稿、每次激活仍重载，UI 行为等价；提交/切分支的历史联动经 registerReload 登记入口跨 tab 触发，历史页未挂载时兜底拉取计数保持原角标行为 |
+| v0.6.12 | 2026-11-07 | storage 分域拆分④：accounts 域迁出（增删改查 + 凭据一致性回滚原样搬移；删号级联清 remote_repository_cache 以内联 SQL 保留并注释原因——避免域间横向依赖），ipc/git/providers 调用方改从 storage/accounts 导入；顺带补 workspaces.ts 一处 prettier 格式 |
