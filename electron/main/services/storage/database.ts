@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import type { WorkspaceEntity } from "../../../../shared/types";
 import { errorMessage } from "../serviceUtils";
 
 export type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
@@ -286,4 +287,14 @@ export function parseStringArray(
   } catch {
     return [];
   }
+}
+
+/** 行 → 领域对象映射统一收在此处：与建表列一一对应，schema 变更时同步修改。 */
+export function rowToWorkspace(row: SqlRow): WorkspaceEntity {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
 }

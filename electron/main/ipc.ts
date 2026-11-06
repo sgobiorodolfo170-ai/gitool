@@ -51,18 +51,20 @@ import {
   updateRemoteRepository,
 } from "./services/providers";
 import {
-  createWorkspace,
   deleteAccount,
-  deleteWorkspace,
   getRemoteRepositoryCacheMeta,
-  listWorkspaces,
   loadAccounts,
   loadProjects,
   loadRemoteRepositoryCache,
-  renameWorkspace,
   saveProjects,
   upsertAccount,
 } from "./services/storage";
+import {
+  createWorkspace,
+  deleteWorkspace,
+  listWorkspaces,
+  renameWorkspace,
+} from "./services/storage/workspaces";
 import {
   clearOperationRecords,
   deleteTaskProfile,
