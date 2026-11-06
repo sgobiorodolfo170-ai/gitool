@@ -3,7 +3,8 @@ import { readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import type { BackupCreateInput, BackupRecord, BackupRestoreInput } from "../../../shared/types";
-import { insertBackup, loadSettings } from "./storage";
+import { insertBackup } from "./storage/backups";
+import { loadSettings } from "./storage";
 import { assertDirectory as assertDirectoryShared, errorMessage } from "./serviceUtils";
 
 const execFileAsync = promisify(execFile);

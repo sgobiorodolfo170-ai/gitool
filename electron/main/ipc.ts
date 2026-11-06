@@ -59,11 +59,11 @@ import {
   listWorkspaces,
   renameWorkspace,
 } from "./services/storage/workspaces";
+import { listBackups } from "./services/storage/backups";
 import {
   clearOperationRecords,
   exportOperationRecords,
   insertOperationRecord,
-  listBackups,
   listOperationRecords,
   loadSettings,
   saveSettings,

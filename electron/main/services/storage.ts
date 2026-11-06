@@ -2,7 +2,6 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   AppSettings,
-  BackupRecord,
   OperationRecord,
   RemoteProvider,
   RemoteRepository,
@@ -10,51 +9,6 @@ import type {
 import { buildOperationRecordsCsv } from "./operationCsv";
 import { errorMessage } from "./serviceUtils";
 import { openDatabase, type SqlRow } from "./storage/database";
-
-export function listBackups(): BackupRecord[] {
-  const connection = openDatabase();
-  const rows = connection
-    .prepare(
-      `SELECT id, projectId, projectName, sourcePath, archivePath, sizeBytes, status, error, createdAt
-       FROM backup_records ORDER BY createdAt DESC`,
-    )
-    .all() as unknown as SqlRow[];
-  return rows.map(rowToBackup);
-}
-
-export function insertBackup(record: BackupRecord): void {
-  const connection = openDatabase();
-  connection
-    .prepare(
-      `INSERT INTO backup_records (id, projectId, projectName, sourcePath, archivePath, sizeBytes, status, error, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      record.id,
-      record.projectId,
-      record.projectName,
-      record.sourcePath,
-      record.archivePath,
-      record.sizeBytes,
-      record.status,
-      record.error ?? null,
-      record.createdAt,
-    );
-}
-
-function rowToBackup(row: SqlRow): BackupRecord {
-  return {
-    id: String(row.id),
-    projectId: String(row.projectId),
-    projectName: String(row.projectName),
-    sourcePath: String(row.sourcePath),
-    archivePath: String(row.archivePath),
-    sizeBytes: Number(row.sizeBytes),
-    status: String(row.status) as BackupRecord["status"],
-    error: row.error === null ? undefined : String(row.error),
-    createdAt: String(row.createdAt),
-  };
-}
 
 function rowToOperationRecord(row: SqlRow): OperationRecord {
   return {

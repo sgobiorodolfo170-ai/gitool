@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type {
   Account,
+  BackupRecord,
   Project,
   RemoteProvider,
   TaskProfile,
@@ -374,5 +375,19 @@ export function rowToTaskRun(row: SqlRow): TaskRun {
     status: String(row.status) as TaskRun["status"],
     exitCode: row.exitCode === null ? undefined : Number(row.exitCode),
     output: String(row.output),
+  };
+}
+
+export function rowToBackup(row: SqlRow): BackupRecord {
+  return {
+    id: String(row.id),
+    projectId: String(row.projectId),
+    projectName: String(row.projectName),
+    sourcePath: String(row.sourcePath),
+    archivePath: String(row.archivePath),
+    sizeBytes: Number(row.sizeBytes),
+    status: String(row.status) as BackupRecord["status"],
+    error: row.error === null ? undefined : String(row.error),
+    createdAt: String(row.createdAt),
   };
 }

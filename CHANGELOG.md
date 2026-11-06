@@ -44,3 +44,4 @@
 | v0.6.14 | 2026-11-07 | ProjectDetail 组件拆分（治理轮-2③）：未克隆视图整块抽为 UnclonedProjectPanel，概览 tab 下沉为 OverviewPanel（快捷动作/摘要生成/actionMessage 只被概览消费，随面板自持），Git tab 快捷区抽为 GitTabPanel，内嵌 AliasEditor/TagEditor/ReadmeSection/ProjectAnalysisPanel 拆至 detail/ 独立文件；tab 编排（DETAIL_TABS + visitedTabs 惰性挂载）与 README 阅读层留壳；纯代码搬移，UI 行为等价 |
 | v0.6.15 | 2026-11-07 | storage 分域拆分⑤：tasks 域迁出（task_profiles/task_runs 七个函数与 rowToTaskProfile/rowToTaskRun 原样搬移），ipc 与任务执行服务 tasks.ts 改从 storage/tasks 导入；纯代码搬移 |
 | v0.6.16 | 2026-11-07 | TasksWorkspace 组件拆分（治理轮-2④）：任务表单抽为 tasks/TaskForm（命令/参数候选项由 detectedCommands × draft 派生，留表单层），任务配置/运行记录两份列表抽为 TaskProfilesList/TaskRunsList（taskTypeLabel/runStatusMeta 随列表走）；draft 与 detectedCommands/customs 是跨 tab 状态（配置页编辑写入草稿、save 成功切页重置）按「跨 tab 共享才上提」留父级，1 秒实时日志轮询（runsRef 范式）与启停编排留壳；纯代码搬移，UI 行为等价 |
+| v0.6.17 | 2026-11-07 | storage 分域拆分⑥：backups 域迁出（listBackups/insertBackup 原样搬移），ipc 与备份服务 backups.ts 改从 storage/backups 导入；纯代码搬移 |
