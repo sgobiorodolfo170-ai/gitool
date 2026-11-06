@@ -140,15 +140,19 @@ export async function loadRemoteRepositories(accountId: string): Promise<RemoteR
   } catch (error) {
     const cached = loadRemoteRepositoryCache(accountId);
     if (cached && cached.length > 0) {
-      throw new Error(`${errorMessage(error)}（已加载本地缓存的 ${cached.length} 个仓库）`);
+      // 文案必须与实际行为一致：渲染层在发起同步前已把缓存灌进界面，
+      // 这里抛错只是中断「拉新」，并没有"加载"什么（审查 P2-8）
+      throw new Error(
+        `同步失败：${errorMessage(error)}。界面暂展示本地缓存的 ${cached.length} 个仓库，可稍后重试`,
+      );
     }
     throw error;
   }
 
-  if (repositories) {
-    saveRemoteRepositoryCache(accountId, account.provider, repositories);
-  }
-  return repositories ?? loadRemoteRepositoryCache(accountId) ?? [];
+  // fetchRemoteRepositories 返回非空数组，此处不可能为 null
+  // （旧写的 `?? loadRemoteRepositoryCache()` 分支不可达，已删）
+  saveRemoteRepositoryCache(accountId, account.provider, repositories);
+  return repositories;
 }
 
 export async function loadCachedRemoteRepositories(accountId: string): Promise<RemoteRepository[]> {
@@ -519,14 +523,17 @@ async function findRepository(
         },
       });
     } catch {
-      return null;
+      // 网络异常不能吞成 null：调用方会把 null 报成「仓库不存在」，
+      // 误导用户以为仓库被删了（审查 P2-8）
+      throw new Error("无法连接远程平台，请检查网络后重试");
     }
     if (!response.ok) {
+      // 平台明确返回非 2xx（如仓库已删除/不可见）：这才是"不存在"
       return null;
     }
     const payload: unknown = await response.json().catch(() => null);
     if (!Array.isArray(payload)) {
-      return null;
+      throw new Error("远程平台返回了异常的仓库数据");
     }
     const found = payload
       .map((item) => parseRepository(account.provider, account.id, item))
@@ -563,8 +570,9 @@ function getUpdateEndpoint(
   name: string,
 ): ProviderEndpoint & { method: string } {
   if (provider === "github") {
+    // 与 GitLab 分支一致做 URL 编码，防御深度统一（审查 P2-7）
     return {
-      url: `https://api.github.com/repos/${owner}/${name}`,
+      url: `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
       header: "Authorization",
       prefix: "Bearer ",
       method: "PATCH",
@@ -572,7 +580,7 @@ function getUpdateEndpoint(
   }
   if (provider === "gitee") {
     return {
-      url: `https://gitee.com/api/v5/repos/${owner}/${name}`,
+      url: `https://gitee.com/api/v5/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
       header: "Authorization",
       prefix: "token ",
       method: "PATCH",
@@ -595,14 +603,14 @@ function getDeleteEndpoint(
 ): ProviderEndpoint {
   if (provider === "github") {
     return {
-      url: `https://api.github.com/repos/${owner}/${name}`,
+      url: `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
       header: "Authorization",
       prefix: "Bearer ",
     };
   }
   if (provider === "gitee") {
     return {
-      url: `https://gitee.com/api/v5/repos/${owner}/${name}`,
+      url: `https://gitee.com/api/v5/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
       header: "Authorization",
       prefix: "token ",
     };
