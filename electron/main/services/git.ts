@@ -10,6 +10,7 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
+import { readdir, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import type {
@@ -43,6 +44,7 @@ import type {
   SwitchBranchInput,
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
+import { mapLimit } from "./concurrency";
 import { notifyRenderer } from "./events";
 import {
   bracketValue,
@@ -769,48 +771,64 @@ export function invalidateDiskSizeCache(projectPath: string): void {
 }
 
 async function computeDiskSize(projectPath: string): Promise<number> {
-  let total = 0;
+  // 与 analysis.ts 相同的并发纪律：全异步 + worker 池。旧实现用
+  // readdirSync/statSync 同步遍历，大项目上会把主进程事件循环（全部 IPC）
+  // 卡住数秒（2026-11-07 审查 P1-5）。层内并发、层间串行，
+  // visited 去重语义与旧实现保持一致。
   const visited = new Set<string>();
-  const stack = [projectPath];
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-    let realPath: string;
-    try {
-      realPath = realpathSync(current);
-    } catch {
-      continue;
-    }
-    if (visited.has(realPath)) {
-      continue;
-    }
-    visited.add(realPath);
-    let entries;
-    try {
-      entries = readdirSync(current, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (entry.isSymbolicLink()) {
-        continue;
-      }
-      const entryPath = join(current, entry.name);
+  const pending: string[] = [projectPath];
+  let total = 0;
+
+  while (pending.length > 0) {
+    const directories = pending.splice(0, pending.length);
+    await mapLimit(directories, DIRECTORY_SCAN_CONCURRENCY, async (directory) => {
+      let realPath: string;
       try {
-        if (entry.isDirectory()) {
-          if (IGNORED_SIZE_DIRECTORIES.has(entry.name)) {
-            continue;
-          }
-          stack.push(entryPath);
-        } else if (entry.isFile()) {
-          total += statSync(entryPath).size;
-        }
+        realPath = realpathSync(directory);
       } catch {
-        // 跳过无法访问的条目
+        return;
       }
-    }
+      if (visited.has(realPath)) {
+        return;
+      }
+      visited.add(realPath);
+      let entries;
+      try {
+        entries = await readdir(directory, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      const subdirectories: string[] = [];
+      await mapLimit(entries, FILE_STAT_CONCURRENCY, async (entry) => {
+        if (entry.isSymbolicLink()) {
+          return;
+        }
+        const entryPath = join(directory, entry.name);
+        try {
+          if (entry.isDirectory()) {
+            if (IGNORED_SIZE_DIRECTORIES.has(entry.name)) {
+              return;
+            }
+            subdirectories.push(entryPath);
+          } else if (entry.isFile()) {
+            // 必须先 await 存变量再累加：`total += (await stat(...)).size` 的
+            // 复合赋值会先读取 total 旧值再求值右侧，并发 worker 会互相覆盖
+            // （lost update，实测同一目录会少算 99% 的体积）
+            const fileStats = await stat(entryPath);
+            total += fileStats.size;
+          }
+        } catch {
+          // 跳过无法访问的条目
+        }
+      });
+      pending.push(...subdirectories);
+    });
   }
   return total;
 }
+
+const DIRECTORY_SCAN_CONCURRENCY = 8;
+const FILE_STAT_CONCURRENCY = 64;
 
 const IGNORED_SIZE_DIRECTORIES = new Set([
   ".git",
@@ -878,6 +896,8 @@ export async function moveProject(input: MoveProjectInput): Promise<MoveProjectR
   // 用户点一次就多出一份完整副本（含 node_modules），旧目录永久残留。
   try {
     renameSync(sourcePath, targetPath);
+    // 旧路径的磁盘体积/分析缓存立即失效，只靠 TTL 兜底会显示 60s 的脏数据
+    invalidateDiskSizeCache(sourcePath);
     return { success: true, targetPath, output: `项目已移动到 ${targetPath}` };
   } catch (error) {
     if (!isCrossDeviceError(error)) {
@@ -915,6 +935,7 @@ export async function moveProject(input: MoveProjectInput): Promise<MoveProjectR
     };
   }
 
+  invalidateDiskSizeCache(sourcePath);
   return { success: true, targetPath, output: `项目已移动到 ${targetPath}` };
 }
 
