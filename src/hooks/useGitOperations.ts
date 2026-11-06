@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type { GitOperation, Project, ProjectAnalysis } from "../../shared/types";
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { operationLabels } from "../lib/meta";
@@ -31,6 +31,18 @@ export type GitOperationsParams = {
   setAnalysis: (value: ProjectAnalysis | null) => void;
 };
 
+/**
+ * Git 操作全局互斥的权威开关（2026-11-07 审查 P1-7）。
+ *
+ * 为什么放模块级而不是 hook 内部 useRef：本 hook 的编排已下沉 ProjectsPage
+ * （治理轮-3），页面随工作区切换会卸载重挂——hook 内部的 ref 会随之重置，
+ * 「批量操作执行中切走再切回，可对同一仓库并发 git 进程（index.lock 冲突）」
+ * 的互斥保护就被弱化了。互斥锁的语义是跨页面、跨挂载实例的应用级锁，
+ * 属于域层而非组件树，因此用模块级单例承载。锁在 finally 里释放，
+ * 操作完成晚于页面卸载时也能正确复位。
+ */
+const gitBusyRef = { current: false };
+
 export function useGitOperations(params: GitOperationsParams): GitOperationsApi {
   const {
     selectedProject,
@@ -44,10 +56,7 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
   const [activeOperation, setActiveOperation] = useState<GitOperation | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
-  // 互斥的权威开关用 ref：批量操作与面板内的单个操作此前互不感知，
-  // 可对同一仓库并发起 git 进程，触发 index.lock 冲突（2026-11-07 审查 P1-7）。
-  // state 只承担 UI 反馈职责。
-  const gitBusyRef = useRef(false);
+  // state 只承担 UI 反馈职责；互斥的权威开关是上面的模块级 gitBusyRef。
 
   const runGitOperation = useCallback(
     async (operation: GitOperation) => {

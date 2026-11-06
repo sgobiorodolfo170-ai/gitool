@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, Check, Command, GitBranch, Loader2 } from "lucide-react";
-import type { AppSettings, AppView, ProjectAnalysis, RemoteProvider } from "./types";
+import type { AppSettings, AppView, RemoteProvider } from "./types";
 import { isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 
 import { buildNavGroups, workspaceLabel } from "./lib/navigation";
@@ -12,7 +12,7 @@ import {
 
 import { OverviewWorkspace } from "./components/OverviewWorkspace";
 
-import { ProjectsWorkspace } from "./components/ProjectsWorkspace";
+import { ProjectsPage } from "./components/ProjectsPage";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
 import { RemoteRepositoriesWorkspace } from "./components/RemoteRepositoriesWorkspace";
 import { TasksWorkspace } from "./components/TasksWorkspace";
@@ -22,7 +22,6 @@ import { SettingsWorkspace } from "./components/SettingsWorkspace";
 import { useProjects } from "./hooks/useProjects";
 import { useAccounts } from "./hooks/useAccounts";
 import { useImportFlow } from "./hooks/useImportFlow";
-import { useGitOperations } from "./hooks/useGitOperations";
 import { useWorkspaces } from "./hooks/useWorkspaces";
 import { useRemotes } from "./hooks/useRemotes";
 import { useEnvironment } from "./hooks/useEnvironment";
@@ -38,8 +37,6 @@ function App() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [fontScale, setFontScale] = useState(FONT_SCALE_DEFAULT);
-  const [operationOutput, setOperationOutput] = useState<string | null>(null);
-  const [analysis, setAnalysis] = useState<ProjectAnalysis | null>(null);
 
   // 三个独立领域 hook：提示、环境体检、应用更新。
   // 保留原有变量名做别名，避免一次性改动上百处引用；后续可逐步换成 hook 的原始命名。
@@ -108,46 +105,42 @@ function App() {
     );
   };
 
-  const clearDetail = useCallback(() => {
-    setOperationOutput(null);
-    setAnalysis(null);
+  // 详情输出/结构分析 state 已随 Git 操作域下沉 ProjectsPage（治理轮-3④）。
+  // App 侧仅保留「清除详情」的转发：useProjects 的 onClearDetail、resetView、
+  // openProjectDetail 仍是触发点；ProjectsPage 挂载时经 registerClearDetail
+  // 登记真正的清除函数，未挂载时为空操作（状态已随组件销毁）。
+  const clearDetailRef = useRef<() => void>(() => {});
+  const clearDetail = useCallback(() => clearDetailRef.current(), []);
+  const registerClearDetail = useCallback((clear: () => void) => {
+    clearDetailRef.current = clear;
   }, []);
 
-  const {
-    projects,
-    selectedProject,
-    filteredProjects,
-    allTags,
-    filter,
-    search,
-    tagFilter,
-    isRefreshing,
-    setSelectedId,
-    setFilter,
-    setSearch,
-    setTagFilter,
-    applyProjects,
-    updateProjects,
-    getProjects,
-    toggleFavorite,
-    deleteProjectFromList,
-    refreshProjects,
-    moveProject,
-  } = useProjects({
+  const projectsApi = useProjects({
     activeWorkspaceId,
     onNotice: showNotice,
     onClearDetail: clearDetail,
     defaultDirectoryHint,
   });
+  // 筛选/搜索/标签过滤已下沉 ProjectsPage（仅「我的项目」页消费）；
+  // 这里只解构 App 与其他页仍要读写的部分
+  const {
+    projects,
+    selectedProject,
+    isRefreshing,
+    setSelectedId,
+    applyProjects,
+    updateProjects,
+    getProjects,
+    refreshProjects,
+  } = projectsApi;
 
   const resetView = useCallback(() => {
     setSelectedId("");
-    setFilter("all");
-    setSearch("");
-    setTagFilter("");
     clearDetail();
+    // 筛选/搜索/标签过滤与详情输出都由 ProjectsPage 自持，切工作区时页面
+    // 卸载即自动复位，无需在此逐项清空（与本轮下沉前的手工清空等价）
     setWorkspace("overview");
-  }, [clearDetail]);
+  }, [clearDetail, setSelectedId]);
 
   const {
     workspaces,
@@ -209,22 +202,6 @@ function App() {
       setSelectedId(projectId);
       setWorkspace("projects");
     },
-  });
-
-  const {
-    activeOperation,
-    bulkRunning,
-    isAnalyzing,
-    runGitOperation,
-    runBulkGitOperation,
-    analyzeProject,
-  } = useGitOperations({
-    selectedProject,
-    getProjects,
-    updateProjects,
-    onNotice: showNotice,
-    setOperationOutput,
-    setAnalysis,
   });
 
   // 跨域联动留在 App：新增账号后默认选中，删除账号后清掉它的仓库缓存
@@ -311,8 +288,7 @@ function App() {
 
   const openProjectDetail = (id: string) => {
     setSelectedId(id);
-    setOperationOutput(null);
-    setAnalysis(null);
+    clearDetail();
     setWorkspace("projects");
   };
 
@@ -466,46 +442,16 @@ function App() {
               onToggleRemoteFavorite={toggleRemoteFavorite}
             />
           ) : workspace === "projects" ? (
-            <ProjectsWorkspace
-              projects={projects}
-              filteredProjects={filteredProjects}
-              selectedProject={selectedProject}
-              filter={filter}
-              search={search}
-              tagFilter={tagFilter}
-              allTags={allTags}
-              isImporting={isImporting}
-              onFilterChange={setFilter}
-              onSearchChange={setSearch}
-              onTagFilterChange={setTagFilter}
-              onSelect={(id) => {
-                setSelectedId(id);
-                setOperationOutput(null);
-                setAnalysis(null);
+            <ProjectsPage
+              projectsApi={projectsApi}
+              importDomain={{
+                isImporting,
+                importProject,
+                initNewRepository,
+                scanDirectoryForImport,
               }}
-              onToggleFavorite={toggleFavorite}
-              onUpdateProject={(projectId, patch) =>
-                updateProjects((prev) =>
-                  prev.map((project) =>
-                    project.id === projectId ? { ...project, ...patch } : project,
-                  ),
-                )
-              }
-              onBulkGitOperation={runBulkGitOperation}
-              onMoveProject={moveProject}
-              onInitRepository={initNewRepository}
-              onScanImport={scanDirectoryForImport}
-              onImport={importProject}
-              onDeleteProject={deleteProjectFromList}
-              onRefresh={refreshProjects}
-              isRefreshing={isRefreshing}
-              onRunGitOperation={runGitOperation}
-              activeOperation={activeOperation}
-              bulkRunning={bulkRunning}
-              operationOutput={operationOutput}
-              onAnalyzeProject={analyzeProject}
-              isAnalyzing={isAnalyzing}
-              analysis={analysis}
+              onNotice={showNotice}
+              registerClearDetail={registerClearDetail}
             />
           ) : workspace === "remotes" ? (
             <RemoteRepositoriesWorkspace

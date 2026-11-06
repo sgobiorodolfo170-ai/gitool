@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Project, ProjectFilter } from "../../shared/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Project } from "../../shared/types";
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { mapWithConcurrency } from "../lib/concurrency";
 import { projectFromSnapshot } from "../lib/projectMatch";
 import { saveProjects } from "../lib/projects";
 
 /**
- * 项目列表：加载、持久化、筛选、收藏、刷新、移动。
+ * 项目列表：加载、持久化、收藏、刷新、移动。
  *
  * 这是整个渲染层最核心的一块状态。抽成 hook 后，`App` 只需要把
  * `activeWorkspaceId` 和几个回调传进来，不必再持有 8 个 state + 900 行 handler。
@@ -14,21 +14,18 @@ import { saveProjects } from "../lib/projects";
  * 保存策略（两处关键设计，改动时勿破坏）：
  * 1. `projectsRef` 保存同步副本——连续两次更新必须基于最新值计算，不能等 React 重渲染。
  * 2. `saveQueueRef` 串行化落库——并发保存时后发起的请求可能先返回，旧快照会覆盖新快照。
+ *
+ * 治理轮-3 下沉说明：filter/search/tagFilter 状态与 filteredProjects/allTags
+ * 派生已迁至 ProjectsPage（仅「我的项目」页消费，且筛选重置随页面卸载自动发生）；
+ * 列表与选中项留在此处——总览卡片、侧栏徽标、任务/备份下拉、远程克隆与导入
+ * 跳转都要跨页读写它们。
  */
 export type ProjectsApi = {
   projects: Project[];
   selectedProject: Project | undefined;
-  filteredProjects: Project[];
-  allTags: string[];
   selectedId: string;
-  filter: ProjectFilter;
-  search: string;
-  tagFilter: string;
   isRefreshing: boolean;
   setSelectedId: (id: string) => void;
-  setFilter: (filter: ProjectFilter) => void;
-  setSearch: (value: string) => void;
-  setTagFilter: (value: string) => void;
   /** 直接替换整个列表（切换工作区、首次加载时用）。 */
   applyProjects: (next: Project[]) => void;
   /** 基于最新列表做不可变更新，并串行落库。 */
@@ -65,9 +62,6 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
   }, [activeWorkspaceId]);
 
   const [selectedId, setSelectedId] = useState("");
-  const [filter, setFilter] = useState<ProjectFilter>("all");
-  const [search, setSearch] = useState("");
-  const [tagFilter, setTagFilter] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const applyProjects = useCallback((next: Project[]) => {
@@ -103,29 +97,6 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
   // 不做 projects[0] 兜底：「未选中」是合法状态（resetView / 查看全部都会置空），
   // 兜底会让空选中语义失效、首行恒高亮（2026-11-07 审查 P1-6）。
   const selectedProject = projects.find((project) => project.id === selectedId);
-
-  const allTags = useMemo(
-    () => [...new Set(projects.flatMap((project) => project.tags))].sort(),
-    [projects],
-  );
-
-  const filteredProjects = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return projects.filter((project) => {
-      const matchesFilter =
-        filter === "all" ||
-        (filter === "favorite" && project.favorite) ||
-        (filter === "attention" &&
-          (project.status !== "clean" || project.tags.includes("watching")));
-      const matchesTag = !tagFilter || project.tags.includes(tagFilter);
-      const matchesSearch =
-        !query ||
-        `${project.name} ${project.path} ${project.summary} ${project.tags.join(" ")}`
-          .toLowerCase()
-          .includes(query);
-      return matchesFilter && matchesTag && matchesSearch;
-    });
-  }, [filter, projects, search, tagFilter]);
 
   const toggleFavorite = useCallback(
     (projectId: string) => {
@@ -233,17 +204,9 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
   return {
     projects,
     selectedProject,
-    filteredProjects,
-    allTags,
     selectedId,
-    filter,
-    search,
-    tagFilter,
     isRefreshing,
     setSelectedId,
-    setFilter,
-    setSearch,
-    setTagFilter,
     applyProjects,
     updateProjects,
     getProjects: () => projectsRef.current,

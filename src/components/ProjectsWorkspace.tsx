@@ -13,74 +13,82 @@ import {
 import type { GitOperation, Project, ProjectAnalysis, ProjectFilter } from "../types";
 
 import { useSplitWidth } from "../hooks/useSplitWidth";
+import type { GitOperationsApi } from "../hooks/useGitOperations";
+import type { ImportFlowApi } from "../hooks/useImportFlow";
+import type { ProjectsApi } from "../hooks/useProjects";
 import { EmptyProjects, FilterButton, ProjectRow } from "./common";
 
 import { ProjectDetail } from "./ProjectDetail";
 
-export type ProjectsWorkspaceProps = {
-  projects: Project[];
-  filteredProjects: Project[];
-  selectedProject?: Project;
+/**
+ * 领域对象（治理轮-3 编排下沉）：本组件的 props 契约。
+ * 原先 28 个逐字面 props 按「列表/筛选/导入/Git 操作」四域收敛，
+ * 类型定义放在消费方（本文件），ProjectsPage 负责装配。
+ */
+
+/** 项目域：useProjects 的领域对象（列表/选中/收藏/删除/移动/刷新）。 */
+export type ProjectDomain = ProjectsApi;
+
+/** 筛选域：filter/search/tagFilter 状态与派生列表，仅本页消费，ProjectsPage 自持。 */
+export type FilterDomain = {
   filter: ProjectFilter;
   search: string;
   tagFilter: string;
   allTags: string[];
-  isImporting: boolean;
-  onFilterChange: (filter: ProjectFilter) => void;
-  onSearchChange: (search: string) => void;
-  onTagFilterChange: (tag: string) => void;
-  onSelect: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
-  onUpdateProject: (id: string, patch: Partial<Project>) => void;
-  onBulkGitOperation: (operation: GitOperation, ids: string[]) => void | Promise<void>;
-  onMoveProject: (project: Project) => void | Promise<void>;
-  onInitRepository: () => void | Promise<void>;
-  onScanImport: () => void | Promise<void>;
-  onImport: () => void;
-  onDeleteProject: (id: string) => void;
-  onRefresh: () => void | Promise<void>;
-  isRefreshing: boolean;
-  onRunGitOperation: (operation: GitOperation) => void | Promise<void>;
-  activeOperation: GitOperation | null;
-  /** 批量 Git 操作执行中：禁用批量按钮，并向详情面板透传互斥状态。 */
-  bulkRunning: boolean;
+  filteredProjects: Project[];
+  setFilter: (filter: ProjectFilter) => void;
+  setSearch: (value: string) => void;
+  setTagFilter: (value: string) => void;
+};
+
+/** 导入域：useImportFlow 中本页消费的入口与进行中标记。 */
+export type ImportDomain = Pick<
+  ImportFlowApi,
+  "isImporting" | "importProject" | "initNewRepository" | "scanDirectoryForImport"
+>;
+
+/** Git 操作域：useGitOperations 返回值 + 详情输出/结构分析状态（ProjectsPage 自持）。 */
+export type GitDomain = GitOperationsApi & {
   operationOutput: string | null;
-  onAnalyzeProject: () => void | Promise<void>;
-  isAnalyzing: boolean;
   analysis: ProjectAnalysis | null;
 };
 
+export type ProjectsWorkspaceProps = {
+  /** 项目域：列表/选中/收藏/删除/移动/刷新。 */
+  projectsApi: ProjectDomain;
+  /** 筛选域：筛选/搜索/标签过滤状态与派生列表。 */
+  filterDomain: FilterDomain;
+  /** 导入域：本页的导入/初始化/扫描入口。 */
+  importDomain: ImportDomain;
+  /** Git 操作域：单个/批量 Git 操作与结构分析编排。 */
+  gitDomain: GitDomain;
+  /** 选中项目：置选中项并清空右侧详情的输出/分析（跨域组合，由 ProjectsPage 提供）。 */
+  onSelect: (id: string) => void;
+};
+
 export function ProjectsWorkspace({
-  projects,
-  filteredProjects,
-  selectedProject,
-  filter,
-  search,
-  tagFilter,
-  allTags,
-  isImporting,
-  onFilterChange,
-  onSearchChange,
-  onTagFilterChange,
+  projectsApi,
+  filterDomain,
+  importDomain,
+  gitDomain,
   onSelect,
-  onToggleFavorite,
-  onUpdateProject,
-  onBulkGitOperation,
-  onMoveProject,
-  onInitRepository,
-  onScanImport,
-  onImport,
-  onDeleteProject,
-  onRefresh,
-  isRefreshing,
-  onRunGitOperation,
-  activeOperation,
-  bulkRunning,
-  operationOutput,
-  onAnalyzeProject,
-  isAnalyzing,
-  analysis,
 }: ProjectsWorkspaceProps) {
+  const { projects, selectedProject } = projectsApi;
+  const { filter, search, tagFilter, allTags, filteredProjects } = filterDomain;
+  const { setFilter, setSearch, setTagFilter } = filterDomain;
+  const { isImporting, importProject, initNewRepository, scanDirectoryForImport } = importDomain;
+  const {
+    runGitOperation,
+    runBulkGitOperation,
+    analyzeProject,
+    activeOperation,
+    bulkRunning,
+    isAnalyzing,
+    operationOutput,
+    analysis,
+  } = gitDomain;
+  const { isRefreshing, refreshProjects } = projectsApi;
+
   const attentionCount = projects.filter(
     (project) => project.status !== "clean" || project.tags.includes("watching"),
   ).length;
@@ -110,14 +118,14 @@ export function ProjectsWorkspace({
         if (typing) {
           (target as HTMLInputElement).blur();
         } else if (search) {
-          onSearchChange("");
+          setSearch("");
         }
         setSelectedBulkIds([]);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [search, onSearchChange]);
+  }, [search, setSearch]);
 
   useEffect(() => {
     setSelectedBulkIds([]);
@@ -139,7 +147,7 @@ export function ProjectsWorkspace({
 
   const runBulk = (operation: GitOperation) => {
     if (selectedBulkIds.length === 0 || bulkRunning) return;
-    void onBulkGitOperation(operation, selectedBulkIds);
+    void runBulkGitOperation(operation, selectedBulkIds);
     setSelectedBulkIds([]);
   };
 
@@ -155,19 +163,19 @@ export function ProjectsWorkspace({
           <p>集中查看本地项目、远程关联与工作区状态。</p>
         </div>
         <div className="heading-actions">
-          <button className="button secondary" onClick={onRefresh} disabled={isRefreshing}>
+          <button className="button secondary" onClick={() => void refreshProjects()} disabled={isRefreshing}>
             <RefreshCw size={15} className={isRefreshing ? "spin" : ""} />
             {isRefreshing ? "刷新中..." : "刷新状态"}
           </button>
-          <button className="button secondary" onClick={onScanImport}>
+          <button className="button secondary" onClick={() => void scanDirectoryForImport()}>
             <FolderGit2 size={15} />
             批量导入
           </button>
-          <button className="button secondary" onClick={onInitRepository}>
+          <button className="button secondary" onClick={() => void initNewRepository()}>
             <Plus size={15} />
             初始化仓库
           </button>
-          <button className="button primary" onClick={onImport}>
+          <button className="button primary" onClick={() => void importProject()}>
             <Plus size={16} />
             {isImporting ? "导入中..." : "导入项目"}
           </button>
@@ -176,13 +184,13 @@ export function ProjectsWorkspace({
 
       <div className="section-toolbar">
         <div className="filter-tabs">
-          <FilterButton active={filter === "all"} onClick={() => onFilterChange("all")}>
+          <FilterButton active={filter === "all"} onClick={() => setFilter("all")}>
             全部 <span>{projects.length}</span>
           </FilterButton>
-          <FilterButton active={filter === "favorite"} onClick={() => onFilterChange("favorite")}>
+          <FilterButton active={filter === "favorite"} onClick={() => setFilter("favorite")}>
             已收藏 <span>{favoriteCount}</span>
           </FilterButton>
-          <FilterButton active={filter === "attention"} onClick={() => onFilterChange("attention")}>
+          <FilterButton active={filter === "attention"} onClick={() => setFilter("attention")}>
             需要关注 <span>{attentionCount}</span>
           </FilterButton>
         </div>
@@ -191,7 +199,7 @@ export function ProjectsWorkspace({
           <input
             ref={searchRef}
             value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder="搜索项目、路径或摘要"
           />
           <kbd>/</kbd>
@@ -203,7 +211,7 @@ export function ProjectsWorkspace({
           <span>标签：</span>
           <button
             className={`tag-filter-chip ${tagFilter === "" ? "active" : ""}`}
-            onClick={() => onTagFilterChange("")}
+            onClick={() => setTagFilter("")}
           >
             全部
           </button>
@@ -211,7 +219,7 @@ export function ProjectsWorkspace({
             <button
               key={tag}
               className={`tag-filter-chip ${tagFilter === tag ? "active" : ""}`}
-              onClick={() => onTagFilterChange(tagFilter === tag ? "" : tag)}
+              onClick={() => setTagFilter(tagFilter === tag ? "" : tag)}
             >
               <Tag size={10} />
               {tag}
@@ -255,12 +263,12 @@ export function ProjectsWorkspace({
                   bulkSelected={selectedBulkIds.includes(project.id)}
                   onToggleBulk={() => toggleBulk(project.id)}
                   onSelect={() => onSelect(project.id)}
-                  onToggleFavorite={() => onToggleFavorite(project.id)}
-                  onDelete={() => onDeleteProject(project.id)}
+                  onToggleFavorite={() => projectsApi.toggleFavorite(project.id)}
+                  onDelete={() => projectsApi.deleteProjectFromList(project.id)}
                 />
               ))
             ) : (
-              <EmptyProjects onImport={onImport} />
+              <EmptyProjects onImport={() => void importProject()} />
             )}
           </div>
         </div>
@@ -276,14 +284,20 @@ export function ProjectsWorkspace({
         {selectedProject ? (
           <ProjectDetail
             project={selectedProject}
-            onToggleFavorite={() => onToggleFavorite(selectedProject.id)}
-            onUpdateProject={(patch) => onUpdateProject(selectedProject.id, patch)}
-            onMoveProject={() => onMoveProject(selectedProject)}
-            onRunGitOperation={onRunGitOperation}
+            onToggleFavorite={() => projectsApi.toggleFavorite(selectedProject.id)}
+            onUpdateProject={(patch) =>
+              projectsApi.updateProjects((prev) =>
+                prev.map((project) =>
+                  project.id === selectedProject.id ? { ...project, ...patch } : project,
+                ),
+              )
+            }
+            onMoveProject={() => void projectsApi.moveProject(selectedProject)}
+            onRunGitOperation={runGitOperation}
             activeOperation={activeOperation}
             externalBusy={activeOperation !== null || bulkRunning}
             operationOutput={operationOutput}
-            onAnalyzeProject={onAnalyzeProject}
+            onAnalyzeProject={() => void analyzeProject()}
             isAnalyzing={isAnalyzing}
             analysis={analysis}
           />
