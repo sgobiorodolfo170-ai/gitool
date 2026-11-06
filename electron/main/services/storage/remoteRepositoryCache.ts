@@ -1,5 +1,13 @@
-import type { RemoteProvider, RemoteRepository } from "../../../shared/types";
-import { openDatabase, type SqlRow } from "./storage/database";
+import type { RemoteProvider, RemoteRepository } from "../../../../shared/types";
+import { openDatabase, type SqlRow } from "./database";
+
+/**
+ * 远程仓库缓存数据域：每个账号一份仓库列表快照（payload 为 JSON）。
+ *
+ * 缓存语义：同步成功后整体覆盖（upsert）；读不到或解析失败一律返回 null，
+ * 由调用方决定回退策略（重新拉取远端）。删号时的级联清理在 accounts 域内联
+ * 完成（属账号删除语义，避免域间横向依赖）。
+ */
 
 export function saveRemoteRepositoryCache(
   accountId: string,

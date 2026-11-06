@@ -9,7 +9,10 @@ import type {
 import { readCredential } from "./credentials";
 import { errorMessage } from "./serviceUtils";
 import { getAccount, loadAccounts, updateAccount } from "./storage/accounts";
-import { loadRemoteRepositoryCache, saveRemoteRepositoryCache } from "./storage";
+import {
+  loadRemoteRepositoryCache,
+  saveRemoteRepositoryCache,
+} from "./storage/remoteRepositoryCache";
 
 type ProviderEndpoint = {
   url: string;

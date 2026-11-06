@@ -47,3 +47,4 @@
 | v0.6.17 | 2026-11-07 | storage 分域拆分⑥：backups 域迁出（listBackups/insertBackup 原样搬移），ipc 与备份服务 backups.ts 改从 storage/backups 导入；纯代码搬移 |
 | v0.6.18 | 2026-11-07 | storage 分域拆分⑦：operations 域迁出（审计记录写入/查询/清空/CSV 导出原样搬移，2000 条保留上限与 BOM 行为不变），ipc 改从 storage/operations 导入；纯代码搬移 |
 | v0.6.19 | 2026-11-07 | storage 分域拆分⑧：settings 域迁出（loadSettings 缺键回退空默认/saveSettings 整体事务 upsert 原样搬移），ipc/ai/git/backups/setup 五处调用方改从 storage/settings 导入；纯代码搬移 |
+| v0.6.20 | 2026-11-07 | storage 分域拆分⑨（收官）：remoteRepositoryCache 域迁出，storage.ts 删除——929 行单文件完成「database.ts 基座 + 8 域模块」拆分，调用方 7 文件全部显式指向域模块（方案 docs/refactor-storage-plan.md）；纯代码搬移 |
