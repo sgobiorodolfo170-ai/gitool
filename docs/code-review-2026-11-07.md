@@ -40,26 +40,26 @@
 ## P2 — 建议（待排期）
 
 **解析与数据正确性**
-- ⬜ `git.ts` listChangedFiles：`status -z` 的 rename 成对路径未按对解析，旧路径第 3 字符为空格时产生幻影 staged 记录。
-- ⬜ `git.ts` compareVersions：依赖 `--stat` 人读格式解析文件名（含 `|`、`=>`、超长路径均错），应改用已有 `--numstat`。
-- ⬜ `git.ts` stage/unstage/diff：pathspec 未加 `:(literal)` 前缀，文件名含 `[ ] * ?` 时匹配错误文件。
-- ⬜ `ipc/schemas.ts`：审计 `result: z.enum(...).catch("ok")` 把非法状态静默美化成成功。
-- ⬜ `storage.ts` + `operationCsv.ts`：CSV 导出只取前 500 条（库存 2000）、无 BOM（中文 Excel 乱码）、未防公式注入。
-- ⬜ `ipc.ts` recordOperation：`projectId` 写死空串，操作日志无法按项目归组。
+- ✅ v0.6.1 `git.ts` listChangedFiles：`status -z` 的 rename 成对路径未按对解析，旧路径第 3 字符为空格时产生幻影 staged 记录。
+- ✅ v0.6.1 `git.ts` compareVersions：依赖 `--stat` 人读格式解析文件名（含 `|`、`=>`、超长路径均错），应改用已有 `--numstat`。
+- ✅ v0.6.1 `git.ts` stage/unstage/diff：pathspec 未加 `:(literal)` 前缀，文件名含 `[ ] * ?` 时匹配错误文件。
+- ✅ v0.6.3 `ipc/schemas.ts`：审计 `result: z.enum(...).catch("ok")` 把非法状态静默美化成成功。
+- ✅ v0.6.2 `storage.ts` + `operationCsv.ts`：CSV 导出只取前 500 条（库存 2000）、无 BOM（中文 Excel 乱码）、未防公式注入。
+- ✅ v0.6.3 `ipc.ts` recordOperation：`projectId` 写死空串，操作日志无法按项目归组。
 
 **安全加固（纵深防御补齐）**
-- ⬜ `git.ts` clone：URL 未加 `--` 分隔、ssh 正则允许 `-` 开头 URL（当前靠 git 选项表偶然兜底）。
+- ✅ v0.6.1 `git.ts` clone：URL 未加 `--` 分隔、ssh 正则允许 `-` 开头 URL（当前靠 git 选项表偶然兜底）。
 - ✅ v0.5.7 `setup.ts`：PowerShell 单引号字符串对路径做 `''` 转义。
-- ⬜ `providers.ts`：GitHub update/delete 端点 owner/name 未 `encodeURIComponent`（同文件其他分支已做）。
-- ⬜ `git.ts` stageFiles IPC：无数组长度上限，Windows 32K 命令行限制下大变更集 spawn 失败。
+- ✅ v0.6.4 `providers.ts`：GitHub update/delete 端点 owner/name 未 `encodeURIComponent`（同文件其他分支已做）。
+- ✅ v0.6.1 `git.ts` stageFiles IPC：无数组长度上限，Windows 32K 命令行限制下大变更集 spawn 失败。
 - ⚠️ 审查勘误：`index.html` 的 `<!--CSP-->` 并非缺失 CSP——`vite.config.ts` 的 `contentSecurityPolicyPlugin` 在 dev/build 注入完整策略，初版报告此条按误报撤销。
 
 **死代码与假 UI**
-- ⬜ `ModuleWorkspace.tsx`：整页硬编码假数据且路由 else 分支不可达（死代码）。
-- ⬜ `App.tsx`：铃铛无 onClick 且红点恒亮；「⌘ K」提示多数页面无效且 Windows 显示 ⌘；「更多项目」按钮无 onClick；徽标统计 `tags.includes("building")` 但无处创建该标签（恒 0）；Overview 硬编码「早上好，Leo」。
-- ✅ v0.5.9 `invalidateDiskSizeCache` 已接入 moveProject（`invalidateAnalysisCache` 仍无调用方，待处理或删除）。
-- ⬜ `preload` installUpdate 未 return Promise，主进程拒绝路径时渲染层不可见。
-- ⬜ `providers.ts` loadRemoteRepositories：错误文案与实际行为不符 + 不可达分支；findRepository 吞网络异常误报「仓库不存在」。
+- ✅ v0.6.5 `ModuleWorkspace.tsx`：整页硬编码假数据且路由 else 分支不可达（死代码）。
+- ✅ v0.6.5 `App.tsx`：铃铛无 onClick 且红点恒亮；「⌘ K」提示多数页面无效且 Windows 显示 ⌘；「更多项目」按钮无 onClick；徽标统计 `tags.includes("building")` 但无处创建该标签（恒 0）；Overview 硬编码「早上好，Leo」。
+- ⬜ `analysis.ts` invalidateAnalysisCache 仍无调用方（v0.5.9 已接入磁盘体积缓存的失效），待接入分析路径或删除。
+- ✅ v0.6.5 `preload` installUpdate 未 return Promise，主进程拒绝路径时渲染层不可见。
+- ✅ v0.6.4 `providers.ts` loadRemoteRepositories：错误文案与实际行为不符 + 不可达分支；findRepository 吞网络异常误报「仓库不存在」。
 
 **架构与拆分**
 - ⬜ `storage.ts`（928 行）八个数据域挤在一个文件，按域拆分（projects/accounts/tasks/backups/settings）。
@@ -70,9 +70,14 @@
 - ⬜ 远程匹配逻辑三处口径不一（`lib/projectMatch.ts` vs 两处 `provider:name` 键）。
 - ⬜ 内联色值（TasksWorkspace 等）收入 styles.css token 体系。
 
+**收尾补录（第二轮修复）**
+- ✅ v0.6.7 `storage.ts` saveProjects：注释声称「软删除语义」实为硬删除，注释纠偏（P2-11）。
+- ✅ v0.6.7 `commandDetection.ts`：package.json 由两次读取 + 两次 JSON.parse 收敛为 readPackageScripts 单次读取（P2-15）。
+- ✅ v0.6.7 `updater.ts`：checkForUpdates 的 fetch 补 15 秒超时；updater:download 加进行中守卫（P2-17）。
+
 **工程流程**
 - ✅ v0.6.0 覆盖率度量与门禁落地（纯函数层 95/85/90/95，CI 已接入）；服务层纳入门槛为下一里程碑。
-- ⬜ AGENTS.md 速查表「适配标记」列空白，按其第五条款补适配留痕。
+- ✅ 2026-11-07 已按第五条款补适配记录块与「适配标记」列（无架构性变更）。
 - ⬜ `electron-builder.yml` files 显式含 `node_modules/**/*`，建议跑一次 `npm run dist` 核对安装包体积是否混入 devDependencies（CI 未覆盖 dist 环节）。
 
 ## 修复轮次记录
@@ -87,5 +92,14 @@
 | v0.5.8 | P0-2 + P1-5/6/7/8 + P1-10 前端批次 | `fix(ui): 前端时序修复批次——轮询失效、切换竞态与 Git 操作互斥` |
 | v0.5.9 | P1-11 磁盘体积异步化 + P2-13 缓存失效 | `perf(git): 磁盘体积计算异步化，不再冻结主进程` |
 | v0.6.0 | 覆盖率门禁 | `test(coverage): 引入覆盖率度量与门禁` |
+| v0.6.1 | P2-2/3/4/16/18 解析加固 | `fix(git): 解析加固批次——rename 成对解析、numstat、literal pathspec、clone 加固` |
+| v0.6.2 | P2-10 CSV 导出 | `fix(export): 操作记录 CSV 导出全量、补 BOM、防公式注入` |
+| v0.6.3 | P2-9/21 IPC 加固 | `fix(ipc): 审计字段严格化、projectId 反查归组、入参上限` |
+| v0.6.4 | P2-7/8 providers | `fix(providers): URL 编码统一、同步失败文案纠偏、网络错误不再误报仓库不存在` |
+| v0.6.5 | P2-12/14 死代码与假 UI | `fix(ui): 死代码与假 UI 清理，installUpdate 补错误可见性` |
+| v0.6.6 | P2-12 重复代码下沉 | `refactor(services): errorMessage/assertDirectory 下沉零依赖 serviceUtils` |
+| v0.6.7 | P2-11/15/17 收尾 | `fix: P2 收尾批次——注释纠偏、命令探测单次读包、更新检查超时与下载守卫` |
 
-> 验证基线：v0.6.0 时 typecheck ✓、126 单测 ✓、覆盖率门禁 ✓、生产构建 ✓。
+> 验证基线：v0.6.7 时 typecheck ✓、138 单测 ✓、覆盖率门禁 ✓、生产构建 ✓。
+>
+> **仍遗留（大拆分类，留待独立轮次）**：storage.ts 按域拆分；GitActionsPanel/SettingsWorkspace/ProjectDetail/TasksWorkspace 组件拆分；App.tsx 编排下沉；useAsyncData/usePolling 与 toast 双轨统一；远程匹配三处口径统一；`npm run dist` 安装包体积验证。
