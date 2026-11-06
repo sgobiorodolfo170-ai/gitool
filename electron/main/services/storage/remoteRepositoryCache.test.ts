@@ -46,7 +46,7 @@ describe("remoteRepositoryCache 域（远程仓库缓存）", () => {
     saveRemoteRepositoryCache("acc-1", "github", [repository()]);
     expect(loadRemoteRepositoryCache("acc-1")).toEqual([repository()]);
 
-    saveRemoteRepositoryCache("acc-1", "github", [repository({ id: 2, name: "other" })]);
+    saveRemoteRepositoryCache("acc-1", "github", [repository({ id: "repo-2", name: "other" })]);
     const loaded = loadRemoteRepositoryCache("acc-1");
     expect(loaded).toHaveLength(1);
     expect(loaded?.[0]?.name).toBe("other");

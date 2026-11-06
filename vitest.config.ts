@@ -16,10 +16,14 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html"],
       // 覆盖率门槛（AGENTS.md 第八节要求设定目标，此处为适配值）：
-      // 模板默认「整体 ≥80%」。当前项目阶段测试集中在零 IO 纯函数层，
-      // 服务层（git.ts/storage.ts 等，依赖 electron 模块）尚无测试——
-      // 把门槛锁定在纯函数层并保持高水位（95/85/90/95），防止既有
-      // 用例随重构悄然劣化；服务层纳入门槛是下一里程碑（过渡计划）。
+      // 模板默认「整体 ≥80%」。当前门槛锁定纯函数层与 storage 域并保持高水位
+      // （95/85/90/95）。服务层纳入进度（2026-11-07 storage 分域拆分后）：
+      // ✅ 已纳入——storage/database（连接注入/种子/老库迁移）+ 7 个域模块
+      //    （真实 node:sqlite + mkdtemp 临时目录，不 mock electron）；
+      // ⬜ 暂不纳入 storage/accounts——其核心路径 upsert/delete 写真实 Windows
+      //    凭据管理器（@napi-rs/keyring），单测不允许产生真机副作用，凭据层
+      //    可注入（如 saveCredential 作为参数传入）后再纳入；
+      // ⬜ git.ts 等其余服务层（下一里程碑）。
       // 基线：v0.6.0 时纯函数层 stmts 97.9% / branch 89.0% / funcs 92.7% / lines 97.8%。
       include: [
         "electron/main/ipc/schemas.ts",
@@ -28,6 +32,14 @@ export default defineConfig({
         "electron/main/services/gitParsing.ts",
         "electron/main/services/operationCsv.ts",
         "electron/main/services/version.ts",
+        "electron/main/services/storage/backups.ts",
+        "electron/main/services/storage/database.ts",
+        "electron/main/services/storage/operations.ts",
+        "electron/main/services/storage/projects.ts",
+        "electron/main/services/storage/remoteRepositoryCache.ts",
+        "electron/main/services/storage/settings.ts",
+        "electron/main/services/storage/tasks.ts",
+        "electron/main/services/storage/workspaces.ts",
         "src/lib/format.ts",
         "src/lib/markdown.ts",
         "src/lib/navigation.ts",

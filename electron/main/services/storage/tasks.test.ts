@@ -19,7 +19,7 @@ function profile(overrides: Partial<TaskProfile> = {}): TaskProfile {
     id: "tp-1",
     projectId: "p-1",
     projectPath: "C:\\work\\demo",
-    taskType: "npm",
+    taskType: "run",
     name: "安装依赖",
     command: "npm install",
     args: "",
@@ -89,10 +89,12 @@ describe("tasks 域（任务配置与执行记录）", () => {
 
   it("updateTaskRun 回填结束状态：finishedAt/exitCode 可空字段往返一致", () => {
     insertTaskRun(run());
-    updateTaskRun(run({ finishedAt: "2026-11-01T00:05:00.000Z", status: "success", exitCode: 0 }));
+    updateTaskRun(
+      run({ finishedAt: "2026-11-01T00:05:00.000Z", status: "succeeded", exitCode: 0 }),
+    );
     const loaded = listTaskRuns()[0];
     expect(loaded?.finishedAt).toBe("2026-11-01T00:05:00.000Z");
-    expect(loaded?.status).toBe("success");
+    expect(loaded?.status).toBe("succeeded");
     expect(loaded?.exitCode).toBe(0);
 
     updateTaskRun(

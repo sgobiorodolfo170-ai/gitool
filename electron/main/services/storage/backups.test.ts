@@ -14,7 +14,7 @@ function backup(overrides: Partial<BackupRecord> = {}): BackupRecord {
     sourcePath: "C:\\work\\demo",
     archivePath: "D:\\backup\\demo-20261107.tar.gz",
     sizeBytes: 2048,
-    status: "success",
+    status: "ok",
     createdAt: "2026-11-01T00:00:00.000Z",
     ...overrides,
   };
