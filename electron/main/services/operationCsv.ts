@@ -10,9 +10,13 @@ import type { OperationRecord } from "../../../shared/types";
 /**
  * CSV 字段转义。
  * 统一给所有字段加双引号并把内部 `"` 翻倍，避免路径中的逗号、换行把列切错。
+ * 以 `= + - @` 开头的值前缀单引号：Excel/WSPS 会把它们当公式执行
+ * （CSV 公式注入，detail 来自 git 输出与用户操作，不可信），
+ * 前缀单引号是 Excel 官方认可的按文本呈现方案（2026-11-07 审查 P2-10）。
  */
 export function csvEscape(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
+  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safe.replaceAll('"', '""')}"`;
 }
 
 const CSV_HEADER = "id,operation,projectId,projectPath,result,createdAt,detail";
