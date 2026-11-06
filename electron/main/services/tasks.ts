@@ -2,7 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import type { TaskRun } from "../../../shared/types";
 import { quoteWindowsArg, splitCommandLine } from "./commandLine";
-import { getTaskProfile, updateTaskRun } from "./storage";
+import { getTaskProfile, updateTaskRun } from "./storage/tasks";
 
 const runningTasks = new Map<string, { process: ReturnType<typeof spawn>; output: () => string }>();
 

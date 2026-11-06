@@ -1,7 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Account, Project, RemoteProvider, WorkspaceEntity } from "../../../../shared/types";
+import type {
+  Account,
+  Project,
+  RemoteProvider,
+  TaskProfile,
+  TaskRun,
+  WorkspaceEntity,
+} from "../../../../shared/types";
 import { errorMessage } from "../serviceUtils";
 
 export type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
@@ -337,5 +344,35 @@ export function rowToAccount(row: SqlRow): Account {
     lastCheckedAt: row.lastCheckedAt === null ? null : String(row.lastCheckedAt),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
+  };
+}
+
+export function rowToTaskProfile(row: SqlRow): TaskProfile {
+  return {
+    id: String(row.id),
+    projectId: String(row.projectId),
+    projectPath: String(row.projectPath),
+    taskType: String(row.taskType) as TaskProfile["taskType"],
+    name: String(row.name),
+    command: String(row.command),
+    args: String(row.args),
+    workingDirectory: String(row.workingDirectory),
+    timeoutSeconds: Number(row.timeoutSeconds),
+    createdAt: String(row.createdAt),
+  };
+}
+
+export function rowToTaskRun(row: SqlRow): TaskRun {
+  return {
+    id: String(row.id),
+    profileId: String(row.profileId),
+    projectId: String(row.projectId),
+    name: String(row.name),
+    command: String(row.command),
+    startedAt: String(row.startedAt),
+    finishedAt: row.finishedAt === null ? undefined : String(row.finishedAt),
+    status: String(row.status) as TaskRun["status"],
+    exitCode: row.exitCode === null ? undefined : Number(row.exitCode),
+    output: String(row.output),
   };
 }

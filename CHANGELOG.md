@@ -42,3 +42,4 @@
 | v0.6.12 | 2026-11-07 | storage 分域拆分④：accounts 域迁出（增删改查 + 凭据一致性回滚原样搬移；删号级联清 remote_repository_cache 以内联 SQL 保留并注释原因——避免域间横向依赖），ipc/git/providers 调用方改从 storage/accounts 导入；顺带补 workspaces.ts 一处 prettier 格式 |
 | v0.6.13 | 2026-11-07 | SettingsWorkspace 组件拆分（治理轮-2②）：文件内嵌的 AccountsWorkspace/AccountRow 拆至 settings/ 独立文件，设置页按 tab 拆为 AppSettingsTab/AiSettingsTab/EnvironmentTab；settings/notice/busy/aiKeyInput/hasAiKey 是应用与 AI 两 tab 共享同一 save() 的状态留父级，目录选择与 Key 清除等 tab 内交互随表单下沉；纯代码搬移，UI 行为等价 |
 | v0.6.14 | 2026-11-07 | ProjectDetail 组件拆分（治理轮-2③）：未克隆视图整块抽为 UnclonedProjectPanel，概览 tab 下沉为 OverviewPanel（快捷动作/摘要生成/actionMessage 只被概览消费，随面板自持），Git tab 快捷区抽为 GitTabPanel，内嵌 AliasEditor/TagEditor/ReadmeSection/ProjectAnalysisPanel 拆至 detail/ 独立文件；tab 编排（DETAIL_TABS + visitedTabs 惰性挂载）与 README 阅读层留壳；纯代码搬移，UI 行为等价 |
+| v0.6.15 | 2026-11-07 | storage 分域拆分⑤：tasks 域迁出（task_profiles/task_runs 七个函数与 rowToTaskProfile/rowToTaskRun 原样搬移），ipc 与任务执行服务 tasks.ts 改从 storage/tasks 导入；纯代码搬移 |

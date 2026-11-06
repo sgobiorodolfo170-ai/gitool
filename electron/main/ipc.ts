@@ -61,19 +61,21 @@ import {
 } from "./services/storage/workspaces";
 import {
   clearOperationRecords,
-  deleteTaskProfile,
   exportOperationRecords,
   insertOperationRecord,
-  insertTaskRun,
   listBackups,
   listOperationRecords,
-  listTaskProfiles,
-  listTaskRuns,
   loadSettings,
   saveSettings,
+} from "./services/storage";
+import {
+  deleteTaskProfile,
+  insertTaskRun,
+  listTaskProfiles,
+  listTaskRuns,
   saveTaskProfile,
   updateTaskRun,
-} from "./services/storage";
+} from "./services/storage/tasks";
 import { getRunningTaskOutput, runTask, stopTask } from "./services/tasks";
 import {
   checkForUpdates,
