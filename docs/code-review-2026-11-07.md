@@ -62,7 +62,7 @@
 - ✅ v0.6.4 `providers.ts` loadRemoteRepositories：错误文案与实际行为不符 + 不可达分支；findRepository 吞网络异常误报「仓库不存在」。
 
 **架构与拆分**
-- ⬜ `storage.ts`（928 行）八个数据域挤在一个文件，按域拆分（projects/accounts/tasks/backups/settings）。
+- ✅ v0.6.8–v0.7.0 `storage.ts`（929 行）：按域拆分为 storage/database.ts 基座 + 8 个域模块（治理轮-1，方案见 docs/refactor-storage-plan.md），调用方 7 文件显式指向域模块，全域单测覆盖。
 - ⬜ IPC 校验双轨：zod schema 与手写 requireString 并存（如 `ai:saveKey` 无长度上限），收敛到 zod 单轨。
 - ⬜ 超长组件拆分：GitActionsPanel（759 行/19 useState，按 tab 拆）、SettingsWorkspace（698 行内嵌 4 组件）、ProjectDetail（713 行）、TasksWorkspace（603 行）。
 - ⬜ App.tsx 编排中心：ProjectsWorkspace 20+ props，projects 域建议下沉。
@@ -76,7 +76,7 @@
 - ✅ v0.6.7 `updater.ts`：checkForUpdates 的 fetch 补 15 秒超时；updater:download 加进行中守卫（P2-17）。
 
 **工程流程**
-- ✅ v0.6.0 覆盖率度量与门禁落地（纯函数层 95/85/90/95，CI 已接入）；服务层纳入门槛为下一里程碑。
+- ✅ v0.6.0 覆盖率度量与门禁落地（纯函数层 95/85/90/95，CI 已接入）；✅ v0.7.0 storage 域纳入门槛（database 基座 + 7 个域模块；accounts 因写真实凭据管理器暂缓，进度见 vitest.config.ts 注释）。
 - ✅ 2026-11-07 已按第五条款补适配记录块与「适配标记」列（无架构性变更）。
 - ⬜ `electron-builder.yml` files 显式含 `node_modules/**/*`，建议跑一次 `npm run dist` 核对安装包体积是否混入 devDependencies（CI 未覆盖 dist 环节）。
 
@@ -103,8 +103,9 @@
 | v0.6.13 | 组件拆分② SettingsWorkspace（治理轮-2） | `refactor(ui): SettingsWorkspace 拆分——内嵌组件独立 + 按 tab 拆三个设置页` |
 | v0.6.14 | 组件拆分③ ProjectDetail（治理轮-2） | `refactor(ui): ProjectDetail 拆分——未克隆视图/概览/Git 区块独立成组件` |
 | v0.6.16 | 组件拆分④ TasksWorkspace（治理轮-2） | `refactor(ui): TasksWorkspace 拆分——表单/任务配置/运行记录独立成组件` |
+| v0.6.8–v0.7.0 | storage 分域拆分（治理轮-1）：database 基座 + 8 域模块 + 全域单测 + 门槛纳入 | `refactor(services): 拆分①–⑨` + `test(services): 全域单测` + `feat(test): 纳入覆盖率门槛` |
 
-> 验证基线：v0.6.16 时 typecheck ✓、142 单测 ✓、覆盖率门禁 ✓、生产构建 ✓（每笔拆分提交前三门禁均独立跑绿）。
+> 验证基线：v0.6.16 时 typecheck ✓、142 单测 ✓、覆盖率门禁 ✓、生产构建 ✓（每笔拆分提交前三门禁均独立跑绿）；v0.7.0 时 typecheck ✓、179 单测 ✓、覆盖率 96.1/89.5/95.7/96.2 ✓、生产构建 ✓。
 >
 > **治理轮-2 组件拆分（v0.6.11–v0.6.16）**：四个超长组件全部拆分完毕——
 > - GitActionsPanel 805 行 → 壳 227 行 + git/ 目录 6 文件（tab 数据与 loading 下放子组件，per-kind 序号守卫随迁为 useLoadSequence；挂载沿用 visitedTabs 惰性挂载范式保证切 tab 保留数据；跨 tab 历史联动经 registerReload 登记，未挂载时兜底拉取角标计数）
@@ -117,4 +118,6 @@
 >
 > **治理轮-2 顺路登记（未修，留后续轮次）**：GitActionsPanel 切换项目时部分视图状态不清空——差异查看器（diffFor/diffText）、版本对比选中项与结果（compareBase/compareHead/compareResult）、对比下拉的分支/标签清单（allBranches/allTags）会残留上一个项目的内容，直到用户手动关闭或重新操作（拆分时逐字保留原语义，登记备查）。
 >
-> **仍遗留（大拆分类，留待独立轮次）**：storage.ts 按域拆分（治理轮-1 进行中，已迁出 database/workspaces/projects/accounts/tasks 域）；App.tsx 编排下沉；useAsyncData/usePolling 与 toast 双轨统一；远程匹配三处口径统一；`npm run dist` 安装包体积验证。
+> **治理轮-1 storage 分域拆分（v0.6.8–v0.7.0）**：929 行的 storage.ts 拆为 storage/database.ts（连接/建表/迁移/种子/行映射收口一处）+ 8 个域模块，依赖单向（域 → database，域间禁止横向 import；accounts 删号的缓存级联以内联 SQL 保留并注释原因）。数据目录改为模块级可注入 initDatabase(dataDir)（缺省回退 userData，主进程行为不变），服务层从此可在纯 Node 环境跑真实 node:sqlite，不 mock electron。补 37 个单测（含早期 UNIQUE path 老库迁移守护——真实用户升级路径），database 基座 + 7 个域模块纳入覆盖率门槛（accounts 暂缓——upsert/delete 写真实凭据管理器，待凭据层可注入后补齐）。全程纯代码搬移：SQL、文案、表结构、迁移逻辑零改动。
+>
+> **仍遗留（大拆分类，留待独立轮次）**：App.tsx 编排下沉；useAsyncData/usePolling 与 toast 双轨统一；远程匹配三处口径统一；`npm run dist` 安装包体积验证；accounts 域凭据层可注入后补齐 upsert/delete 测试并纳入门槛。
