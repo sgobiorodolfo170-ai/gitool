@@ -1,7 +1,5 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { app } from "electron";
 import type {
   Account,
   AppSettings,
@@ -19,12 +17,7 @@ import type {
 import { deleteCredential, readCredential, saveCredential } from "./credentials";
 import { buildOperationRecordsCsv } from "./operationCsv";
 import { errorMessage } from "./serviceUtils";
-
-type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
-
-let database: DatabaseSync | null = null;
-
-const DEFAULT_WORKSPACE_ID = "default";
+import { openDatabase, parseStringArray, type SqlRow } from "./storage/database";
 
 export function listWorkspaces(): WorkspaceEntity[] {
   const connection = openDatabase();
@@ -318,212 +311,6 @@ export function deleteAccount(accountId: string): void {
   connection.prepare("DELETE FROM remote_repository_cache WHERE accountId = ?").run(accountId);
 }
 
-function openDatabase(): DatabaseSync {
-  if (database) {
-    return database;
-  }
-  const dataDirectory = app.getPath("userData");
-  mkdirSync(dataDirectory, { recursive: true });
-  const connection = new DatabaseSync(join(dataDirectory, "gitool.sqlite3"));
-  connection.exec(`
-    PRAGMA foreign_keys = ON;
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY NOT NULL,
-      name TEXT NOT NULL,
-      path TEXT NOT NULL,
-      provider TEXT NOT NULL,
-      branch TEXT NOT NULL,
-      status TEXT NOT NULL,
-      commitHash TEXT NOT NULL,
-      favorite INTEGER NOT NULL DEFAULT 0,
-      tags TEXT NOT NULL DEFAULT '[]',
-      remote TEXT,
-      files INTEGER NOT NULL DEFAULT 0,
-      syncLabel TEXT NOT NULL,
-      language TEXT NOT NULL,
-      languageColor TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      updatedAt TEXT NOT NULL,
-      diskSizeBytes INTEGER NOT NULL DEFAULT 0,
-      alias TEXT,
-      webUrl TEXT,
-      workspaceId TEXT NOT NULL DEFAULT 'default'
-    );
-    CREATE TABLE IF NOT EXISTS workspaces (
-      id TEXT PRIMARY KEY NOT NULL,
-      name TEXT NOT NULL,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS accounts (
-      id TEXT PRIMARY KEY NOT NULL,
-      provider TEXT NOT NULL,
-      username TEXT NOT NULL,
-      displayName TEXT NOT NULL,
-      authType TEXT NOT NULL,
-      credentialRef TEXT NOT NULL UNIQUE,
-      status TEXT NOT NULL,
-      scopes TEXT NOT NULL DEFAULT '[]',
-      lastCheckedAt TEXT,
-      createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS task_profiles (
-      id TEXT PRIMARY KEY NOT NULL,
-      projectId TEXT NOT NULL,
-      projectPath TEXT NOT NULL,
-      taskType TEXT NOT NULL,
-      name TEXT NOT NULL,
-      command TEXT NOT NULL,
-      args TEXT NOT NULL DEFAULT '',
-      workingDirectory TEXT NOT NULL,
-      timeoutSeconds INTEGER NOT NULL DEFAULT 0,
-      createdAt TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS task_runs (
-      id TEXT PRIMARY KEY NOT NULL,
-      profileId TEXT NOT NULL,
-      projectId TEXT NOT NULL,
-      name TEXT NOT NULL,
-      command TEXT NOT NULL,
-      startedAt TEXT NOT NULL,
-      finishedAt TEXT,
-      status TEXT NOT NULL,
-      exitCode INTEGER,
-      output TEXT NOT NULL DEFAULT ''
-    );
-    CREATE TABLE IF NOT EXISTS backup_records (
-      id TEXT PRIMARY KEY NOT NULL,
-      projectId TEXT NOT NULL,
-      projectName TEXT NOT NULL,
-      sourcePath TEXT NOT NULL,
-      archivePath TEXT NOT NULL,
-      sizeBytes INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL,
-      error TEXT,
-      createdAt TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS operation_records (
-      id TEXT PRIMARY KEY NOT NULL,
-      operation TEXT NOT NULL,
-      projectId TEXT NOT NULL,
-      projectPath TEXT NOT NULL,
-      detail TEXT NOT NULL,
-      result TEXT NOT NULL,
-      createdAt TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY NOT NULL,
-      value TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS remote_repository_cache (
-      accountId TEXT PRIMARY KEY NOT NULL,
-      provider TEXT NOT NULL,
-      payload TEXT NOT NULL,
-      syncedAt TEXT NOT NULL
-    );
-  `);
-  migrationEnsureProjectColumns(connection);
-  migrationEnsureWorkspaceColumns(connection);
-  migrationDropPathUniqueConstraint(connection);
-  seedDefaultWorkspace(connection);
-  // 索引统一放在所有迁移之后创建：DROP TABLE 会连带删除其索引，
-  // 若在迁移前建索引，迁移过的库会永久丢失索引并退化为全表扫描。
-  ensureIndexes(connection);
-  database = connection;
-  return connection;
-}
-
-function ensureIndexes(connection: DatabaseSync): void {
-  connection.exec(`
-    CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspaceId);
-    CREATE INDEX IF NOT EXISTS idx_operation_records_createdAt ON operation_records(createdAt DESC);
-    CREATE INDEX IF NOT EXISTS idx_task_runs_startedAt ON task_runs(startedAt DESC);
-  `);
-}
-
-function migrationEnsureWorkspaceColumns(connection: DatabaseSync): void {
-  const columns = connection.prepare("PRAGMA table_info(projects)").all() as unknown as Array<
-    Record<string, unknown>
-  >;
-  if (!columns.some((column) => column.name === "workspaceId")) {
-    connection.exec(
-      `ALTER TABLE projects ADD COLUMN workspaceId TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE_ID}'`,
-    );
-  }
-}
-
-function seedDefaultWorkspace(connection: DatabaseSync): void {
-  const count = connection.prepare("SELECT COUNT(*) AS total FROM workspaces").get() as SqlRow;
-  if (Number(count.total) > 0) {
-    return;
-  }
-  const now = new Date().toISOString();
-  connection
-    .prepare(`INSERT INTO workspaces (id, name, createdAt, updatedAt) VALUES (?, ?, ?, ?)`)
-    .run(DEFAULT_WORKSPACE_ID, "个人工作区", now, now);
-}
-
-function migrationEnsureProjectColumns(connection: DatabaseSync): void {
-  const columns = connection.prepare("PRAGMA table_info(projects)").all() as unknown as Array<
-    Record<string, unknown>
-  >;
-  if (!columns.some((column) => column.name === "diskSizeBytes")) {
-    connection.exec("ALTER TABLE projects ADD COLUMN diskSizeBytes INTEGER NOT NULL DEFAULT 0");
-  }
-  if (!columns.some((column) => column.name === "alias")) {
-    connection.exec("ALTER TABLE projects ADD COLUMN alias TEXT");
-  }
-  if (!columns.some((column) => column.name === "webUrl")) {
-    connection.exec("ALTER TABLE projects ADD COLUMN webUrl TEXT");
-  }
-}
-
-function migrationDropPathUniqueConstraint(connection: DatabaseSync): void {
-  const row = connection
-    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'")
-    .get() as unknown as SqlRow | undefined;
-  if (!row || typeof row.sql !== "string") return;
-  if (!row.sql.includes("path TEXT NOT NULL UNIQUE")) return;
-  // 整段包进事务：重建表涉及 CREATE / INSERT / DROP / RENAME 四步，
-  // 中途失败会留下半成品表，用户数据将无法读取。
-  connection.exec("BEGIN");
-  try {
-    connection.exec(`
-    CREATE TABLE projects_migration (
-      id TEXT PRIMARY KEY NOT NULL,
-      name TEXT NOT NULL,
-      path TEXT NOT NULL,
-      provider TEXT NOT NULL,
-      branch TEXT NOT NULL,
-      status TEXT NOT NULL,
-      commitHash TEXT NOT NULL,
-      favorite INTEGER NOT NULL DEFAULT 0,
-      tags TEXT NOT NULL DEFAULT '[]',
-      remote TEXT,
-      files INTEGER NOT NULL DEFAULT 0,
-      syncLabel TEXT NOT NULL,
-      language TEXT NOT NULL,
-      languageColor TEXT NOT NULL,
-      summary TEXT NOT NULL,
-      updatedAt TEXT NOT NULL,
-      diskSizeBytes INTEGER NOT NULL DEFAULT 0,
-      alias TEXT,
-      webUrl TEXT,
-      workspaceId TEXT NOT NULL DEFAULT 'default'
-    );
-    INSERT INTO projects_migration (id, name, path, provider, branch, status, commitHash, favorite, tags, remote, files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl, workspaceId)
-    SELECT id, name, path, provider, branch, status, commitHash, favorite, tags, remote, files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl, workspaceId FROM projects;
-    DROP TABLE projects;
-    ALTER TABLE projects_migration RENAME TO projects;
-  `);
-    connection.exec("COMMIT");
-  } catch (error) {
-    connection.exec("ROLLBACK");
-    throw new Error(`数据库迁移失败：${errorMessage(error)}`);
-  }
-}
-
 function rowToProject(row: SqlRow): Project {
   return {
     id: String(row.id),
@@ -571,22 +358,6 @@ function rowToAccount(row: SqlRow): Account {
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
   };
-}
-
-function parseStringArray(
-  value: string | number | bigint | null | Uint8Array | undefined,
-): string[] {
-  if (typeof value !== "string") {
-    return [];
-  }
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : [];
-  } catch {
-    return [];
-  }
 }
 
 function isRemoteProvider(value: string): value is RemoteProvider {

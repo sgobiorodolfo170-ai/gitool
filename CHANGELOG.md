@@ -35,3 +35,4 @@
 | v0.6.5 | 2026-11-07 | 死代码与假 UI 清理（审查 P2-12/14）：删除整页硬编码假数据的 ModuleWorkspace（路由 else 分支本就不可达）；移除无行为的铃铛按钮（红点恒亮）与「更多项目」按钮；Ctrl+K 提示仅在有其处理器的「我的项目」页显示并改用 Windows 键位标注；导航「任务中心」徽标移除（统计的 building 标签全库无处创建，恒为 0）；总览问候语改按时段生成（移除硬编码用户名占位）；installUpdate 改为返回 Promise，主进程拒绝执行时错误对用户可见 |
 | v0.6.6 | 2026-11-07 | 重复代码下沉（审查 P2-12）：errorMessage（6 处逐字重复）与 assertDirectory（3 处且健壮性不一）收敛到零依赖 serviceUtils；openers 的断言原实现无 try/catch，目录不存在时会把原始 ENOENT 英文异常抛给渲染层，现已统一为中文文案 |
 | v0.6.7 | 2026-11-07 | P2 收尾批次：saveProjects 注释与实现矛盾修正（审查 P2-11）；命令探测的 package.json 收敛为单次读取（原 npm 脚本与部署命令两条路径各读一次并各 JSON.parse，审查 P2-15）；更新检查 fetch 补 15 秒超时（挂起连接会让 30 分钟轮询堆叠）并加下载进行中守卫（重复触发会写同一临时文件互踩，审查 P2-17） |
+| v0.6.8 | 2026-11-07 | storage 分域拆分①：抽出 storage/database.ts 公共基座（连接/建表/迁移/种子收口一处，域模块只经 openDatabase() 取连接），数据目录改为模块级可注入 initDatabase(dataDir)（不传参回退 userData，主进程行为不变），补 4 个连接注入冒烟测试；服务层从此在纯 Node 环境测真实 sqlite，不 mock electron（方案见 docs/refactor-storage-plan.md） |
