@@ -7,6 +7,7 @@ import {
   parseBranchLine,
   parseChangeStatus,
   parseCloneProgress,
+  parseCommitHistory,
 } from "./gitParsing";
 
 describe("isValidRefName", () => {
@@ -109,20 +110,55 @@ describe("parseCloneProgress", () => {
   });
 });
 
-describe("buildCommitMessageArgs", () => {
-  it("每个非空行生成一组 -m", () => {
-    expect(buildCommitMessageArgs("标题\n\n正文第一行\n正文第二行")).toEqual([
-      "-m",
-      "标题",
-      "-m",
-      "正文第一行",
-      "-m",
-      "正文第二行",
+describe("parseCommitHistory", () => {
+  // 关键回归（2026-11-07 审查 P0-1）：旧实现把 \x1f 放在 %s 与 %b 之间当记录分隔符，
+  // 而记录之间只有换行，导致除最新一条外所有 commit 的 hash 被
+  // 「上一条 body + 换行 + 真实 hash」污染，回退功能对历史提交全部失效。
+  it("按记录尾分隔符切分多条记录，hash 不被上一条 body 污染", () => {
+    const output =
+      "a1b2c3d\x1f张三\x1fa@x.com\x1f2026-01-01T00:00:00+08:00\x1f第一条\x1fbody-A 第 1 行\nbody-A 第 2 行\x1e" +
+      "\nb4c5d6e\x1f李四\x1fb@x.com\x1f2026-01-02T00:00:00+08:00\x1f第二条\x1f\x1e\n";
+    expect(parseCommitHistory(output)).toEqual([
+      {
+        hash: "a1b2c3d",
+        author: "张三",
+        email: "a@x.com",
+        date: "2026-01-01T00:00:00+08:00",
+        subject: "第一条",
+        body: "body-A 第 1 行\nbody-A 第 2 行",
+      },
+      {
+        hash: "b4c5d6e",
+        author: "李四",
+        email: "b@x.com",
+        date: "2026-01-02T00:00:00+08:00",
+        subject: "第二条",
+        body: "",
+      },
     ]);
   });
 
-  it("保留行内的空格，只丢弃空行", () => {
-    expect(buildCommitMessageArgs("  a  b  ")).toEqual(["-m", "  a  b"]);
+  it("空输出返回空数组", () => {
+    expect(parseCommitHistory("")).toEqual([]);
+  });
+
+  it("字段不足的残缺记录被跳过", () => {
+    expect(parseCommitHistory("onlyhash\x1fpartial\x1e\n")).toEqual([]);
+  });
+});
+
+describe("buildCommitMessageArgs", () => {
+  it("整段提交信息作为单条 -m 传入，换行结构原样保留", () => {
+    // 关键回归（2026-11-07 审查 P1-2）：旧实现按行拆多个 -m，
+    // git 会以空行连接各段，把列表/代码块等换行结构打散。
+    expect(buildCommitMessageArgs("标题\n\n正文第一行\n- 列表项")).toEqual([
+      "-m",
+      "标题\n\n正文第一行\n- 列表项",
+    ]);
+  });
+
+  it("去除首尾空白", () => {
+    expect(buildCommitMessageArgs("  标题  ")).toEqual(["-m", "标题"]);
   });
 
   it("空输入返回空数组", () => {

@@ -47,11 +47,14 @@ import { notifyRenderer } from "./events";
 import {
   bracketValue,
   buildCommitMessageArgs,
+  COMMIT_FIELD_SEP,
+  COMMIT_RECORD_SEP,
   isValidCommitHash,
   isValidRefName,
   parseBranchLine,
   parseChangeStatus,
   parseCloneProgress,
+  parseCommitHistory,
 } from "./gitParsing";
 import { getAccount, loadSettings } from "./storage";
 
@@ -540,29 +543,23 @@ export async function deleteBranch(input: DeleteBranchInput): Promise<void> {
 
 export async function listCommitHistory(projectPath: string, limit = 50): Promise<CommitEntry[]> {
   assertDirectory(projectPath);
+  // 记录分隔符 \x1e 必须放在格式串**末尾**（记录尾语义）；旧实现把它放在
+  // %s 与 %b 之间、靠记录间的换行切分，第 2 条起 hash 会被上一条 body 污染。
+  // 解析逻辑抽在 parseCommitHistory，零依赖可单测（2026-11-07 审查 P0-1）。
   const output = await runGit(projectPath, [
     "log",
     `-n ${limit}`,
-    "--format=%H%x1e%an%x1e%ae%x1e%aI%x1e%s%x1f%b",
+    `--format=%H${COMMIT_FIELD_SEP}%an${COMMIT_FIELD_SEP}%ae${COMMIT_FIELD_SEP}%aI${COMMIT_FIELD_SEP}%s${COMMIT_FIELD_SEP}%b${COMMIT_RECORD_SEP}`,
   ]).catch(() => "");
-  const entries: CommitEntry[] = [];
-  for (const record of output.split("\x1f")) {
-    if (!record) continue;
-    const field = record.split("\x1e");
-    if (field.length < 5) continue;
-    const [hash, author, email, date, subject, body = ""] = field;
-    if (!hash) continue;
-    entries.push({
-      hash,
-      shortHash: hash.slice(0, 7),
-      author,
-      email,
-      date,
-      subject: subject.split("\n")[0],
-      message: [subject.split("\n")[0], ...body.split("\n")].filter(Boolean).join("\n"),
-    });
-  }
-  return entries;
+  return parseCommitHistory(output).map((record) => ({
+    hash: record.hash,
+    shortHash: record.hash.slice(0, 7),
+    author: record.author,
+    email: record.email,
+    date: record.date,
+    subject: record.subject.split("\n")[0],
+    message: [record.subject.split("\n")[0], ...record.body.split("\n")].filter(Boolean).join("\n"),
+  }));
 }
 
 export async function revertCommit(input: RevertCommitInput): Promise<GitOperationResult> {

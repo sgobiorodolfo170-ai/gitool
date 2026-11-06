@@ -87,20 +87,65 @@ export function parseCloneProgress(output: string): number {
   return Math.min(100, Math.max(0, percent));
 }
 
+/** git log 自定义格式串使用的字段分隔符与记录尾分隔符（见 parseCommitHistory）。 */
+export const COMMIT_FIELD_SEP = "\x1f";
+export const COMMIT_RECORD_SEP = "\x1e";
+
+export type ParsedCommitRecord = {
+  hash: string;
+  author: string;
+  email: string;
+  date: string;
+  subject: string;
+  body: string;
+};
+
 /**
- * 把多行提交信息拆成 git 的 `-m` 参数序列。
- * 空行被丢弃：git 会把每个 `-m` 视为一个段落，保留空行会产生多余空段。
+ * 解析 `git log --format=%H<US>%an<US>%ae<US>%aI<US>%s<US>%b<RS>` 的输出
+ * （US = \x1f 字段分隔，RS = \x1e 记录尾）。
+ *
+ * 设计理由：记录分隔符必须放在记录**末尾**。旧实现把 \x1f 放在 %s 与 %b 之间、
+ * 依赖记录间的换行切分，结果第 2 条记录起的首字段是「上一条 body + 换行 + hash」，
+ * 除最新提交外所有 hash 全部损坏，回退功能随之失效（2026-11-07 审查 P0-1）。
+ *
+ * 注意 tformat 语义：每条记录的 \x1e 之后还有一个换行，会落入下一段开头，
+ * 切分后必须剥掉行首空白，否则会污染 hash。
+ */
+export function parseCommitHistory(output: string): ParsedCommitRecord[] {
+  const records: ParsedCommitRecord[] = [];
+  for (const record of output.split(COMMIT_RECORD_SEP)) {
+    const fields = record.trimStart().split(COMMIT_FIELD_SEP);
+    if (fields.length < 6) {
+      continue;
+    }
+    const [hash, author, email, date, subject, ...rest] = fields;
+    if (!hash) {
+      continue;
+    }
+    // body 里理论上也可能出现 \x1f，把剩余字段拼回去而不是丢弃
+    records.push({
+      hash,
+      author,
+      email,
+      date,
+      subject,
+      body: rest.join(COMMIT_FIELD_SEP),
+    });
+  }
+  return records;
+}
+
+/**
+ * 构造 `git commit` 的提交信息参数。
+ * 单条 `-m` 传原始多行文本：多个 `-m` 会被 git 以空行连接成段落，
+ * 会把用户输入的列表/代码块等换行结构全部打散（2026-11-07 审查 P1-2）。
  */
 export function buildCommitMessageArgs(message: string): string[] {
-  const lines = message
-    .split(/\r?\n/)
-    .map((line) => line.trimEnd())
-    .filter((line) => line.length > 0);
-  const args: string[] = [];
-  for (const line of lines) {
-    args.push("-m", line);
+  const trimmed = message.trim();
+  if (trimmed.length === 0) {
+    return [];
   }
-  return args;
+  return ["-m", trimmed];
 }
 
 /**
