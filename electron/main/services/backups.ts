@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import type { BackupCreateInput, BackupRecord, BackupRestoreInput } from "../../../shared/types";
 import { insertBackup, loadSettings } from "./storage";
+import { assertDirectory as assertDirectoryShared, errorMessage } from "./serviceUtils";
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 64 * 1024 * 1024;
@@ -107,16 +108,9 @@ function parentOf(target: string): string {
   return index === -1 ? "." : normalized.slice(0, index);
 }
 
+/** 备份域统一「源路径」文案的目录断言（实现在 serviceUtils）。 */
 function assertDirectory(target: string): void {
-  let stats;
-  try {
-    stats = statSync(target);
-  } catch {
-    throw new Error("源路径不存在或无法访问");
-  }
-  if (!stats.isDirectory()) {
-    throw new Error("源路径不是目录");
-  }
+  assertDirectoryShared(target, "源路径");
 }
 
 function isDirectoryWritable(target: string): boolean {
@@ -141,8 +135,4 @@ function hasEntries(target: string): boolean {
   } catch {
     return true;
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

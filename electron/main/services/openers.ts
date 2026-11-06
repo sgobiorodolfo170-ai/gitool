@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
-import { statSync } from "node:fs";
 import { promisify } from "node:util";
+import { assertDirectory } from "./serviceUtils";
 
 const execFileAsync = promisify(execFile);
 
@@ -11,7 +11,7 @@ export async function openInEditor(
   editor: EditorTarget,
   newWindow: boolean,
 ): Promise<void> {
-  assertDirectory(projectPath);
+  assertDirectory(projectPath, "项目路径");
   const command = editor === "vscode" ? "code" : "cursor";
   await assertCommandExists(editor === "vscode" ? "VS Code" : "Cursor", command);
   const args = newWindow ? ["--new-window", projectPath] : [projectPath];
@@ -19,7 +19,7 @@ export async function openInEditor(
 }
 
 export async function openInTerminal(projectPath: string): Promise<void> {
-  assertDirectory(projectPath);
+  assertDirectory(projectPath, "项目路径");
   await assertCommandExists("PowerShell", "powershell");
   // 刻意不用 `-Command "Set-Location -LiteralPath '<path>'"`：
   // Windows 目录名允许单引号，拼进脚本后可在词法解析阶段逃逸字符串并注入命令
@@ -33,13 +33,6 @@ async function assertCommandExists(label: string, command: string): Promise<void
     await execFileAsync("where", [command], { windowsHide: true });
   } catch {
     throw new Error(`${label} 未安装或不在 PATH 中，无法打开`);
-  }
-}
-
-function assertDirectory(target: string): void {
-  const stats = statSync(target);
-  if (!stats.isDirectory()) {
-    throw new Error("项目路径不是目录");
   }
 }
 

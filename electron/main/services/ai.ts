@@ -1,6 +1,7 @@
 import type { AiSummaryRequest, AiSummaryResult } from "../../../shared/types";
 import { deleteCredential, readCredential, saveCredential } from "./credentials";
 import { loadSettings } from "./storage";
+import { errorMessage } from "./serviceUtils";
 
 const AI_CREDENTIAL_REF = "ai-api-key";
 
@@ -124,8 +125,4 @@ function extractContent(payload: Record<string, unknown> | null): string | null 
     return content;
   }
   return null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

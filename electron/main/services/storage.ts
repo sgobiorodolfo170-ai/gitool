@@ -18,6 +18,7 @@ import type {
 } from "../../../shared/types";
 import { deleteCredential, readCredential, saveCredential } from "./credentials";
 import { buildOperationRecordsCsv } from "./operationCsv";
+import { errorMessage } from "./serviceUtils";
 
 type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
 
@@ -838,10 +839,6 @@ function rowToOperationRecord(row: SqlRow): OperationRecord {
     result: String(row.result) as OperationRecord["result"],
     createdAt: String(row.createdAt),
   };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export function loadSettings(): AppSettings {

@@ -45,6 +45,7 @@ import type {
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
 import { mapLimit } from "./concurrency";
+import { assertDirectory as assertDirectoryShared, errorMessage } from "./serviceUtils";
 import { notifyRenderer } from "./events";
 import {
   bracketValue,
@@ -613,16 +614,9 @@ async function commitRevertProcess(
   }
 }
 
+/** git 域统一「项目路径」文案的目录断言（实现在 serviceUtils）。 */
 function assertDirectory(target: string): void {
-  let stats;
-  try {
-    stats = statSync(target);
-  } catch {
-    throw new Error("项目路径不存在");
-  }
-  if (!stats.isDirectory()) {
-    throw new Error("项目路径不是目录");
-  }
+  assertDirectoryShared(target, "项目路径");
 }
 
 export async function cloneRepository(input: CloneRepositoryInput): Promise<CloneRepositoryResult> {
@@ -987,8 +981,4 @@ function countFiles(directory: string): number {
     }
   }
   return count;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

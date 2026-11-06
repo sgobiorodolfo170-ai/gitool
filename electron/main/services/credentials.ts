@@ -1,4 +1,5 @@
 import { Entry } from "@napi-rs/keyring";
+import { errorMessage } from "./serviceUtils";
 
 const SERVICE_NAME = "com.gitool.desktop";
 
@@ -31,10 +32,6 @@ export function deleteCredential(credentialRef: string): void {
   } catch {
     // 凭据不存在时视为已删除
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 // 探测 Windows 凭据管理器可写：写入一个随机探针条目再删除，失败则视为不可用。

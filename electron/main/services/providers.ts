@@ -7,6 +7,7 @@ import type {
   RemoteRepositoryWriteInput,
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
+import { errorMessage } from "./serviceUtils";
 import {
   getAccount,
   loadAccounts,
@@ -734,10 +735,6 @@ function firstString(source: Record<string, unknown>, keys: string[]): string | 
     }
   }
   return null;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 const FETCH_TIMEOUT_MS = 15 * 1000;
