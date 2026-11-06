@@ -6,7 +6,7 @@ import { app } from "electron";
 import type { EnvironmentStatus, InstallGitResult, InstallProgress } from "../../../shared/types";
 import { getEnvironmentStatus } from "./environment";
 import { notifyRenderer } from "./events";
-import { loadSettings, saveSettings } from "./storage";
+import { loadSettings, saveSettings } from "./storage/settings";
 
 // Git for Windows 官方 Release 始终发布在此 API 端点。
 // 未经认证的请求受 IP 维度限速（60/小时），一次性安装场景足够。

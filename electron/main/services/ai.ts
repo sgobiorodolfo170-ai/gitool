@@ -1,6 +1,6 @@
 import type { AiSummaryRequest, AiSummaryResult } from "../../../shared/types";
 import { deleteCredential, readCredential, saveCredential } from "./credentials";
-import { loadSettings } from "./storage";
+import { loadSettings } from "./storage/settings";
 import { errorMessage } from "./serviceUtils";
 
 const AI_CREDENTIAL_REF = "ai-api-key";

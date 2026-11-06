@@ -63,7 +63,7 @@ import {
   toLiteralPathspec,
 } from "./gitParsing";
 import { getAccount } from "./storage/accounts";
-import { loadSettings } from "./storage";
+import { loadSettings } from "./storage/settings";
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 10 * 1024 * 1024;

@@ -4,7 +4,7 @@ import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import type { BackupCreateInput, BackupRecord, BackupRestoreInput } from "../../../shared/types";
 import { insertBackup } from "./storage/backups";
-import { loadSettings } from "./storage";
+import { loadSettings } from "./storage/settings";
 import { assertDirectory as assertDirectoryShared, errorMessage } from "./serviceUtils";
 
 const execFileAsync = promisify(execFile);
