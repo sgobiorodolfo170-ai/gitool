@@ -43,8 +43,11 @@ export async function createBackup(input: BackupCreateInput): Promise<BackupReco
       .split(/[,\n;]/)
       .map((item) => item.trim())
       .filter(Boolean);
-    if (patterns.length > 0) {
-      args.push("--exclude", patterns.join(","));
+    // tar 的 --exclude 每个参数只接受一个模式，必须逐条传：
+    // 逗号拼接会被当成「字面量 node_modules,dist」单个模式，排除完全失效
+    // （GNU tar 与 Windows bsdtar 行为一致，2026-11-07 审查 P1-1）。
+    for (const pattern of patterns) {
+      args.push("--exclude", pattern);
     }
     args.push(folderName);
     await execFileAsync("tar", args, { windowsHide: true, maxBuffer: MAX_BUFFER });
