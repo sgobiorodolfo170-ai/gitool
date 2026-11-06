@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Archive, Check, HardDrive, RefreshCw } from "lucide-react";
 import type { BackupRecord, Project } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
+import { useAsyncData } from "../hooks/useAsyncData";
 
 import { formatBytes } from "../lib/format";
 
@@ -12,14 +13,14 @@ export function BackupsWorkspace({ projects }: { projects: Project[] }) {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const load = async () => {
-    if (!bridge) return;
-    setBackups(await bridge.listBackups());
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
+  // 备份列表加载：挂载自动加载一次 + 刷新按钮/备份成功后手动回读。
+  // 原实现无 try/catch，listBackups reject 会变成 unhandled rejection 静默失败，
+  // 现经 useAsyncData 的 onError 出口提示。
+  const { load } = useAsyncData<BackupRecord[]>({
+    loader: () => (bridge ? bridge.listBackups() : Promise.resolve([])),
+    onLoaded: setBackups,
+    onError: (error) => setNotice(error instanceof Error ? error.message : "加载备份记录失败"),
+  });
 
   const createBackup = async () => {
     if (!bridge || !selectedProjectId) return;

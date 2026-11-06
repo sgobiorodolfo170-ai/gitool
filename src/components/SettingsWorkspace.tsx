@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Settings2 } from "lucide-react";
 import type {
   Account,
@@ -9,10 +9,23 @@ import type {
   RemoteProvider,
 } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
+import { useAsyncData } from "../hooks/useAsyncData";
 import { AccountsWorkspace } from "./settings/AccountsWorkspace";
 import { AppSettingsTab } from "./settings/AppSettingsTab";
 import { AiSettingsTab } from "./settings/AiSettingsTab";
 import { EnvironmentTab } from "./settings/EnvironmentTab";
+
+/** 设置表单的空默认值：useState 初始化与 bridge 缺失（浏览器预览）时共用。 */
+const INITIAL_SETTINGS: AppSettings = {
+  gitPath: "",
+  defaultProjectDirectory: "",
+  defaultBackupDirectory: "",
+  backupExcludePatterns: "",
+  defaultSearchAccountId: "",
+  aiApiKeyConfigured: false,
+  aiModel: "",
+  aiBaseUrl: "",
+};
 
 /**
  * 设置页（应用 / 账号与令牌 / AI 摘要服务 / 环境信息）。
@@ -52,31 +65,30 @@ export function SettingsWorkspace({
   onFontScaleChange: (scale: number) => void;
 }) {
   const bridge = getDesktopBridge();
-  const [settings, setSettings] = useState<AppSettings>({
-    gitPath: "",
-    defaultProjectDirectory: "",
-    defaultBackupDirectory: "",
-    backupExcludePatterns: "",
-    defaultSearchAccountId: "",
-    aiApiKeyConfigured: false,
-    aiModel: "",
-    aiBaseUrl: "",
-  });
+  const [settings, setSettings] = useState<AppSettings>(INITIAL_SETTINGS);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [aiKeyInput, setAiKeyInput] = useState("");
   const [hasAiKey, setHasAiKey] = useState(false);
   const [activeTab, setActiveTab] = useState<"app" | "accounts" | "ai" | "env">("app");
 
-  const load = async () => {
-    if (!bridge) return;
-    setSettings(await bridge.loadSettings());
-    setHasAiKey(await bridge.hasAiApiKey().catch(() => false));
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
+  // 设置加载：一次拉取设置表单与 AI Key 状态两个值；无刷新入口，仅挂载自动加载。
+  // 原实现 loadSettings 无 try/catch，reject 会静默失败（表单停在空默认值且无提示），
+  // 现经 onError 提示；hasAiApiKey 自带 catch(() => false) 的兜底语义原样保留。
+  useAsyncData<{ settings: AppSettings; hasAiKey: boolean }>({
+    loader: async () => {
+      if (!bridge) return { settings: INITIAL_SETTINGS, hasAiKey: false };
+      return {
+        settings: await bridge.loadSettings(),
+        hasAiKey: await bridge.hasAiApiKey().catch(() => false),
+      };
+    },
+    onLoaded: ({ settings: loadedSettings, hasAiKey: loadedHasKey }) => {
+      setSettings(loadedSettings);
+      setHasAiKey(loadedHasKey);
+    },
+    onError: (error) => setNotice(error instanceof Error ? error.message : "加载设置失败"),
+  });
 
   const save = async () => {
     if (!bridge) return;

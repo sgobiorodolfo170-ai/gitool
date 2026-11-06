@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ListTodo } from "lucide-react";
 import type { DetectedCommand, Project, TaskProfile, TaskRun } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
+import { useAsyncData } from "../hooks/useAsyncData";
 import { TaskForm, type TaskDraft } from "./tasks/TaskForm";
 import { TaskProfilesList } from "./tasks/TaskProfilesList";
 import { TaskRunsList } from "./tasks/TaskRunsList";
@@ -38,15 +39,25 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
   const [argsCustom, setArgsCustom] = useState(false);
   const [activeTab, setActiveTab] = useState<"create" | "profiles" | "runs">("create");
 
-  const load = async () => {
-    if (!bridge) return;
-    const [loadedProfiles, loadedRuns] = await Promise.all([
-      bridge.listTaskProfiles(),
-      bridge.listTaskRuns(),
-    ]);
-    setProfiles(loadedProfiles);
-    setRuns(loadedRuns);
-  };
+  // 任务数据加载：挂载自动加载一次 + 4s 轮询 + 写操作（保存/删除/停止）后回读。
+  // 原实现 listTaskProfiles/listTaskRuns 无 try/catch（轮询里 reject 会反复静默失败），
+  // 现经 onError 提示；轮询结果经 useAsyncData 的序号守卫过滤，慢响应不再互踩。
+  const { load } = useAsyncData<{ profiles: TaskProfile[]; runs: TaskRun[] }>({
+    loader: async () => {
+      if (!bridge) return { profiles: [], runs: [] };
+      const [loadedProfiles, loadedRuns] = await Promise.all([
+        bridge.listTaskProfiles(),
+        bridge.listTaskRuns(),
+      ]);
+      return { profiles: loadedProfiles, runs: loadedRuns };
+    },
+    onLoaded: ({ profiles: loadedProfiles, runs: loadedRuns }) => {
+      setProfiles(loadedProfiles);
+      setRuns(loadedRuns);
+    },
+    onError: (error) => setNotice(error instanceof Error ? error.message : "加载任务数据失败"),
+    pollMs: 4000,
+  });
 
   const detectCommandsForProject = async (projectId: string): Promise<DetectedCommand[]> => {
     if (!bridge || !projectId) {
@@ -106,21 +117,12 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
     }
   };
 
-  useEffect(() => {
-    void load();
-  }, []);
-
+  // 1 秒实时日志轮询：只补丁运行中任务的 output，与任务列表的 4s 轮询
+  // （useAsyncData pollMs）职责不同，保留原 runsRef 读最新值的范式。
   useEffect(() => {
     const timer = window.setInterval(() => {
       void refreshRunningOutput();
     }, 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void load();
-    }, 4000);
     return () => window.clearInterval(timer);
   }, []);
 

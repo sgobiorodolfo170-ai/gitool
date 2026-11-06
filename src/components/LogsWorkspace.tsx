@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Clock3, HardDrive, RefreshCw, Search, Trash2 } from "lucide-react";
 import type { OperationRecord } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
+import { useAsyncData } from "../hooks/useAsyncData";
 
 export function LogsWorkspace() {
   const bridge = getDesktopBridge();
@@ -12,14 +13,13 @@ export function LogsWorkspace() {
   const [filterKeyword, setFilterKeyword] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const load = async () => {
-    if (!bridge) return;
-    setRecords(await bridge.listOperationRecords());
-  };
-
-  useEffect(() => {
-    void load();
-  }, []);
+  // 操作记录加载：挂载自动加载一次 + 刷新按钮/清空后手动回读。
+  // 原实现无 try/catch，listOperationRecords reject 会静默失败，现经 onError 提示。
+  const { load } = useAsyncData<OperationRecord[]>({
+    loader: () => (bridge ? bridge.listOperationRecords() : Promise.resolve([])),
+    onLoaded: setRecords,
+    onError: (error) => setNotice(error instanceof Error ? error.message : "加载操作记录失败"),
+  });
 
   const operationTypes = ["fetch", "pull", "push", "sync", "clone", "commit"];
   const filtered = records.filter((record) => {
