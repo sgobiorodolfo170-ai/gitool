@@ -1,13 +1,17 @@
 import { useState } from "react";
-import { Check, Clock3, HardDrive, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Clock3, HardDrive, RefreshCw, Search, Trash2 } from "lucide-react";
 import type { OperationRecord } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
 
-export function LogsWorkspace() {
+export function LogsWorkspace({
+  onNotice,
+}: {
+  /** 提示统一走 App 的全局 useNotice：本地 toast 与全局双轨已收敛。 */
+  onNotice: (message: string) => void;
+}) {
   const bridge = getDesktopBridge();
   const [records, setRecords] = useState<OperationRecord[]>([]);
-  const [notice, setNotice] = useState("");
   const [filterResult, setFilterResult] = useState<"all" | "ok" | "failed">("all");
   const [filterType, setFilterType] = useState("all");
   const [filterKeyword, setFilterKeyword] = useState("");
@@ -18,7 +22,7 @@ export function LogsWorkspace() {
   const { load } = useAsyncData<OperationRecord[]>({
     loader: () => (bridge ? bridge.listOperationRecords() : Promise.resolve([])),
     onLoaded: setRecords,
-    onError: (error) => setNotice(error instanceof Error ? error.message : "加载操作记录失败"),
+    onError: (error) => onNotice(error instanceof Error ? error.message : "加载操作记录失败"),
   });
 
   const operationTypes = ["fetch", "pull", "push", "sync", "clone", "commit"];
@@ -39,7 +43,7 @@ export function LogsWorkspace() {
     if (!bridge) return;
     if (!window.confirm("清空全部操作记录？")) return;
     await bridge.clearOperationRecords();
-    setNotice("操作记录已清空");
+    onNotice("操作记录已清空");
     await load();
   };
 
@@ -50,9 +54,9 @@ export function LogsWorkspace() {
       const directory = await bridge.selectDirectory();
       if (!directory) return;
       const filePath = await bridge.exportOperationRecords(directory);
-      setNotice(`已导出到 ${filePath}`);
+      onNotice(`已导出到 ${filePath}`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "导出失败");
+      onNotice(error instanceof Error ? error.message : "导出失败");
     } finally {
       setBusy(false);
     }
@@ -92,12 +96,6 @@ export function LogsWorkspace() {
           </button>
         </div>
       </div>
-      {notice && (
-        <div className="toast">
-          <Check size={16} />
-          {notice}
-        </div>
-      )}
       <div className="remote-toolbar logs-toolbar">
         <label className="account-select">
           <span>结果</span>

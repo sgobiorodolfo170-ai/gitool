@@ -1,16 +1,22 @@
 import { useState } from "react";
-import { Archive, Check, HardDrive, RefreshCw } from "lucide-react";
+import { Archive, HardDrive, RefreshCw } from "lucide-react";
 import type { BackupRecord, Project } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
 
 import { formatBytes } from "../lib/format";
 
-export function BackupsWorkspace({ projects }: { projects: Project[] }) {
+export function BackupsWorkspace({
+  projects,
+  onNotice,
+}: {
+  projects: Project[];
+  /** 提示统一走 App 的全局 useNotice：本地 toast 与全局双轨已收敛（4s/3s 自动消失）。 */
+  onNotice: (message: string) => void;
+}) {
   const bridge = getDesktopBridge();
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
   // 备份列表加载：挂载自动加载一次 + 刷新按钮/备份成功后手动回读。
@@ -19,7 +25,7 @@ export function BackupsWorkspace({ projects }: { projects: Project[] }) {
   const { load } = useAsyncData<BackupRecord[]>({
     loader: () => (bridge ? bridge.listBackups() : Promise.resolve([])),
     onLoaded: setBackups,
-    onError: (error) => setNotice(error instanceof Error ? error.message : "加载备份记录失败"),
+    onError: (error) => onNotice(error instanceof Error ? error.message : "加载备份记录失败"),
   });
 
   const createBackup = async () => {
@@ -39,12 +45,12 @@ export function BackupsWorkspace({ projects }: { projects: Project[] }) {
         sourcePath: project.path,
         targetDirectory,
       });
-      setNotice(
+      onNotice(
         record.status === "ok" ? `备份完成：${record.archivePath}` : `备份失败：${record.error}`,
       );
       await load();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "备份失败");
+      onNotice(error instanceof Error ? error.message : "备份失败");
     } finally {
       setBusy(false);
     }
@@ -58,9 +64,9 @@ export function BackupsWorkspace({ projects }: { projects: Project[] }) {
       const targetDirectory = await bridge.selectDirectory();
       if (!targetDirectory) return;
       await bridge.restoreBackup({ archivePath: backup.archivePath, targetDirectory });
-      setNotice("恢复完成，可到「我的项目」导入该目录");
+      onNotice("恢复完成，可到「我的项目」导入该目录");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "恢复失败");
+      onNotice(error instanceof Error ? error.message : "恢复失败");
     } finally {
       setBusy(false);
     }
@@ -81,12 +87,6 @@ export function BackupsWorkspace({ projects }: { projects: Project[] }) {
           <p>将项目打包为 ZIP（含 .git），可在新目录完整恢复。</p>
         </div>
       </div>
-      {notice && (
-        <div className="toast">
-          <Check size={16} />
-          {notice}
-        </div>
-      )}
       <div className="remote-toolbar">
         <label className="account-select">
           <span>选择要备份的项目</span>

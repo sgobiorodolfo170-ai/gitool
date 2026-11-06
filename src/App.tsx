@@ -531,13 +531,14 @@ function App() {
               onToggleWatch={toggleRemoteWatch}
             />
           ) : workspace === "tasks" ? (
-            <TasksWorkspace projects={projects} />
+            <TasksWorkspace projects={projects} onNotice={showNotice} />
           ) : workspace === "backups" ? (
-            <BackupsWorkspace projects={projects} />
+            <BackupsWorkspace projects={projects} onNotice={showNotice} />
           ) : workspace === "logs" ? (
-            <LogsWorkspace />
+            <LogsWorkspace onNotice={showNotice} />
           ) : workspace === "settings" ? (
             <SettingsWorkspace
+              onNotice={showNotice}
               environment={environment}
               accounts={accounts}
               accountBusyId={accountBusyId}

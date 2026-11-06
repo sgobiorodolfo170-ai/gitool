@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Settings2 } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import type {
   Account,
   AppSettings,
@@ -49,6 +49,7 @@ export function SettingsWorkspace({
   installProgress,
   fontScale,
   onFontScaleChange,
+  onNotice,
 }: {
   environment: EnvironmentStatus | null;
   accounts: Account[];
@@ -63,10 +64,11 @@ export function SettingsWorkspace({
   installProgress: InstallProgress | null;
   fontScale: number;
   onFontScaleChange: (scale: number) => void;
+  /** 提示统一走 App 的全局 useNotice：本地 toast 与全局双轨已收敛。 */
+  onNotice: (message: string) => void;
 }) {
   const bridge = getDesktopBridge();
   const [settings, setSettings] = useState<AppSettings>(INITIAL_SETTINGS);
-  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [aiKeyInput, setAiKeyInput] = useState("");
   const [hasAiKey, setHasAiKey] = useState(false);
@@ -87,7 +89,7 @@ export function SettingsWorkspace({
       setSettings(loadedSettings);
       setHasAiKey(loadedHasKey);
     },
-    onError: (error) => setNotice(error instanceof Error ? error.message : "加载设置失败"),
+    onError: (error) => onNotice(error instanceof Error ? error.message : "加载设置失败"),
   });
 
   const save = async () => {
@@ -104,9 +106,9 @@ export function SettingsWorkspace({
         aiApiKeyConfigured: hasAiKey || Boolean(aiKeyInput.trim()),
       });
       onSettingsChange({ ...settings, aiApiKeyConfigured: hasAiKey || Boolean(aiKeyInput.trim()) });
-      setNotice("设置已保存");
+      onNotice("设置已保存");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "保存失败");
+      onNotice(error instanceof Error ? error.message : "保存失败");
     } finally {
       setBusy(false);
     }
@@ -119,7 +121,7 @@ export function SettingsWorkspace({
     await bridge.deleteAiApiKey();
     setHasAiKey(false);
     setSettings((current) => ({ ...current, aiApiKeyConfigured: false }));
-    setNotice("AI API Key 已从凭据管理器删除");
+    onNotice("AI API Key 已从凭据管理器删除");
   };
 
   return (
@@ -137,12 +139,6 @@ export function SettingsWorkspace({
           <p>配置 Git 路径、默认目录与应用环境信息。</p>
         </div>
       </div>
-      {notice && (
-        <div className="toast">
-          <Check size={16} />
-          {notice}
-        </div>
-      )}
       <div className="settings-tabs">
         <button
           className={`settings-tab ${activeTab === "app" ? "active" : ""}`}

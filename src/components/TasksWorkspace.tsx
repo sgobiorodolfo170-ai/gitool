@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ListTodo } from "lucide-react";
+import { ListTodo } from "lucide-react";
 import type { DetectedCommand, Project, TaskProfile, TaskRun } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
@@ -25,11 +25,17 @@ const EMPTY_DRAFT: TaskDraft = {
  * TaskForm，两份列表各自抽为 TaskProfilesList/TaskRunsList。
  * 轮询（1s 实时日志 + 4s 列表刷新）与任务启停的编排留在本组件。
  */
-export function TasksWorkspace({ projects }: { projects: Project[] }) {
+export function TasksWorkspace({
+  projects,
+  onNotice,
+}: {
+  projects: Project[];
+  /** 提示统一走 App 的全局 useNotice：本地 toast 与全局双轨已收敛。 */
+  onNotice: (message: string) => void;
+}) {
   const bridge = getDesktopBridge();
   const [profiles, setProfiles] = useState<TaskProfile[]>([]);
   const [runs, setRuns] = useState<TaskRun[]>([]);
-  const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<TaskProfile | null>(null);
   const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -55,7 +61,7 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
       setProfiles(loadedProfiles);
       setRuns(loadedRuns);
     },
-    onError: (error) => setNotice(error instanceof Error ? error.message : "加载任务数据失败"),
+    onError: (error) => onNotice(error instanceof Error ? error.message : "加载任务数据失败"),
     pollMs: 4000,
   });
 
@@ -165,7 +171,7 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
     };
     try {
       await bridge.saveTaskProfile(profile);
-      setNotice("任务已保存");
+      onNotice("任务已保存");
       setEditing(null);
       setDraft(EMPTY_DRAFT);
       setDetectedCommands([]);
@@ -174,7 +180,7 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
       setActiveTab("profiles");
       await load();
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "保存失败");
+      onNotice(error instanceof Error ? error.message : "保存失败");
     }
   };
 
@@ -184,9 +190,9 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
     try {
       const run = await bridge.runTask(profile.id);
       setRuns((current) => [run, ...current]);
-      setNotice(`任务「${profile.name}」已启动`);
+      onNotice(`任务「${profile.name}」已启动`);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "启动失败");
+      onNotice(error instanceof Error ? error.message : "启动失败");
     } finally {
       setRunningId(null);
     }
@@ -204,9 +210,9 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
     setStoppingId(runId);
     try {
       await bridge.stopTask(runId);
-      setNotice("已请求停止任务");
+      onNotice("已请求停止任务");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "停止失败");
+      onNotice(error instanceof Error ? error.message : "停止失败");
     } finally {
       setStoppingId(null);
       await load();
@@ -245,12 +251,6 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
           <p>配置构建、运行和打包命令，一键执行并查看实时日志。</p>
         </div>
       </div>
-      {notice && (
-        <div className="toast">
-          <Check size={16} />
-          {notice}
-        </div>
-      )}
       <div className="settings-tabs">
         <button
           className={`settings-tab ${activeTab === "create" ? "active" : ""}`}
