@@ -1,41 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CircleAlert, ListTodo, RefreshCw, Trash2, X } from "lucide-react";
-import type { DetectedCommand, Project, TaskProfile, TaskRun, TaskType } from "../types";
+import { useEffect, useRef, useState } from "react";
+import { Check, ListTodo } from "lucide-react";
+import type { DetectedCommand, Project, TaskProfile, TaskRun } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
+import { TaskForm, type TaskDraft } from "./tasks/TaskForm";
+import { TaskProfilesList } from "./tasks/TaskProfilesList";
+import { TaskRunsList } from "./tasks/TaskRunsList";
 
+const EMPTY_DRAFT: TaskDraft = {
+  projectId: "",
+  name: "",
+  command: "",
+  args: "",
+  taskType: "run",
+  timeoutSeconds: 120,
+};
+
+/**
+ * 任务中心（新建任务 / 任务配置 / 运行记录）。
+ *
+ * 为什么这么拆：draft 与 detectedCommands/commandCustom/argsCustom 是跨 tab
+ * 状态——「任务配置」页的编辑按钮写入草稿并切页，save 成功后重置草稿并切回
+ * 配置页——按「跨 tab 共享才上提」归本组件所有；表单展示与派生候选下沉到
+ * TaskForm，两份列表各自抽为 TaskProfilesList/TaskRunsList。
+ * 轮询（1s 实时日志 + 4s 列表刷新）与任务启停的编排留在本组件。
+ */
 export function TasksWorkspace({ projects }: { projects: Project[] }) {
   const bridge = getDesktopBridge();
   const [profiles, setProfiles] = useState<TaskProfile[]>([]);
   const [runs, setRuns] = useState<TaskRun[]>([]);
   const [notice, setNotice] = useState("");
   const [editing, setEditing] = useState<TaskProfile | null>(null);
-  const [draft, setDraft] = useState<{
-    projectId: string;
-    name: string;
-    command: string;
-    args: string;
-    taskType: TaskType;
-    timeoutSeconds: number;
-  }>({ projectId: "", name: "", command: "", args: "", taskType: "run", timeoutSeconds: 120 });
-
-  const generateTaskName = (projectId: string): string => {
-    const project = projects.find((item) => item.id === projectId);
-    const base = project?.name ?? projectId;
-    const sameProjectTasks = profiles.filter((item) => item.projectId === projectId);
-    if (sameProjectTasks.length === 0) return base;
-    let max = 1;
-    for (const task of sameProjectTasks) {
-      if (task.name === base) {
-        max = Math.max(max, 1);
-      } else {
-        const match = task.name.match(/^(.+?)\s(\d+)$/);
-        if (match && match[1] === base) {
-          max = Math.max(max, Number(match[2]));
-        }
-      }
-    }
-    return `${base} ${max + 1}`;
-  };
+  const [draft, setDraft] = useState<TaskDraft>(EMPTY_DRAFT);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [detectedCommands, setDetectedCommands] = useState<DetectedCommand[]>([]);
@@ -129,34 +124,26 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
     return () => window.clearInterval(timer);
   }, []);
 
-  const taskTypeLabel: Record<TaskProfile["taskType"], string> = {
-    build: "构建",
-    run: "运行",
-    package: "打包",
-    deploy: "部署",
-  };
-
-  const commandOptions = useMemo(() => {
-    const seen = new Map<string, DetectedCommand>();
-    for (const item of detectedCommands) {
-      if (item.category === draft.taskType && !seen.has(item.command)) {
-        seen.set(item.command, item);
+  // 任务名自动生成：同名任务按「基础名 N」取最大序号 +1；
+  // 表单的名称预览与 save 落库共用这一规则
+  const generateTaskName = (projectId: string): string => {
+    const project = projects.find((item) => item.id === projectId);
+    const base = project?.name ?? projectId;
+    const sameProjectTasks = profiles.filter((item) => item.projectId === projectId);
+    if (sameProjectTasks.length === 0) return base;
+    let max = 1;
+    for (const task of sameProjectTasks) {
+      if (task.name === base) {
+        max = Math.max(max, 1);
+      } else {
+        const match = task.name.match(/^(.+?)\s(\d+)$/);
+        if (match && match[1] === base) {
+          max = Math.max(max, Number(match[2]));
+        }
       }
     }
-    return [...seen.values()];
-  }, [detectedCommands, draft.taskType]);
-
-  const argOptions = useMemo(() => {
-    return detectedCommands.filter(
-      (item) => item.command === draft.command && item.category === draft.taskType,
-    );
-  }, [detectedCommands, draft.command, draft.taskType]);
-
-  const incompatibleCommands = useMemo(() => {
-    return detectedCommands.filter(
-      (item) => item.category === draft.taskType && !item.osSupport.includes("windows"),
-    );
-  }, [detectedCommands, draft.taskType]);
+    return `${base} ${max + 1}`;
+  };
 
   const save = async () => {
     if (!bridge || !draft.projectId || !draft.command) return;
@@ -178,14 +165,7 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
       await bridge.saveTaskProfile(profile);
       setNotice("任务已保存");
       setEditing(null);
-      setDraft({
-        projectId: "",
-        name: "",
-        command: "",
-        args: "",
-        taskType: "run",
-        timeoutSeconds: 120,
-      });
+      setDraft(EMPTY_DRAFT);
       setDetectedCommands([]);
       setCommandCustom(false);
       setArgsCustom(false);
@@ -229,14 +209,6 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
       setStoppingId(null);
       await load();
     }
-  };
-
-  const runStatusMeta: Record<TaskRun["status"], { label: string; className: string }> = {
-    running: { label: "运行中", className: "status-ahead" },
-    succeeded: { label: "成功", className: "status-clean" },
-    failed: { label: "失败", className: "status-conflicted" },
-    stopped: { label: "已停止", className: "status-behind" },
-    timedout: { label: "超时", className: "status-conflicted" },
   };
 
   const edit = async (profile: TaskProfile) => {
@@ -299,312 +271,41 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
       </div>
 
       {activeTab === "create" && (
-        <form
-          className="account-form settings-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          <div className="panel-heading">
-            <div>
-              <h2>{editing ? `编辑任务 · ${editing.name}` : "新建任务"}</h2>
-              <span>命令将在项目目录执行</span>
-            </div>
-            <ListTodo size={16} />
-          </div>
-          <div className="form-body">
-            <label>
-              关联项目
-              <select
-                value={draft.projectId}
-                onChange={(event) => handleProjectChange(event.target.value)}
-              >
-                <option value="">选择项目</option>
-                {projects.map((project) => (
-                  <option value={project.id} key={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {!editing && draft.projectId && (
-              <div className="task-name-preview">
-                <ListTodo size={13} />
-                任务名称将自动生成为「{generateTaskName(draft.projectId)}」
-              </div>
-            )}
-            <label>
-              任务分类
-              <select
-                value={draft.taskType}
-                onChange={(event) => {
-                  const value = event.target.value as TaskType;
-                  setDraft((current) => ({ ...current, taskType: value, command: "", args: "" }));
-                  setCommandCustom(false);
-                  setArgsCustom(false);
-                }}
-              >
-                <option value="build">构建</option>
-                <option value="run">运行</option>
-                <option value="package">打包</option>
-                <option value="deploy">部署</option>
-              </select>
-            </label>
-            {incompatibleCommands.length > 0 && (
-              <div
-                className="conflict-wizard"
-                style={{ background: "#fef9e7", borderColor: "#f0d78a" }}
-              >
-                <div className="conflict-heading" style={{ color: "#9a6b1f" }}>
-                  <CircleAlert size={14} />
-                  <strong>检测到 {incompatibleCommands.length} 个当前系统不支持的命令</strong>
-                </div>
-                <p style={{ color: "#8a6d2f" }}>
-                  以下命令不支持 Windows 系统，仅支持：
-                  {incompatibleCommands[0].osSupport.join("、")}
-                  。可在其他系统上执行，或使用自定义命令手动配置。
-                </p>
-                <div className="conflict-files">
-                  {incompatibleCommands.map((item) => (
-                    <code key={`${item.command}-${item.args}`}>
-                      {item.label}（仅 {item.osSupport.join("/")}）
-                    </code>
-                  ))}
-                </div>
-              </div>
-            )}
-            <label>
-              命令
-              {commandOptions.length > 0 && (
-                <select
-                  value={commandCustom ? "__custom__" : draft.command}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (value === "__custom__") {
-                      setCommandCustom(true);
-                      return;
-                    }
-                    setCommandCustom(false);
-                    setDraft({ ...draft, command: value, args: "" });
-                    setArgsCustom(false);
-                  }}
-                >
-                  <option value="">选择命令</option>
-                  {commandOptions.map((item) => (
-                    <option value={item.command} key={`${item.command}-${item.category}`}>
-                      {item.command} — {item.description ?? item.label}（{item.source}）
-                    </option>
-                  ))}
-                  <option value="__custom__">自定义…</option>
-                </select>
-              )}
-              {(commandCustom || commandOptions.length === 0) && (
-                <div
-                  className="secret-input"
-                  style={{ marginTop: commandOptions.length > 0 ? 6 : 0 }}
-                >
-                  <input
-                    value={draft.command}
-                    onChange={(event) => setDraft({ ...draft, command: event.target.value })}
-                    placeholder="例如：npm（选择项目后自动读取）"
-                  />
-                </div>
-              )}
-            </label>
-            <label>
-              参数
-              {argOptions.length > 0 && draft.command && (
-                <select
-                  value={argsCustom ? "__custom__" : draft.args}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    if (value === "__custom__") {
-                      setArgsCustom(true);
-                      return;
-                    }
-                    setArgsCustom(false);
-                    setDraft({ ...draft, args: value });
-                  }}
-                >
-                  <option value="">选择参数</option>
-                  {argOptions.map((item) => (
-                    <option value={item.args} key={`${item.command}-${item.args}`}>
-                      {item.args} — {item.description ?? item.label}
-                    </option>
-                  ))}
-                  <option value="__custom__">自定义…</option>
-                </select>
-              )}
-              {(argsCustom || argOptions.length === 0 || !draft.command) && (
-                <div
-                  className="secret-input"
-                  style={{ marginTop: argOptions.length > 0 && draft.command ? 6 : 0 }}
-                >
-                  <input
-                    value={draft.args}
-                    onChange={(event) => setDraft({ ...draft, args: event.target.value })}
-                    placeholder="例如：run dev"
-                  />
-                </div>
-              )}
-            </label>
-            <label>
-              超时（秒）
-              <input
-                type="number"
-                value={draft.timeoutSeconds}
-                onChange={(event) =>
-                  setDraft({ ...draft, timeoutSeconds: Number(event.target.value) || 0 })
-                }
-              />
-            </label>
-            <button
-              className="button primary form-submit"
-              disabled={!draft.projectId || !draft.command}
-            >
-              {editing ? "保存修改" : "创建任务"}
-            </button>
-          </div>
-        </form>
+        <TaskForm
+          projects={projects}
+          draft={draft}
+          setDraft={setDraft}
+          editing={editing}
+          detectedCommands={detectedCommands}
+          onProjectChange={handleProjectChange}
+          commandCustom={commandCustom}
+          setCommandCustom={setCommandCustom}
+          argsCustom={argsCustom}
+          setArgsCustom={setArgsCustom}
+          save={save}
+          generateTaskName={generateTaskName}
+        />
       )}
 
       {activeTab === "profiles" && (
-        <section className="account-list-panel settings-form">
-          <div className="panel-heading">
-            <div>
-              <h2>任务配置</h2>
-              <span>{profiles.length} 个任务</span>
-            </div>
-            <div className="panel-heading-actions">
-              <button className="bare-button" onClick={() => void load()}>
-                <RefreshCw size={16} />
-              </button>
-              <span className="secure-label">
-                <ListTodo size={13} />
-                可执行
-              </span>
-            </div>
-          </div>
-          {profiles.length ? (
-            <div className="account-list">
-              {profiles.map((profile) => (
-                <div className="account-row" key={profile.id}>
-                  <div className="account-provider-icon github">
-                    <span>{taskTypeLabel[profile.taskType].slice(0, 1)}</span>
-                  </div>
-                  <div className="account-main">
-                    <div className="account-title">
-                      <strong>{profile.name}</strong>
-                      <span className="status-pill status-clean">
-                        <span className="status-dot" />
-                        {taskTypeLabel[profile.taskType]}
-                      </span>
-                    </div>
-                    <p>
-                      {profile.command} {profile.args}
-                    </p>
-                    <small>
-                      {projects.find((project) => project.id === profile.projectId)?.name ??
-                        profile.projectPath}
-                    </small>
-                  </div>
-                  <div className="account-actions">
-                    <button
-                      className="button secondary compact-button"
-                      onClick={() => startTask(profile)}
-                      disabled={runningId !== null}
-                    >
-                      {runningId === profile.id ? "启动中..." : "运行"}
-                    </button>
-                    <button
-                      className="button secondary compact-button"
-                      onClick={() => edit(profile)}
-                    >
-                      编辑
-                    </button>
-                    <button
-                      className="icon-button danger"
-                      onClick={() => deleteProfile(profile)}
-                      aria-label="删除任务"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="accounts-empty">
-              <ListTodo size={21} />
-              <strong>还没有任务配置</strong>
-              <span>在「新建任务」标签页创建第一个任务。</span>
-            </div>
-          )}
-        </section>
+        <TaskProfilesList
+          profiles={profiles}
+          projects={projects}
+          runningId={runningId}
+          onStart={(profile) => void startTask(profile)}
+          onEdit={(profile) => void edit(profile)}
+          onDelete={(profile) => void deleteProfile(profile)}
+          onReload={() => void load()}
+        />
       )}
 
       {activeTab === "runs" && (
-        <section className="account-list-panel settings-form">
-          <div className="panel-heading">
-            <div>
-              <h2>运行记录</h2>
-              <span>最近 {runs.length} 次</span>
-            </div>
-            <button className="bare-button" onClick={() => void load()}>
-              <RefreshCw size={16} />
-            </button>
-          </div>
-          {runs.length ? (
-            <div className="remote-list">
-              {runs.slice(0, 20).map((run) => {
-                const meta = runStatusMeta[run.status] ?? runStatusMeta.failed;
-                return (
-                  <div className="remote-row" key={run.id}>
-                    <div className="remote-main">
-                      <div className="remote-title">
-                        <strong>{run.name}</strong>
-                        <span className={`status-pill ${meta.className}`}>
-                          <span className="status-dot" />
-                          {meta.label}
-                        </span>
-                        <span>{run.exitCode !== undefined ? `退出码 ${run.exitCode}` : ""}</span>
-                      </div>
-                      <p>
-                        {run.command} · {run.startedAt}
-                      </p>
-                      <code className="run-output">{run.output.slice(0, 300) || "（无输出）"}</code>
-                    </div>
-                    <div className="remote-actions">
-                      {run.status === "running" && (
-                        <button
-                          className="button secondary compact-button"
-                          onClick={() => stopRun(run.id)}
-                          disabled={stoppingId === run.id}
-                        >
-                          {stoppingId === run.id ? (
-                            "停止中..."
-                          ) : (
-                            <>
-                              <X size={13} />
-                              停止
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="accounts-empty">
-              <ListTodo size={22} />
-              <strong>还没有运行记录</strong>
-              <span>运行任务后这里会显示输出。</span>
-            </div>
-          )}
-        </section>
+        <TaskRunsList
+          runs={runs}
+          stoppingId={stoppingId}
+          onStop={(runId) => void stopRun(runId)}
+          onReload={() => void load()}
+        />
       )}
     </div>
   );
