@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { WorkspaceEntity } from "../../../../shared/types";
+import type { Project, WorkspaceEntity } from "../../../../shared/types";
 import { errorMessage } from "../serviceUtils";
 
 export type SqlRow = Record<string, string | number | bigint | null | Uint8Array>;
@@ -290,6 +290,31 @@ export function parseStringArray(
 }
 
 /** 行 → 领域对象映射统一收在此处：与建表列一一对应，schema 变更时同步修改。 */
+
+export function rowToProject(row: SqlRow): Project {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    path: String(row.path),
+    provider: String(row.provider) as Project["provider"],
+    branch: String(row.branch),
+    status: String(row.status) as Project["status"],
+    commit: String(row.commitHash),
+    favorite: Number(row.favorite) !== 0,
+    tags: parseStringArray(row.tags),
+    remote: row.remote === null ? undefined : String(row.remote),
+    files: Number(row.files),
+    syncLabel: String(row.syncLabel),
+    language: String(row.language),
+    languageColor: String(row.languageColor),
+    summary: String(row.summary),
+    updatedAt: String(row.updatedAt),
+    diskSizeBytes: Number(row.diskSizeBytes ?? 0),
+    alias: row.alias === null || row.alias === undefined ? undefined : String(row.alias),
+    webUrl: row.webUrl === null || row.webUrl === undefined ? undefined : String(row.webUrl),
+  };
+}
+
 export function rowToWorkspace(row: SqlRow): WorkspaceEntity {
   return {
     id: String(row.id),

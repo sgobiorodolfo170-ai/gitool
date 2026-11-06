@@ -5,7 +5,6 @@ import type {
   AppSettings,
   BackupRecord,
   OperationRecord,
-  Project,
   RemoteProvider,
   RemoteRepository,
   TaskProfile,
@@ -15,83 +14,6 @@ import { deleteCredential, readCredential, saveCredential } from "./credentials"
 import { buildOperationRecordsCsv } from "./operationCsv";
 import { errorMessage } from "./serviceUtils";
 import { openDatabase, parseStringArray, type SqlRow } from "./storage/database";
-
-export function loadProjects(workspaceId: string): Project[] {
-  const connection = openDatabase();
-  const rows = connection
-    .prepare(
-      `SELECT id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
-              files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl
-       FROM projects WHERE workspaceId = ? ORDER BY favorite DESC, updatedAt DESC, name ASC`,
-    )
-    .all(workspaceId) as unknown as SqlRow[];
-
-  return rows.map(rowToProject);
-}
-
-export function saveProjects(workspaceId: string, projects: Project[]): void {
-  const connection = openDatabase();
-  connection.exec("BEGIN");
-  try {
-    const statement = connection.prepare(
-      `INSERT INTO projects
-       (id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
-        files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl, workspaceId)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name, path = excluded.path, provider = excluded.provider,
-        branch = excluded.branch, status = excluded.status, commitHash = excluded.commitHash,
-        favorite = excluded.favorite, tags = excluded.tags, remote = excluded.remote,
-        files = excluded.files, syncLabel = excluded.syncLabel, language = excluded.language,
-        languageColor = excluded.languageColor, summary = excluded.summary,
-        updatedAt = excluded.updatedAt, diskSizeBytes = excluded.diskSizeBytes,
-        alias = excluded.alias, webUrl = excluded.webUrl, workspaceId = excluded.workspaceId`,
-    );
-    const ids = new Set<string>();
-    for (const project of projects) {
-      ids.add(project.id);
-      statement.run(
-        project.id,
-        project.name,
-        project.path,
-        project.provider,
-        project.branch,
-        project.status,
-        project.commit,
-        project.favorite ? 1 : 0,
-        JSON.stringify(project.tags),
-        project.remote ?? null,
-        project.files,
-        project.syncLabel,
-        project.language,
-        project.languageColor,
-        project.summary,
-        project.updatedAt,
-        project.diskSizeBytes ?? 0,
-        project.alias ?? null,
-        project.webUrl ?? null,
-        workspaceId,
-      );
-    }
-    // 清理已不在列表中的项目：直接删行（本项目无软删除语义，
-    // 从列表移除即不再展示，磁盘目录不受影响）
-    const stale = connection
-      .prepare("SELECT id FROM projects WHERE workspaceId = ?")
-      .all(workspaceId) as unknown as SqlRow[];
-    const deleteStatement = connection.prepare(
-      "DELETE FROM projects WHERE id = ? AND workspaceId = ?",
-    );
-    for (const row of stale) {
-      if (!ids.has(String(row.id))) {
-        deleteStatement.run(String(row.id), workspaceId);
-      }
-    }
-    connection.exec("COMMIT");
-  } catch (error) {
-    connection.exec("ROLLBACK");
-    throw new Error(`本地数据存储失败：${errorMessage(error)}`);
-  }
-}
 
 export function loadAccounts(): Account[] {
   const connection = openDatabase();
@@ -235,30 +157,6 @@ export function deleteAccount(accountId: string): void {
   connection.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
   // 同步清掉该账号的仓库缓存，否则删号后仍残留一份完整仓库列表。
   connection.prepare("DELETE FROM remote_repository_cache WHERE accountId = ?").run(accountId);
-}
-
-function rowToProject(row: SqlRow): Project {
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    path: String(row.path),
-    provider: String(row.provider) as Project["provider"],
-    branch: String(row.branch),
-    status: String(row.status) as Project["status"],
-    commit: String(row.commitHash),
-    favorite: Number(row.favorite) !== 0,
-    tags: parseStringArray(row.tags),
-    remote: row.remote === null ? undefined : String(row.remote),
-    files: Number(row.files),
-    syncLabel: String(row.syncLabel),
-    language: String(row.language),
-    languageColor: String(row.languageColor),
-    summary: String(row.summary),
-    updatedAt: String(row.updatedAt),
-    diskSizeBytes: Number(row.diskSizeBytes ?? 0),
-    alias: row.alias === null || row.alias === undefined ? undefined : String(row.alias),
-    webUrl: row.webUrl === null || row.webUrl === undefined ? undefined : String(row.webUrl),
-  };
 }
 
 function rowToAccount(row: SqlRow): Account {

@@ -1,7 +1,7 @@
 {
   "name": "gitool",
   "productName": "Gitool",
-  "version": "0.6.9",
+  "version": "0.6.10",
   "private": false,
   "type": "module",
   "description": "Windows Git repository workspace",

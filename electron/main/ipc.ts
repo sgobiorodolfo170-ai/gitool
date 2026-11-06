@@ -54,11 +54,10 @@ import {
   deleteAccount,
   getRemoteRepositoryCacheMeta,
   loadAccounts,
-  loadProjects,
   loadRemoteRepositoryCache,
-  saveProjects,
   upsertAccount,
 } from "./services/storage";
+import { loadProjects, saveProjects } from "./services/storage/projects";
 import {
   createWorkspace,
   deleteWorkspace,
