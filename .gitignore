@@ -3,6 +3,7 @@ dist/
 dist-electron/
 release/
 release-build/
+release-verify*/
 build/electron-dist/
 .vite/
 .workbuddy-ai/
