@@ -99,7 +99,22 @@
 | v0.6.5 | P2-12/14 死代码与假 UI | `fix(ui): 死代码与假 UI 清理，installUpdate 补错误可见性` |
 | v0.6.6 | P2-12 重复代码下沉 | `refactor(services): errorMessage/assertDirectory 下沉零依赖 serviceUtils` |
 | v0.6.7 | P2-11/15/17 收尾 | `fix: P2 收尾批次——注释纠偏、命令探测单次读包、更新检查超时与下载守卫` |
+| v0.6.11 | 组件拆分① GitActionsPanel（治理轮-2） | `refactor(ui): GitActionsPanel 按 tab 拆分为四个子组件` |
+| v0.6.13 | 组件拆分② SettingsWorkspace（治理轮-2） | `refactor(ui): SettingsWorkspace 拆分——内嵌组件独立 + 按 tab 拆三个设置页` |
+| v0.6.14 | 组件拆分③ ProjectDetail（治理轮-2） | `refactor(ui): ProjectDetail 拆分——未克隆视图/概览/Git 区块独立成组件` |
+| v0.6.16 | 组件拆分④ TasksWorkspace（治理轮-2） | `refactor(ui): TasksWorkspace 拆分——表单/任务配置/运行记录独立成组件` |
 
-> 验证基线：v0.6.7 时 typecheck ✓、138 单测 ✓、覆盖率门禁 ✓、生产构建 ✓。
+> 验证基线：v0.6.16 时 typecheck ✓、142 单测 ✓、覆盖率门禁 ✓、生产构建 ✓（每笔拆分提交前三门禁均独立跑绿）。
 >
-> **仍遗留（大拆分类，留待独立轮次）**：storage.ts 按域拆分；GitActionsPanel/SettingsWorkspace/ProjectDetail/TasksWorkspace 组件拆分；App.tsx 编排下沉；useAsyncData/usePolling 与 toast 双轨统一；远程匹配三处口径统一；`npm run dist` 安装包体积验证。
+> **治理轮-2 组件拆分（v0.6.11–v0.6.16）**：四个超长组件全部拆分完毕——
+> - GitActionsPanel 805 行 → 壳 227 行 + git/ 目录 6 文件（tab 数据与 loading 下放子组件，per-kind 序号守卫随迁为 useLoadSequence；挂载沿用 visitedTabs 惰性挂载范式保证切 tab 保留数据；跨 tab 历史联动经 registerReload 登记，未挂载时兜底拉取角标计数）
+> - SettingsWorkspace 698 行 → 壳 207 行 + settings/ 目录 5 文件（内嵌 AccountsWorkspace/AccountRow 独立；跨 tab 共享 save 的状态留父级）
+> - ProjectDetail 716 行 → 壳 192 行 + detail/ 目录 7 文件（未克隆视图/概览/Git 区块独立，内嵌四组件拆出）
+> - TasksWorkspace 611 行 → 壳 313 行 + tasks/ 目录 3 文件（表单/两份列表独立；draft 等跨 tab 状态留父级；1 秒轮询 runsRef 范式保留）
+>
+> 全程纯重构：不改交互/文案/样式/类名，UI 行为等价；hooks 层公开签名零改动。
+> 唯一语义澄清：原面板单一共享 `loading` 变量在快速切 tab 的竞态窗口下会跨 tab 泄漏（A 页加载完成会关掉 B 页的转圈/空态），随数据下放各 tab 自持 loading 后该泄漏自然消除，属拆分的设计结果而非行为变更。
+>
+> **治理轮-2 顺路登记（未修，留后续轮次）**：GitActionsPanel 切换项目时部分视图状态不清空——差异查看器（diffFor/diffText）、版本对比选中项与结果（compareBase/compareHead/compareResult）、对比下拉的分支/标签清单（allBranches/allTags）会残留上一个项目的内容，直到用户手动关闭或重新操作（拆分时逐字保留原语义，登记备查）。
+>
+> **仍遗留（大拆分类，留待独立轮次）**：storage.ts 按域拆分（治理轮-1 进行中，已迁出 database/workspaces/projects/accounts/tasks 域）；App.tsx 编排下沉；useAsyncData/usePolling 与 toast 双轨统一；远程匹配三处口径统一；`npm run dist` 安装包体积验证。
