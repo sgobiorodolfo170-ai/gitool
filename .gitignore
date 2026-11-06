@@ -6,4 +6,5 @@ release-build/
 build/electron-dist/
 .vite/
 .workbuddy-ai/
+coverage/
 *.log
