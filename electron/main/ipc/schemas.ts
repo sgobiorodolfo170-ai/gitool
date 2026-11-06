@@ -157,9 +157,17 @@ export const operationRecordSchema = z.object({
   projectId: looseString(),
   projectPath: looseString(),
   detail: looseString(),
-  result: z.enum(["ok", "failed"]).catch("ok"),
+  // 审计字段不能美化：非法结果静默改成 ok 会让操作日志失真
+  // （区别于 status/favorite 等派生展示值，那些用 .catch() 兜底是合理的）
+  result: z.enum(["ok", "failed"], { message: "操作结果只能是 ok 或 failed" }),
   createdAt: requiredString("记录时间"),
 }) satisfies z.ZodType<OperationRecord>;
+
+/** AI API Key：密钥类入参必须有长度上限，防止把任意大文本塞进凭据管理器。 */
+export const aiSecretSchema = requiredString("AI API Key").refine(
+  (value) => value.length <= 4096,
+  { message: "AI API Key 过长（最多 4096 字符）" },
+) satisfies z.ZodType<string>;
 
 /** 同步类 Git 操作。刻意不含 revert——撤销提交走独立通道，需要 commit hash。 */
 export const gitOperationSchema = z.enum(["fetch", "pull", "push", "sync"], {

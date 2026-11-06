@@ -87,6 +87,7 @@ import {
 } from "./services/updater";
 import {
   aiSummaryRequestSchema,
+  aiSecretSchema,
   appSettingsSchema,
   backupCreateInputSchema,
   backupRestoreInputSchema,
@@ -368,7 +369,7 @@ export function registerIpcHandlers(): void {
     generateAiSummary(parseOrThrow(aiSummaryRequestSchema, input, "AI 摘要参数")),
   );
   ipcMain.handle("ai:saveKey", (_event, secret: unknown) => {
-    saveAiApiKey(requireString(secret, "AI API Key"));
+    saveAiApiKey(parseOrThrow(aiSecretSchema, secret, "AI API Key"));
   });
   ipcMain.handle("ai:deleteKey", () => {
     deleteAiApiKey();
@@ -438,7 +439,9 @@ function recordOperation(
     insertOperationRecord({
       id: `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       operation,
-      projectId: "",
+      // 按路径反查项目 ID（尽力而为）：操作日志在界面按项目归组展示，
+      // 恒为空串会让归组永远失效（2026-11-07 审查 P2-21）
+      projectId: resolveProjectIdByPath(path),
       projectPath: path,
       detail: detail.slice(0, 500),
       result,
@@ -449,6 +452,20 @@ function recordOperation(
   }
 }
 
+function resolveProjectIdByPath(path: string): string {
+  try {
+    for (const workspace of listWorkspaces()) {
+      const match = loadProjects(workspace.id).find((project) => project.path === path);
+      if (match) {
+        return match.id;
+      }
+    }
+  } catch {
+    // 反查失败不影响操作记录本身
+  }
+  return "";
+}
+
 function requireString(value: unknown, label: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`${label}不能为空`);
@@ -456,8 +473,18 @@ function requireString(value: unknown, label: string): string {
   return value;
 }
 
+// IPC 是公开攻击面：字符串数组必须有总量与单项长度上限
+const MAX_IPC_ARRAY_ITEMS = 10000;
+const MAX_IPC_ITEM_LENGTH = 4096;
+
 function requireStringArray(value: unknown): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_IPC_ARRAY_ITEMS ||
+    !value.every(
+      (item) => typeof item === "string" && item.length <= MAX_IPC_ITEM_LENGTH,
+    )
+  ) {
     throw new Error("文件列表格式不正确");
   }
   return value;
