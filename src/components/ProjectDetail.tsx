@@ -54,6 +54,7 @@ export function ProjectDetail({
   onMoveProject,
   onRunGitOperation,
   activeOperation,
+  externalBusy,
   operationOutput,
   onAnalyzeProject,
   isAnalyzing,
@@ -65,6 +66,8 @@ export function ProjectDetail({
   onMoveProject: () => void;
   onRunGitOperation: (operation: GitOperation) => void | Promise<void>;
   activeOperation: GitOperation | null;
+  /** Git 操作全局互斥（单个/批量操作执行中）：透传给 GitActionsPanel 禁用其按钮。 */
+  externalBusy: boolean;
   operationOutput: string | null;
   onAnalyzeProject: () => void | Promise<void>;
   isAnalyzing: boolean;
@@ -502,7 +505,7 @@ export function ProjectDetail({
               </div>
             )}
 
-            <GitActionsPanel projectPath={project.path} />
+            <GitActionsPanel projectPath={project.path} externalBusy={externalBusy} />
           </>
         )}
       </div>

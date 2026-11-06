@@ -43,6 +43,8 @@ export type ProjectsWorkspaceProps = {
   isRefreshing: boolean;
   onRunGitOperation: (operation: GitOperation) => void | Promise<void>;
   activeOperation: GitOperation | null;
+  /** 批量 Git 操作执行中：禁用批量按钮，并向详情面板透传互斥状态。 */
+  bulkRunning: boolean;
   operationOutput: string | null;
   onAnalyzeProject: () => void | Promise<void>;
   isAnalyzing: boolean;
@@ -74,6 +76,7 @@ export function ProjectsWorkspace({
   isRefreshing,
   onRunGitOperation,
   activeOperation,
+  bulkRunning,
   operationOutput,
   onAnalyzeProject,
   isAnalyzing,
@@ -136,7 +139,7 @@ export function ProjectsWorkspace({
   };
 
   const runBulk = (operation: GitOperation) => {
-    if (selectedBulkIds.length === 0) return;
+    if (selectedBulkIds.length === 0 || bulkRunning) return;
     void onBulkGitOperation(operation, selectedBulkIds);
     setSelectedBulkIds([]);
   };
@@ -282,6 +285,7 @@ export function ProjectsWorkspace({
             onMoveProject={() => onMoveProject(selectedProject)}
             onRunGitOperation={onRunGitOperation}
             activeOperation={activeOperation}
+            externalBusy={activeOperation !== null || bulkRunning}
             operationOutput={operationOutput}
             onAnalyzeProject={onAnalyzeProject}
             isAnalyzing={isAnalyzing}
@@ -296,15 +300,27 @@ export function ProjectsWorkspace({
         <div className="bulk-action-bar">
           <span>已选 {selectedBulkIds.length} 个项目</span>
           <div className="bulk-actions">
-            <button className="button secondary compact-button" onClick={() => runBulk("fetch")}>
+            <button
+              className="button secondary compact-button"
+              onClick={() => runBulk("fetch")}
+              disabled={bulkRunning}
+            >
               <Cloud size={14} />
               批量获取
             </button>
-            <button className="button secondary compact-button" onClick={() => runBulk("pull")}>
+            <button
+              className="button secondary compact-button"
+              onClick={() => runBulk("pull")}
+              disabled={bulkRunning}
+            >
               <ArrowDownToLine size={14} />
               批量拉取
             </button>
-            <button className="button secondary compact-button" onClick={() => runBulk("push")}>
+            <button
+              className="button secondary compact-button"
+              onClick={() => runBulk("push")}
+              disabled={bulkRunning}
+            >
               <ArrowUpRight size={14} />
               批量推送
             </button>

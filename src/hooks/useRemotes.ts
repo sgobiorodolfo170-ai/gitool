@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project, RemoteRepository } from "../../shared/types";
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { remoteProjectMatch } from "../lib/projectMatch";
@@ -60,16 +60,32 @@ export function useRemotes(params: RemotesParams): RemotesApi {
   const [isLoading, setIsLoading] = useState(false);
   const [cloningRepositoryId, setCloningRepositoryId] = useState<string | null>(null);
   const [cloneProgress, setCloneProgress] = useState<CloneProgress | null>(null);
+  // 克隆结束提示的消失倒计时：不跟踪旧 timer 的话，2 秒内再次克隆，
+  // 旧 timer 会把进行中的新进度提前清空（与 useNotice 同范式，审查 P1-11）。
+  const cloneProgressTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isDesktopRuntime()) return;
     return requireDesktopBridge().onCloneProgress((event) => {
       setCloneProgress({ percent: event.percent, phase: event.phase, output: event.output });
+      if (cloneProgressTimerRef.current !== null) {
+        window.clearTimeout(cloneProgressTimerRef.current);
+        cloneProgressTimerRef.current = null;
+      }
       if (event.done) {
-        window.setTimeout(() => setCloneProgress(null), 2000);
+        cloneProgressTimerRef.current = window.setTimeout(() => setCloneProgress(null), 2000);
       }
     });
   }, []);
+
+  useEffect(
+    () => () => {
+      if (cloneProgressTimerRef.current !== null) {
+        window.clearTimeout(cloneProgressTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const forgetAccount = useCallback((accountId: string, remainingAccountIds: string[]) => {
     setRepositories((current) => current.filter((item) => item.accountId !== accountId));
@@ -77,6 +93,10 @@ export function useRemotes(params: RemotesParams): RemotesApi {
       current === accountId ? (remainingAccountIds[0] ?? "") : current,
     );
   }, []);
+
+  // 切换账号会触发两次加载（缓存 → 远端）；快速连切两个账号时，慢的旧响应
+  // 后返回会把错误账号的仓库列表覆盖进来——用请求序号守卫（审查 P1-5）。
+  const loadSeqRef = useRef(0);
 
   const loadRemoteRepositories = useCallback(
     async (accountId = selectedAccountId, options?: { silent?: boolean }) => {
@@ -89,17 +109,20 @@ export function useRemotes(params: RemotesParams): RemotesApi {
         return;
       }
       const bridge = requireDesktopBridge();
+      const seq = ++loadSeqRef.current;
 
       setIsLoading(true);
       try {
         // 先展示本地缓存（上次已同步的数据），避免每次启动都等待网络
         const cached = await bridge.loadCachedRemoteRepositories(accountId);
         if (cached.length > 0) {
+          if (seq !== loadSeqRef.current) return;
           setRepositories(cached);
           const meta = await bridge.getRemoteRepositoryCacheMeta(accountId).catch(() => null);
           if (meta) setSyncTime(meta.syncedAt);
         }
         const fresh = await bridge.loadRemoteRepositories(accountId);
+        if (seq !== loadSeqRef.current) return;
         setRepositories(fresh);
         const meta = await bridge.getRemoteRepositoryCacheMeta(accountId).catch(() => null);
         if (meta) setSyncTime(meta.syncedAt);
@@ -107,9 +130,13 @@ export function useRemotes(params: RemotesParams): RemotesApi {
           onNotice(`已同步 ${fresh.length} 个远程仓库（已缓存）`);
         }
       } catch (error) {
+        if (seq !== loadSeqRef.current) return;
         onNotice(error instanceof Error ? error.message : "远程仓库同步失败");
       } finally {
-        setIsLoading(false);
+        // 过期请求不能关掉最新一次加载的 loading 状态
+        if (seq === loadSeqRef.current) {
+          setIsLoading(false);
+        }
       }
     },
     [onNotice, selectedAccountId],

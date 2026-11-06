@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { EnvironmentStatus, InstallGitResult, InstallProgress } from "../../shared/types";
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 
@@ -25,16 +25,36 @@ export function useEnvironment(onError: (message: string) => void): EnvironmentA
   const [installingGit, setInstallingGit] = useState(false);
   const [showSetupModal, setShowSetupModal] = useState(false);
 
+  // 结束提示的消失倒计时：不跟踪旧 timer 的话，用户在 2-4 秒内再次安装，
+  // 旧 timer 会把进行中的新进度提前清空（与 useNotice 同范式，审查 P1-11）。
+  const progressTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (!isDesktopRuntime()) return;
     return requireDesktopBridge().onInstallProgress((event) => {
       setInstallProgress(event);
+      if (progressTimerRef.current !== null) {
+        window.clearTimeout(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
       // 成功提示 2s 后消失，失败提示 4s 后消失（让用户看清错误信息）
       if (event.phase === "done" || event.phase === "failed") {
-        window.setTimeout(() => setInstallProgress(null), event.phase === "done" ? 2000 : 4000);
+        progressTimerRef.current = window.setTimeout(
+          () => setInstallProgress(null),
+          event.phase === "done" ? 2000 : 4000,
+        );
       }
     });
   }, []);
+
+  useEffect(
+    () => () => {
+      if (progressTimerRef.current !== null) {
+        window.clearTimeout(progressTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const refreshEnvironment = useCallback(async () => {
     if (!isDesktopRuntime()) return;

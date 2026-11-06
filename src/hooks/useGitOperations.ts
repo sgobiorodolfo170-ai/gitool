@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { GitOperation, Project, ProjectAnalysis } from "../../shared/types";
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { operationLabels } from "../lib/meta";
@@ -14,6 +14,8 @@ import { projectFromSnapshot } from "../lib/projectMatch";
  */
 export type GitOperationsApi = {
   activeOperation: GitOperation | null;
+  /** 批量 Git 操作执行中。UI 据此禁用批量按钮并提示进度。 */
+  bulkRunning: boolean;
   isAnalyzing: boolean;
   runGitOperation: (operation: GitOperation) => Promise<void>;
   runBulkGitOperation: (operation: GitOperation, ids: string[]) => Promise<void>;
@@ -41,10 +43,19 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
 
   const [activeOperation, setActiveOperation] = useState<GitOperation | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  // 互斥的权威开关用 ref：批量操作与面板内的单个操作此前互不感知，
+  // 可对同一仓库并发起 git 进程，触发 index.lock 冲突（2026-11-07 审查 P1-7）。
+  // state 只承担 UI 反馈职责。
+  const gitBusyRef = useRef(false);
 
   const runGitOperation = useCallback(
     async (operation: GitOperation) => {
       if (!selectedProject) return;
+      if (gitBusyRef.current) {
+        onNotice("已有 Git 操作在执行，请稍候");
+        return;
+      }
       setOperationOutput(null);
       if (!isDesktopRuntime()) {
         onNotice("浏览器预览不会执行 Git 命令，请使用桌面版");
@@ -52,6 +63,7 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
       }
 
       setActiveOperation(operation);
+      gitBusyRef.current = true;
       try {
         const result = await requireDesktopBridge().runGitOperation(
           selectedProject.path,
@@ -75,6 +87,7 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
         setOperationOutput(error instanceof Error ? error.message : "Git 操作失败，请查看日志");
         onNotice(`${operationLabels[operation]}失败`);
       } finally {
+        gitBusyRef.current = false;
         setActiveOperation(null);
       }
     },
@@ -87,32 +100,47 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
         onNotice("浏览器预览不会执行 Git 命令，请使用桌面版");
         return;
       }
+      if (gitBusyRef.current) {
+        onNotice("已有 Git 操作在执行，请稍候");
+        return;
+      }
       const bridge = requireDesktopBridge();
-      let successCount = 0;
-      let failureCount = 0;
-      const updated: Project[] = [];
+      gitBusyRef.current = true;
+      setBulkRunning(true);
+      try {
+        let successCount = 0;
+        let failureCount = 0;
+        const updated: Project[] = [];
 
-      for (const project of getProjects()) {
-        if (!ids.includes(project.id)) continue;
-        try {
-          const result = await bridge.runGitOperation(project.path, operation);
-          if (result.success) {
-            successCount += 1;
-            updated.push(result.snapshot ? projectFromSnapshot(project, result.snapshot) : project);
-          } else {
+        for (const project of getProjects()) {
+          if (!ids.includes(project.id)) continue;
+          try {
+            const result = await bridge.runGitOperation(project.path, operation);
+            if (result.success) {
+              successCount += 1;
+              updated.push(
+                result.snapshot ? projectFromSnapshot(project, result.snapshot) : project,
+              );
+            } else {
+              failureCount += 1;
+              updated.push(project);
+            }
+          } catch {
             failureCount += 1;
             updated.push(project);
           }
-        } catch {
-          failureCount += 1;
-          updated.push(project);
         }
-      }
 
-      updateProjects((prev) =>
-        prev.map((project) => updated.find((item) => item.id === project.id) ?? project),
-      );
-      onNotice(`批量${operationLabels[operation]}完成：成功 ${successCount}，失败 ${failureCount}`);
+        updateProjects((prev) =>
+          prev.map((project) => updated.find((item) => item.id === project.id) ?? project),
+        );
+        onNotice(
+          `批量${operationLabels[operation]}完成：成功 ${successCount}，失败 ${failureCount}`,
+        );
+      } finally {
+        gitBusyRef.current = false;
+        setBulkRunning(false);
+      }
     },
     [getProjects, onNotice, updateProjects],
   );
@@ -135,5 +163,12 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
     }
   }, [onNotice, selectedProject, setAnalysis]);
 
-  return { activeOperation, isAnalyzing, runGitOperation, runBulkGitOperation, analyzeProject };
+  return {
+    activeOperation,
+    bulkRunning,
+    isAnalyzing,
+    runGitOperation,
+    runBulkGitOperation,
+    analyzeProject,
+  };
 }

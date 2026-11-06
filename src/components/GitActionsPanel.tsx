@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { changeStatusMeta } from "../lib/meta";
 import { CircleAlert, GitBranch, GitCommitHorizontal, RefreshCw, X } from "lucide-react";
 import type { BranchInfo, ChangeFile, CommitEntry, GitTag } from "../types";
@@ -6,7 +6,14 @@ import { getDesktopBridge } from "../lib/bridge";
 
 import { formatCommitDate, formatDayGroup } from "../lib/format";
 
-export function GitActionsPanel({ projectPath }: { projectPath: string }) {
+export function GitActionsPanel({
+  projectPath,
+  externalBusy = false,
+}: {
+  projectPath: string;
+  /** Git 操作全局互斥（单个/批量操作执行中）：禁用本面板全部写操作按钮。 */
+  externalBusy?: boolean;
+}) {
   const [changedFiles, setChangedFiles] = useState<ChangeFile[]>([]);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [history, setHistory] = useState<CommitEntry[]>([]);
@@ -36,73 +43,107 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
   const [allTags, setAllTags] = useState<GitTag[]>([]);
 
   const bridge = getDesktopBridge();
+  // 面板级互斥：本地 busy（写操作进行中）或全局 externalBusy（单个/批量 Git 操作）。
+  const isBusy = busy || externalBusy;
+  // 每类数据的加载序号：快速切 tab / 连点文件时，慢的旧请求后返回不得覆盖
+  // 新数据、不得抢走共享 loading 状态（2026-11-07 审查 P1-8）。
+  const loadSeqRef = useRef<Record<string, number>>({});
+  const beginLoad = (kind: string): number => {
+    const seq = (loadSeqRef.current[kind] ?? 0) + 1;
+    loadSeqRef.current[kind] = seq;
+    return seq;
+  };
+  const isStaleLoad = (kind: string, seq: number): boolean => loadSeqRef.current[kind] !== seq;
 
   const loadDiff = async (filePath: string) => {
     if (!bridge) return;
+    const seq = beginLoad("diff");
     setDiffFor(filePath);
     setDiffText("正在读取差异...");
     try {
-      setDiffText(await bridge.getFileDiff({ path: projectPath, file: filePath }));
+      const text = await bridge.getFileDiff({ path: projectPath, file: filePath });
+      if (isStaleLoad("diff", seq)) return;
+      setDiffText(text);
     } catch (error) {
+      if (isStaleLoad("diff", seq)) return;
       setDiffText(error instanceof Error ? error.message : "读取差异失败");
     }
   };
 
   const loadChangedFiles = async () => {
     if (!bridge) return;
+    const seq = beginLoad("changed");
     setLoading(true);
     try {
-      setChangedFiles(await bridge.listChangedFiles(projectPath));
+      const files = await bridge.listChangedFiles(projectPath);
+      if (isStaleLoad("changed", seq)) return;
+      setChangedFiles(files);
     } catch {
+      if (isStaleLoad("changed", seq)) return;
       setChangedFiles([]);
     } finally {
-      setLoading(false);
+      if (!isStaleLoad("changed", seq)) setLoading(false);
     }
   };
 
   const loadBranches = async () => {
     if (!bridge) return;
+    const seq = beginLoad("branches");
     setLoading(true);
     try {
-      setBranches(await bridge.listBranches(projectPath));
+      const list = await bridge.listBranches(projectPath);
+      if (isStaleLoad("branches", seq)) return;
+      setBranches(list);
     } catch {
+      if (isStaleLoad("branches", seq)) return;
       setBranches([]);
     } finally {
-      setLoading(false);
+      if (!isStaleLoad("branches", seq)) setLoading(false);
     }
   };
 
   const loadHistory = async () => {
     if (!bridge) return;
+    const seq = beginLoad("history");
     setLoading(true);
     try {
-      setHistory(await bridge.listCommitHistory(projectPath));
+      const list = await bridge.listCommitHistory(projectPath);
+      if (isStaleLoad("history", seq)) return;
+      setHistory(list);
     } catch {
+      if (isStaleLoad("history", seq)) return;
       setHistory([]);
     } finally {
-      setLoading(false);
+      if (!isStaleLoad("history", seq)) setLoading(false);
     }
   };
 
   const loadTags = async () => {
     if (!bridge) return;
+    const seq = beginLoad("tags");
     setLoading(true);
     try {
-      setTags(await bridge.listTags(projectPath));
+      const list = await bridge.listTags(projectPath);
+      if (isStaleLoad("tags", seq)) return;
+      setTags(list);
     } catch {
+      if (isStaleLoad("tags", seq)) return;
       setTags([]);
     } finally {
-      setLoading(false);
+      if (!isStaleLoad("tags", seq)) setLoading(false);
     }
   };
 
   const loadVersions = async () => {
     if (!bridge) return;
+    const seq = beginLoad("versions");
     try {
       const versions = await bridge.listVersions(projectPath);
+      if (isStaleLoad("versions", seq)) return;
       setAllBranches(versions.branches);
       setAllTags(versions.tags);
     } catch {
+      if (isStaleLoad("versions", seq)) return;
       setAllBranches([]);
       setAllTags([]);
     }
@@ -195,7 +236,12 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
     setHistory([]);
     setTags([]);
     setOutput("");
+    // 提交草稿只在切换项目时清空：切 tab 保留用户正在输入的内容
     setCommitMessage("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath]);
+
+  useEffect(() => {
     refreshActive();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath, tab]);
@@ -357,7 +403,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
           <button
             className="button secondary compact-button"
             onClick={updateRemoteUrl}
-            disabled={busy || !remoteUrl.trim()}
+            disabled={isBusy || !remoteUrl.trim()}
           >
             {busy ? "保存中..." : "保存"}
           </button>
@@ -393,7 +439,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
                   <button
                     className="button secondary compact-button conflict-resolve-button"
                     onClick={stageAllResolved}
-                    disabled={busy}
+                    disabled={isBusy}
                   >
                     暂存已解决的文件（{conflictedFiles.filter((file) => !file.staged).length}）
                   </button>
@@ -407,12 +453,12 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
             ) : (
               <div className="change-list">
                 {changedFiles.map((file) => (
-                  <div className="change-row" key={`${file.path}-${file.staged}`}>
+                  <div className="change-row" key={file.path}>
                     <label className="change-check">
                       <input
                         type="checkbox"
                         checked={file.staged}
-                        disabled={busy}
+                        disabled={isBusy}
                         onChange={() => toggleStage(file)}
                       />
                       <span className={`change-status ${file.staged ? "staged" : ""}`}>
@@ -442,7 +488,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
             className="button primary wide"
             onClick={commit}
             disabled={
-              busy ||
+              isBusy ||
               !commitMessage.trim() ||
               changedFiles.filter((file) => file.staged).length === 0
             }
@@ -493,7 +539,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
                       <button
                         className="bare-button"
                         onClick={() => switchBranch(branch.name)}
-                        disabled={busy}
+                        disabled={isBusy}
                       >
                         切换
                       </button>
@@ -502,7 +548,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
                       <button
                         className="bare-button danger"
                         onClick={() => deleteBranch(branch.name)}
-                        disabled={busy}
+                        disabled={isBusy}
                       >
                         删除
                       </button>
@@ -521,7 +567,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
             <button
               className="button secondary compact-button"
               onClick={createBranch}
-              disabled={busy || !newBranchName.trim()}
+              disabled={isBusy || !newBranchName.trim()}
             >
               创建
             </button>
@@ -543,7 +589,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
           {history.length === 0 ? (
             <div className="git-empty">{loading ? "正在读取提交历史..." : "还没有提交"}</div>
           ) : timelineMode ? (
-            renderTimeline(history, busy, revert)
+            renderTimeline(history, isBusy, revert)
           ) : (
             <div className="history-list">
               {history.map((entry) => (
@@ -560,7 +606,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
                   <button
                     className="bare-button"
                     onClick={() => revert(entry.hash)}
-                    disabled={busy}
+                    disabled={isBusy}
                     title="生成反向提交"
                   >
                     回退
@@ -626,7 +672,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
               <button
                 className="button secondary compact-button"
                 onClick={runCompare}
-                disabled={busy || !compareBase || !compareHead}
+                disabled={isBusy || !compareBase || !compareHead}
               >
                 {busy ? "对比中..." : "对比"}
               </button>
@@ -665,7 +711,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
                   <button
                     className="bare-button danger"
                     onClick={() => removeTag(tag.name)}
-                    disabled={busy}
+                    disabled={isBusy}
                   >
                     删除
                   </button>
@@ -687,7 +733,7 @@ export function GitActionsPanel({ projectPath }: { projectPath: string }) {
             <button
               className="button secondary compact-button"
               onClick={addTag}
-              disabled={busy || !newTagName.trim()}
+              disabled={isBusy || !newTagName.trim()}
             >
               创建
             </button>

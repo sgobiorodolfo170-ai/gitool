@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Project, WorkspaceEntity } from "../../shared/types";
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { loadProjects } from "../lib/projects";
@@ -40,18 +40,24 @@ export function useWorkspaces(params: WorkspacesParams): WorkspacesApi {
     params;
 
   const [workspaces, setWorkspaces] = useState<WorkspaceEntity[]>([]);
+  // 快速连续切换工作区时，慢的旧请求后返回会把新工作区的项目列表覆盖掉，
+  // 用请求序号守卫：只有最新一次切换的结果允许灌入（2026-11-07 审查 P1-5）。
+  const switchSeqRef = useRef(0);
 
   const switchWorkspace = useCallback(
     async (id: string) => {
       if (id === activeWorkspaceId) return;
+      const seq = ++switchSeqRef.current;
       setActiveWorkspaceId(id);
       window.localStorage.setItem(ACTIVE_WORKSPACE_KEY, id);
       try {
         const stored = isDesktopRuntime()
           ? await requireDesktopBridge().loadProjects(id)
           : loadProjects(id);
+        if (seq !== switchSeqRef.current) return;
         onProjectsLoaded(stored);
       } catch {
+        if (seq !== switchSeqRef.current) return;
         onProjectsLoaded([]);
       }
       onResetView();

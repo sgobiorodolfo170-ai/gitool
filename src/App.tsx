@@ -220,15 +220,21 @@ function App() {
     },
   });
 
-  const { activeOperation, isAnalyzing, runGitOperation, runBulkGitOperation, analyzeProject } =
-    useGitOperations({
-      selectedProject,
-      getProjects,
-      updateProjects,
-      onNotice: showNotice,
-      setOperationOutput,
-      setAnalysis,
-    });
+  const {
+    activeOperation,
+    bulkRunning,
+    isAnalyzing,
+    runGitOperation,
+    runBulkGitOperation,
+    analyzeProject,
+  } = useGitOperations({
+    selectedProject,
+    getProjects,
+    updateProjects,
+    onNotice: showNotice,
+    setOperationOutput,
+    setAnalysis,
+  });
 
   // 跨域联动留在 App：新增账号后默认选中，删除账号后清掉它的仓库缓存
   const addAccount = async (input: { provider: RemoteProvider; token: string }) => {
@@ -505,6 +511,7 @@ function App() {
               isRefreshing={isRefreshing}
               onRunGitOperation={runGitOperation}
               activeOperation={activeOperation}
+              bulkRunning={bulkRunning}
               operationOutput={operationOutput}
               onAnalyzeProject={analyzeProject}
               isAnalyzing={isAnalyzing}

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, ProjectFilter } from "../../shared/types";
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { mapWithConcurrency } from "../lib/concurrency";
@@ -56,6 +56,13 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
   const [projects, setProjects] = useState<Project[]>([]);
   const projectsRef = useRef<Project[]>([]);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  // refreshProjects 是跨 await 的长任务：期间用户切工作区的话，旧工作区的
+  // 快照既不能覆盖新工作区的内存列表，也不能写进新工作区的存储分区。
+  // ref 记录当前工作区，刷新完成后校验（2026-11-07 审查 P1-5）。
+  const activeWorkspaceRef = useRef(activeWorkspaceId);
+  useEffect(() => {
+    activeWorkspaceRef.current = activeWorkspaceId;
+  }, [activeWorkspaceId]);
 
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState<ProjectFilter>("all");
@@ -93,7 +100,9 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
     [activeWorkspaceId, applyProjects, persistProjects],
   );
 
-  const selectedProject = projects.find((project) => project.id === selectedId) ?? projects[0];
+  // 不做 projects[0] 兜底：「未选中」是合法状态（resetView / 查看全部都会置空），
+  // 兜底会让空选中语义失效、首行恒高亮（2026-11-07 审查 P1-6）。
+  const selectedProject = projects.find((project) => project.id === selectedId);
 
   const allTags = useMemo(
     () => [...new Set(projects.flatMap((project) => project.tags))].sort(),
@@ -166,6 +175,7 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
         return;
       }
       const bridge = requireDesktopBridge();
+      const workspaceAtStart = activeWorkspaceRef.current;
       const refreshed = await mapWithConcurrency(projectsRef.current, 4, async (project) => {
         try {
           const snapshot = await bridge.getProjectSnapshot(project.path);
@@ -175,6 +185,8 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
           return project;
         }
       });
+      // 刷新期间切换了工作区：丢弃这批旧工作区的快照，避免串台
+      if (workspaceAtStart !== activeWorkspaceRef.current) return;
       updateProjects(() => refreshed);
       onNotice("项目状态已刷新");
     } finally {

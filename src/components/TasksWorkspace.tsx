@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, CircleAlert, ListTodo, RefreshCw, Trash2, X } from "lucide-react";
 import type { DetectedCommand, Project, TaskProfile, TaskRun, TaskType } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
@@ -80,9 +80,17 @@ export function TasksWorkspace({ projects }: { projects: Project[] }) {
     void detectCommandsForProject(projectId);
   };
 
+  // 1 秒轮询的 interval 只在首渲染注册（空依赖 effect）。若回调直接读 state，
+  // 捕获的是首帧闭包，runs 永远是初始值 []，实时日志整体失效——
+  // 必须经 ref 读最新值（2026-11-07 审查 P0-2）。
+  const runsRef = useRef<TaskRun[]>(runs);
+  useEffect(() => {
+    runsRef.current = runs;
+  }, [runs]);
+
   const refreshRunningOutput = async () => {
     if (!bridge) return;
-    const runningRuns = runs.filter((run) => run.status === "running");
+    const runningRuns = runsRef.current.filter((run) => run.status === "running");
     if (runningRuns.length === 0) return;
     const patches = await Promise.all(
       runningRuns.map(async (run) => {
