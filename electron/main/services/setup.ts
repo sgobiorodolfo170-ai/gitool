@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { createWriteStream, existsSync } from "node:fs";
+import { createWriteStream, existsSync, rm } from "node:fs";
 import https from "node:https";
 import { join } from "node:path";
 import { app } from "electron";
@@ -65,11 +65,27 @@ function downloadInstaller(url: string, expectedSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const targetPath = join(app.getPath("temp"), `gitool-git-setup-${Date.now()}.exe`);
     const fileStream = createWriteStream(targetPath);
-    const request = https.get(url, (response) => {
-      if (response.statusCode !== 200) {
-        reject(new Error(`下载失败，HTTP ${response.statusCode}`));
+    // 写流（磁盘满/路径不可写）若无 error 监听会成为未捕获异常直接崩掉主进程，
+    // 挂了监听但不 settle 则会让 Promise 永久挂起——统一走 fail 收口：
+    // 置一次性标志、关闭句柄、清理半成品文件后再 reject（审查 P1-6）。
+    let settled = false;
+    const fail = (error: Error): void => {
+      if (settled) {
         return;
       }
+      settled = true;
+      fileStream.close(() => {
+        rm(targetPath, { force: true }, () => reject(error));
+      });
+    };
+    fileStream.on("error", fail);
+    const request = https.get(url, (response) => {
+      if (response.statusCode !== 200) {
+        response.destroy();
+        fail(new Error(`下载失败，HTTP ${response.statusCode}`));
+        return;
+      }
+      response.on("error", fail);
       const total = Number(response.headers["content-length"] ?? expectedSize) || expectedSize;
       let received = 0;
       response.on("data", (chunk: Buffer) => {
@@ -80,12 +96,16 @@ function downloadInstaller(url: string, expectedSize: number): Promise<string> {
       response.pipe(fileStream);
       fileStream.on("finish", () => {
         fileStream.close((err) => {
-          if (err) reject(err);
-          else resolve(targetPath);
+          if (err) {
+            fail(err);
+          } else if (!settled) {
+            settled = true;
+            resolve(targetPath);
+          }
         });
       });
     });
-    request.on("error", reject);
+    request.on("error", fail);
   });
 }
 
@@ -95,10 +115,13 @@ function downloadInstaller(url: string, expectedSize: number): Promise<string> {
 // Git for Windows 安装器基于 Inno Setup，这套参数能完全无界面安装。
 function runSilentInstaller(installerPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    // PowerShell 单引号字符串里唯一的转义是 ' → ''：temp 路径来自用户名，
+    // 含单引号时不转义会让整条命令断裂（审查 P2-6）。
+    const escapedPath = installerPath.replace(/'/g, "''");
     const args = [
       "-NoProfile",
       "-Command",
-      `Start-Process -FilePath '${installerPath}' -ArgumentList '/VERYSILENT','/NORESTART','/SP-','/SUPPRESSMSGBOXES' -Verb RunAs -Wait`,
+      `Start-Process -FilePath '${escapedPath}' -ArgumentList '/VERYSILENT','/NORESTART','/SP-','/SUPPRESSMSGBOXES' -Verb RunAs -Wait`,
     ];
     const child = spawn("powershell", args, { windowsHide: true });
     let stderr = "";
