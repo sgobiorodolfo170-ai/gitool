@@ -383,8 +383,12 @@ export async function runGitOperation(
 
   if (operation === "pull" || operation === "sync") {
     const uncommittedFiles = await listChangedFiles(projectPath);
-    if (uncommittedFiles.length > 0) {
-      const names = uncommittedFiles
+    // 只阻断「已跟踪文件的未提交修改」。未跟踪文件不会被 pull 覆盖（仅当
+    // 远端新增同名文件时 git 自身会拒绝合并并报错，同样拦得住），拿全部
+    // 变更做拦截会让常年存在 untracked 文件的仓库永远拉不动（审查 P1-3）。
+    const blockingFiles = uncommittedFiles.filter((file) => file.status !== "untracked");
+    if (blockingFiles.length > 0) {
+      const names = blockingFiles
         .slice(0, 5)
         .map((item) => item.path)
         .join("、");
@@ -392,7 +396,7 @@ export async function runGitOperation(
       return {
         operation,
         success: false,
-        output: `工作区有未提交的变更，已阻止${label}以免丢失修改。\n变更文件：${names}${uncommittedFiles.length > 5 ? ` 等 ${uncommittedFiles.length} 个` : ""}\n请先提交或暂存这些更改后重试。`,
+        output: `工作区有未提交的修改，已阻止${label}以免丢失修改。\n变更文件：${names}${blockingFiles.length > 5 ? ` 等 ${blockingFiles.length} 个` : ""}\n请先提交或暂存这些更改后重试。`,
       };
     }
   }
