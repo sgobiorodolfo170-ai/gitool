@@ -148,6 +148,80 @@ export function buildCommitMessageArgs(message: string): string[] {
   return ["-m", trimmed];
 }
 
+export type ParsedStatusEntry = {
+  /** 原始两字符状态码（如 " M"、"??"、"R "），交由 parseChangeStatus 归类。 */
+  status: string;
+  path: string;
+  staged: boolean;
+};
+
+/**
+ * 解析 `git status --porcelain=v1 -z` 的输出。
+ *
+ * 关键点：-z 模式下 rename/copy 条目（XY 含 R/C）后跟第二个 \0 分隔的
+ * 原始路径段，必须成对消费——把旧路径当独立条目解析的话，旧路径第 3
+ * 字符恰为空格时会产生幻影 staged 记录（2026-11-07 审查 P2-3）。
+ */
+export function parseStatusPorcelainZ(output: string): ParsedStatusEntry[] {
+  const entries: ParsedStatusEntry[] = [];
+  const segments = output.split("\0");
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
+    if (segment.length < 4 || segment[2] !== " ") {
+      continue;
+    }
+    const status = segment.slice(0, 2);
+    const path = segment.slice(3);
+    if (!path) {
+      continue;
+    }
+    const isRenameLike = ["R", "C"].some((marker) => status.includes(marker));
+    if (isRenameLike) {
+      index += 1;
+    }
+    entries.push({
+      status,
+      path,
+      staged: status[0] !== " " && status[0] !== "?",
+    });
+  }
+  return entries;
+}
+
+/**
+ * 从 `git diff --numstat` 输出提取变更路径。
+ * 行格式 `added<TAB>removed<TAB>path`（rename 为 `old => new`，二进制为 `-\t-`）。
+ * 改用它而非解析 `--stat` 人读格式：文件名含 `|`、重命名箭头、超长路径
+ * 截断都会让后者出错（2026-11-07 审查 P2-4）。
+ */
+export function parseNumstatPaths(output: string): string[] {
+  const paths: string[] = [];
+  for (const line of output.split(/\r?\n/)) {
+    if (!line) {
+      continue;
+    }
+    const parts = line.split("\t");
+    if (parts.length < 3) {
+      continue;
+    }
+    const path = parts.slice(2).join("\t").trim();
+    if (path) {
+      paths.push(path);
+    }
+  }
+  return paths;
+}
+
+/**
+ * 把文件路径转成关闭 glob 语义的 pathspec。
+ * 裸 pathspec 里 `[ ] * ?` 是通配符：文件名字面量为 `data[1].txt` 时
+ * `git add -- data[1].txt` 会匹配 `data1.txt`（2026-11-07 审查 P2-2）。
+ * `--` 只隔离选项，不关闭 glob，必须用 pathspec magic。
+ */
+export function toLiteralPathspec(filePath: string): string {
+  return `:(literal)${filePath}`;
+}
+
 /**
  * 解析 `git branch -vv` 的单行输出。
  * 形如 `* main 1a2b3c4 [origin/main: ahead 2, behind 1] msg`。

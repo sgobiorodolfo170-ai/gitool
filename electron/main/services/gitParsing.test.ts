@@ -8,6 +8,9 @@ import {
   parseChangeStatus,
   parseCloneProgress,
   parseCommitHistory,
+  parseNumstatPaths,
+  parseStatusPorcelainZ,
+  toLiteralPathspec,
 } from "./gitParsing";
 
 describe("isValidRefName", () => {
@@ -163,6 +166,66 @@ describe("buildCommitMessageArgs", () => {
 
   it("空输入返回空数组", () => {
     expect(buildCommitMessageArgs("\n\n  \n")).toEqual([]);
+  });
+});
+
+describe("parseStatusPorcelainZ", () => {
+  it("解析普通条目", () => {
+    expect(parseStatusPorcelainZ(" M a.txt\0?? new.txt\0")).toEqual([
+      { status: " M", path: "a.txt", staged: false },
+      { status: "??", path: "new.txt", staged: false },
+    ]);
+  });
+
+  // 关键回归（2026-11-07 审查 P2-3）：-z 模式下 rename/copy 条目带第二个
+  // \0 分隔的原始路径段，必须成对消费——旧实现把旧路径当独立条目解析，
+  // 旧路径第 3 字符恰为空格时产生幻影 staged 记录。
+  it("rename 条目成对消费原始路径，不产生幻影记录", () => {
+    const output = "R  new name.md\0ab c.md\0 M other.txt\0";
+    expect(parseStatusPorcelainZ(output)).toEqual([
+      { status: "R ", path: "new name.md", staged: true },
+      { status: " M", path: "other.txt", staged: false },
+    ]);
+  });
+
+  it("copy 条目同样成对消费", () => {
+    const output = "C  copied.txt\0original.txt\0";
+    expect(parseStatusPorcelainZ(output)).toEqual([
+      { status: "C ", path: "copied.txt", staged: true },
+    ]);
+  });
+
+  it("空输出与空路径段被跳过", () => {
+    expect(parseStatusPorcelainZ("")).toEqual([]);
+    expect(parseStatusPorcelainZ("?? \0")).toEqual([]);
+  });
+});
+
+describe("parseNumstatPaths", () => {
+  it("提取每个条目的路径", () => {
+    expect(parseNumstatPaths("12\t3\tsrc/a.ts\n0\t2\tdocs/b.md\n")).toEqual([
+      "src/a.ts",
+      "docs/b.md",
+    ]);
+  });
+
+  it("重命名条目保留 old => new 形式", () => {
+    expect(parseNumstatPaths("1\t1\told.txt => new.txt\n")).toEqual(["old.txt => new.txt"]);
+  });
+
+  it("二进制占位符不影响路径提取", () => {
+    expect(parseNumstatPaths("-\t-\tmedia/logo.png\n")).toEqual(["media/logo.png"]);
+  });
+
+  it("空输出返回空数组", () => {
+    expect(parseNumstatPaths("")).toEqual([]);
+  });
+});
+
+describe("toLiteralPathspec", () => {
+  it("加 :(literal) 前缀关闭 glob 语义", () => {
+    // 文件名含 [ ] * ? 时，裸 pathspec 会被 git 当通配符匹配到错误文件
+    expect(toLiteralPathspec("data[1].txt")).toBe(":(literal)data[1].txt");
   });
 });
 

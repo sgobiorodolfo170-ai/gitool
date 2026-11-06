@@ -57,6 +57,9 @@ import {
   parseChangeStatus,
   parseCloneProgress,
   parseCommitHistory,
+  parseNumstatPaths,
+  parseStatusPorcelainZ,
+  toLiteralPathspec,
 } from "./gitParsing";
 import { getAccount, loadSettings } from "./storage";
 
@@ -161,7 +164,7 @@ export async function getFileDiff(input: FileDiffRequest): Promise<string> {
   if (!file || file.includes("\0")) {
     throw new Error("文件路径不合法");
   }
-  const result = await runGitProcess(projectPath, ["diff", "--", file]);
+  const result = await runGitProcess(projectPath, ["diff", "--", toLiteralPathspec(file)]);
   if (!result.success) {
     throw new Error(result.output || "读取差异失败");
   }
@@ -180,6 +183,10 @@ export async function setRemoteUrl(input: SetRemoteUrlInput): Promise<void> {
   const sshPattern = /^[^@\s]+@[^:\s]+:.+$/;
   if (!httpsPattern.test(url) && !sshPattern.test(url)) {
     throw new Error("远程地址仅支持 HTTPS 或 SSH 格式");
+  }
+  // 与 assertCloneUrl 同理：形似选项的值不能靠 git 选项表兜底拒绝
+  if (url.startsWith("-")) {
+    throw new Error("远程地址不能以 - 开头");
   }
   const remotesOutput = await runGit(input.path, ["remote"]).catch(() => "");
   const hasRemote = remotesOutput.split(/\r?\n/).includes(remote);
@@ -282,11 +289,10 @@ export async function compareVersions(input: CompareRequest): Promise<CompareRes
   }
   const stat = statResult.output.trim();
 
-  const changedFiles = stat
-    .split(/\r?\n/)
-    .filter((line) => line.includes("|"))
-    .map((line) => line.split("|")[0].trim())
-    .filter(Boolean);
+  // 变更文件清单从 numstat 提取（机器可读），--stat 输出仅用于展示：
+  // 从 --stat 人读格式解析文件名会被 `|` 分隔、`{old => new}` 重命名与
+  // 超长路径截断破坏（2026-11-07 审查 P2-4）。
+  const changedFiles = numStatResult.success ? parseNumstatPaths(numStatResult.output) : [];
 
   let insertions = 0;
   let deletions = 0;
@@ -439,30 +445,27 @@ export async function listChangedFiles(projectPath: string): Promise<ChangeFile[
   if (!porcelain) {
     return [];
   }
-  const files: ChangeFile[] = [];
-  const segments = porcelain.split("\0").filter((segment) => segment.length > 0);
-  for (const segment of segments) {
-    if (segment.length < 3 || segment[2] !== " ") {
-      continue;
-    }
-    const status = segment.slice(0, 2);
-    const path = segment.slice(3);
-    if (!path) continue;
-    files.push({
-      path,
-      status: parseChangeStatus(status),
-      staged: status[0] !== " " && status[0] !== "?",
-    });
-  }
-  return files;
+  // 成对解析在 parseStatusPorcelainZ（rename/copy 条目带第二个 \0 段）
+  return parseStatusPorcelainZ(porcelain).map((entry) => ({
+    path: entry.path,
+    status: parseChangeStatus(entry.status),
+    staged: entry.staged,
+  }));
 }
+
+// Windows CreateProcessW 命令行约 32K 字符上限：大变更集全量一次 spawn 会失败，
+// 分批执行（add 幂等且增量，分批安全）。
+const GIT_ARG_CHUNK = 200;
 
 export async function stageFiles(projectPath: string, files: string[]): Promise<void> {
   assertDirectory(projectPath);
   if (files.length === 0) {
     throw new Error("请选择要暂存的文件");
   }
-  await runGit(projectPath, ["add", "--", ...files]);
+  for (let start = 0; start < files.length; start += GIT_ARG_CHUNK) {
+    const chunk = files.slice(start, start + GIT_ARG_CHUNK);
+    await runGit(projectPath, ["add", "--", ...chunk.map(toLiteralPathspec)]);
+  }
 }
 
 export async function unstageFiles(projectPath: string, files: string[]): Promise<void> {
@@ -470,7 +473,10 @@ export async function unstageFiles(projectPath: string, files: string[]): Promis
   if (files.length === 0) {
     throw new Error("请选择要取消暂存的文件");
   }
-  await runGit(projectPath, ["restore", "--staged", "--", ...files]);
+  for (let start = 0; start < files.length; start += GIT_ARG_CHUNK) {
+    const chunk = files.slice(start, start + GIT_ARG_CHUNK);
+    await runGit(projectPath, ["restore", "--staged", "--", ...chunk.map(toLiteralPathspec)]);
+  }
 }
 
 export async function commitChanges(request: CommitRequest): Promise<CommitResult> {
@@ -637,7 +643,8 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
       'credential.helper=!f() { echo username=x-access-token; echo password="$GITOOL_ASKPASS_TOKEN"; }; f',
     );
   }
-  args.push(url, targetPath);
+  // `--` 隔离选项：URL 形如 `-xxx` 时不会被 git 当选项解析
+  args.push("--", url, targetPath);
 
   const runId = `clone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const emitProgress = (
@@ -708,6 +715,10 @@ function assertCloneUrl(url: string): void {
   const sshPattern = /^[^@\s]+@[^:\s]+:.+$/;
   if (!httpsPattern.test(url) && !sshPattern.test(url)) {
     throw new Error("不支持的克隆地址，仅接受 HTTPS 或 SSH 格式");
+  }
+  // 形似 git 选项的 URL（如 `--upload-pack=...`）不该靠 git 的选项表兜底拒绝
+  if (url.startsWith("-")) {
+    throw new Error("克隆地址不能以 - 开头");
   }
 }
 
