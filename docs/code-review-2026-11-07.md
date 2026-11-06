@@ -65,8 +65,8 @@
 - ✅ v0.6.8–v0.7.0 `storage.ts`（929 行）：按域拆分为 storage/database.ts 基座 + 8 个域模块（治理轮-1，方案见 docs/refactor-storage-plan.md），调用方 7 文件显式指向域模块，全域单测覆盖。
 - ⬜ IPC 校验双轨：zod schema 与手写 requireString 并存（如 `ai:saveKey` 无长度上限），收敛到 zod 单轨。
 - ⬜ 超长组件拆分：GitActionsPanel（759 行/19 useState，按 tab 拆）、SettingsWorkspace（698 行内嵌 4 组件）、ProjectDetail（713 行）、TasksWorkspace（603 行）。
-- ⬜ App.tsx 编排中心：ProjectsWorkspace 20+ props，projects 域建议下沉。
-- ⬜ 重复代码：`errorMessage()` 6 处、`assertDirectory` 3 处、本地 toast 4 处与全局 useNotice 双轨、`load()` 模板 4 处且普遍无 try/catch（unhandled rejection 风险）→ 抽 useAsyncData/usePolling。
+- ✅ v0.7.4 `App.tsx` 编排下沉（治理轮-3）：新增 Workspace 级 ProjectsPage 承接筛选域（filter/search/tagFilter + 派生列表）与 Git 操作域（useGitOperations + operationOutput/analysis）；ProjectsWorkspace 28 个 props 收敛为 projectsApi/filterDomain/importDomain/gitDomain 四个领域对象；项目列表与选中项留 App（总览/侧栏徽标/任务备份下拉/克隆导入跳转跨页消费）。gitBusyRef 全局互斥改模块级单例，页面卸载重挂不再重置（P1-7 语义保持）。
+- ✅ v0.7.1–v0.7.3 重复代码（治理轮-3）：新增 useAsyncData（加载 + 轮询 + 卸载取消 + 错误兜底，零依赖核心 createAsyncDataCore 配 10 个单测），四个 Workspace 的 `load()` 模板迁移并补上原先缺失的错误提示（不再 unhandled rejection 静默失败）；本地 toast 4 处删除，统一走全局 useNotice（`errorMessage()`/`assertDirectory` 已于 v0.6.6 下沉）。
 - ⬜ 远程匹配逻辑三处口径不一（`lib/projectMatch.ts` vs 两处 `provider:name` 键）。
 - ⬜ 内联色值（TasksWorkspace 等）收入 styles.css token 体系。
 
@@ -104,8 +104,12 @@
 | v0.6.14 | 组件拆分③ ProjectDetail（治理轮-2） | `refactor(ui): ProjectDetail 拆分——未克隆视图/概览/Git 区块独立成组件` |
 | v0.6.16 | 组件拆分④ TasksWorkspace（治理轮-2） | `refactor(ui): TasksWorkspace 拆分——表单/任务配置/运行记录独立成组件` |
 | v0.6.8–v0.7.0 | storage 分域拆分（治理轮-1）：database 基座 + 8 域模块 + 全域单测 + 门槛纳入 | `refactor(services): 拆分①–⑨` + `test(services): 全域单测` + `feat(test): 纳入覆盖率门槛` |
+| v0.7.1 | useAsyncData hook（治理轮-3①） | `refactor(ui): 新增 useAsyncData hook——加载/轮询/卸载取消/错误兜底编排` |
+| v0.7.2 | load() 模板迁移（治理轮-3②） | `refactor(ui): 四个 Workspace 的 load() 模板迁移 useAsyncData` |
+| v0.7.3 | Toast 双轨统一（治理轮-3③） | `refactor(ui): Toast 双轨统一——四个 Workspace 本地 notice 收敛全局 showNotice` |
+| v0.7.4 | App 编排下沉（治理轮-3④） | `refactor(ui): App 编排下沉——ProjectsPage 承接筛选域与 Git 操作域，props 收敛为领域对象` |
 
-> 验证基线：v0.6.16 时 typecheck ✓、142 单测 ✓、覆盖率门禁 ✓、生产构建 ✓（每笔拆分提交前三门禁均独立跑绿）；v0.7.0 时 typecheck ✓、179 单测 ✓、覆盖率 96.1/89.5/95.7/96.2 ✓、生产构建 ✓。
+> 验证基线：v0.6.16 时 typecheck ✓、142 单测 ✓、覆盖率门禁 ✓、生产构建 ✓（每笔拆分提交前三门禁均独立跑绿）；v0.7.0 时 typecheck ✓、179 单测 ✓、覆盖率 96.1/89.5/95.7/96.2 ✓、生产构建 ✓；v0.7.4 时 typecheck ✓、189 单测 ✓、覆盖率 96.14/89.49/95.65/96.23 ✓、生产构建 ✓（治理轮-3 每笔提交前三门禁均独立跑绿）。
 >
 > **治理轮-2 组件拆分（v0.6.11–v0.6.16）**：四个超长组件全部拆分完毕——
 > - GitActionsPanel 805 行 → 壳 227 行 + git/ 目录 6 文件（tab 数据与 loading 下放子组件，per-kind 序号守卫随迁为 useLoadSequence；挂载沿用 visitedTabs 惰性挂载范式保证切 tab 保留数据；跨 tab 历史联动经 registerReload 登记，未挂载时兜底拉取角标计数）
@@ -120,4 +124,12 @@
 >
 > **治理轮-1 storage 分域拆分（v0.6.8–v0.7.0）**：929 行的 storage.ts 拆为 storage/database.ts（连接/建表/迁移/种子/行映射收口一处）+ 8 个域模块，依赖单向（域 → database，域间禁止横向 import；accounts 删号的缓存级联以内联 SQL 保留并注释原因）。数据目录改为模块级可注入 initDatabase(dataDir)（缺省回退 userData，主进程行为不变），服务层从此可在纯 Node 环境跑真实 node:sqlite，不 mock electron。补 37 个单测（含早期 UNIQUE path 老库迁移守护——真实用户升级路径），database 基座 + 7 个域模块纳入覆盖率门槛（accounts 暂缓——upsert/delete 写真实凭据管理器，待凭据层可注入后补齐）。全程纯代码搬移：SQL、文案、表结构、迁移逻辑零改动。
 >
-> **仍遗留（大拆分类，留待独立轮次）**：App.tsx 编排下沉；useAsyncData/usePolling 与 toast 双轨统一；远程匹配三处口径统一；`npm run dist` 安装包体积验证；accounts 域凭据层可注入后补齐 upsert/delete 测试并纳入门槛。
+> **治理轮-3 App 编排下沉 + useAsyncData/Toast 统一（v0.7.1–v0.7.4）**：
+> - useAsyncData：封装「加载 + 轮询 + 卸载取消 + 错误兜底」。序号守卫对齐 switchSeqRef/loadSequence 范式，卸载取消用可重入 enabledRef（StrictMode 模拟重挂载安全，timerRef 生命周期范式），轮询结果经守卫过滤（原 Tasks 4s 轮询重叠加载可能乱序覆盖）。因无 DOM 测试环境且不引入新依赖，语义全部收敛进零依赖 createAsyncDataCore（10 个单测覆盖竞态/卸载/轮询/同步抛错）；React 绑定层（ref 转发 + effect 接线）未自动化测试，经 review 把关——登记为后续如引入 jsdom 可补。
+> - 四处 load() 模板迁移：listBackups/listOperationRecords/loadSettings/listTaskProfiles+Runs 原先均无 try/catch，失败经 onError 出中文提示（新增用户可见文案，即本条目要求的错误兜底）。
+> - Toast 双轨统一：Settings/Backups/Logs/Tasks 本地 notice state 与 .toast 渲染块删除，统一走全局 useNotice。语义登记：.toast 为 fixed 定位、视觉位置零变化；本地提示原无自动消失（常驻到下一条覆盖），收敛后按全局范式 3 秒自动消失——双轨收敛的内在结果，非回归。远程搜索面板的内联提示条（repo-search-notice，文档流内非 toast 形态）不在 4 处范围，保留。
+> - 编排下沉：ProjectsPage（118 行）承接筛选域与 Git 操作域，ProjectsWorkspace props 28→4（领域对象），App 687→634 行。筛选复位由页面卸载自动发生（切工作区必经总览页，与原 resetView 手工清空等价）。gitBusyRef 互斥锁改模块级单例：hook 随页面卸载重挂会重置内部 ref，模块级锁保持 P1-7 跨页面互斥语义。行为等价登记：批量操作执行中切走再切回，bulkRunning UI 反馈不保留（锁本身仍生效，重复操作被「已有 Git 操作在执行」拦截）。
+>
+> **治理轮-3 顺路登记（未修，留后续轮次）**：Tasks 的 deleteProfile、Logs 的 clear 等非加载写路径仍无 try/catch（失败为 unhandled rejection 且无提示），待随 useAsyncData 错误出口的推广补齐；src/ 下 6 文件（OverviewPanel/ChangesTab/GitActionsPanel/EnvironmentTab/TaskForm/TaskProfilesList）存在治理轮-2 遗留的 prettier 格式偏差（format:check 非 CI 门禁，未阻断）。
+>
+> **仍遗留（大拆分类，留待独立轮次）**：远程匹配三处口径统一；`npm run dist` 安装包体积验证；accounts 域凭据层可注入后补齐 upsert/delete 测试并纳入门槛。
