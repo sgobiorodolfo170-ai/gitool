@@ -20,7 +20,6 @@ export type NavItem = {
 export function buildNavGroups(counts: {
   projects: number;
   remotes: number;
-  tasks: number;
 }): { label: string; items: NavItem[] }[] {
   return [
     {
@@ -44,12 +43,7 @@ export function buildNavGroups(counts: {
     {
       label: "工具",
       items: [
-        {
-          id: "tasks",
-          label: "任务中心",
-          icon: ListTodo,
-          count: counts.tasks > 0 ? String(counts.tasks) : undefined,
-        },
+        { id: "tasks", label: "任务中心", icon: ListTodo },
         { id: "backups", label: "备份中心", icon: Archive },
         { id: "logs", label: "操作记录", icon: Clock3 },
         { id: "settings", label: "设置", icon: Settings2 },

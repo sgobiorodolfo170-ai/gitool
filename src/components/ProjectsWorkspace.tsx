@@ -4,7 +4,6 @@ import {
   ArrowUpRight,
   Cloud,
   FolderGit2,
-  MoreHorizontal,
   Plus,
   RefreshCw,
   Search,
@@ -244,9 +243,6 @@ export function ProjectsWorkspace({
                 />
                 <span>全选</span>
               </label>
-              <button className="bare-button" aria-label="更多项目">
-                <MoreHorizontal size={18} />
-              </button>
             </div>
           </div>
           <div className="project-list">

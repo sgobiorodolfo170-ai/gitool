@@ -53,7 +53,14 @@ export function OverviewWorkspace({
             <span className="eyebrow-line" />
             工作区状态
           </div>
-          <h1>早上好，Leo</h1>
+          {/* 按时段问候；早期版本硬编码了用户名占位「Leo」 */}
+          <h1>
+            {new Date().getHours() < 12
+              ? "早上好"
+              : new Date().getHours() < 18
+                ? "下午好"
+                : "晚上好"}
+          </h1>
           <p>这里是你今天的开发现场。</p>
         </div>
         <div className="heading-actions">

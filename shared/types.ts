@@ -538,7 +538,7 @@ export type DesktopBridge = {
   detectProjectCommands(path: string): Promise<DetectCommandsResult>;
   checkForUpdates(): Promise<UpdateCheckResult>;
   downloadUpdate(): Promise<string>;
-  installUpdate(filePath: string): void;
+  installUpdate(filePath: string): Promise<void>;
   onUpdateAvailable(callback: (info: { version: string }) => void): () => void;
   onUpdateProgress(callback: (progress: UpdateProgress) => void): () => void;
 };

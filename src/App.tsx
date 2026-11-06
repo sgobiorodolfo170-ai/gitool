@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  AlertTriangle,
-  ArrowDownToLine,
-  Bell,
-  Check,
-  Command,
-  GitBranch,
-  Loader2,
-} from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, Check, Command, GitBranch, Loader2 } from "lucide-react";
 import type { AppSettings, AppView, ProjectAnalysis, RemoteProvider } from "./types";
 import { isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
 
@@ -27,7 +19,6 @@ import { TasksWorkspace } from "./components/TasksWorkspace";
 import { BackupsWorkspace } from "./components/BackupsWorkspace";
 import { LogsWorkspace } from "./components/LogsWorkspace";
 import { SettingsWorkspace } from "./components/SettingsWorkspace";
-import { ModuleWorkspace } from "./components/ModuleWorkspace";
 import { useProjects } from "./hooks/useProjects";
 import { useAccounts } from "./hooks/useAccounts";
 import { useImportFlow } from "./hooks/useImportFlow";
@@ -355,7 +346,6 @@ function App() {
           {buildNavGroups({
             projects: projects.length,
             remotes: remoteRepositories.length,
-            tasks: projects.filter((project) => project.tags.includes("building")).length,
           }).map((group) => (
             <div className="nav-group" key={group.label}>
               <span className="nav-group-label">{group.label}</span>
@@ -417,15 +407,15 @@ function App() {
             <strong>{workspaceLabel(workspace)}</strong>
           </div>
           <div className="topbar-actions">
-            <div className="command-hint">
-              <Command size={13} />
-              <span>快速查找</span>
-              <kbd>⌘ K</kbd>
-            </div>
-            <button className="icon-button" aria-label="通知">
-              <Bell size={18} />
-              <span className="notification-dot" />
-            </button>
+            {/* Ctrl+K 的处理器只在「我的项目」页（ProjectsWorkspace），提示仅在彼处展示；
+                早期版本的铃铛按钮无任何行为且红点恒亮，属装饰性误导，已移除 */}
+            {workspace === "projects" && (
+              <div className="command-hint">
+                <Command size={13} />
+                <span>快速查找</span>
+                <kbd>Ctrl K</kbd>
+              </div>
+            )}
             <div className="top-avatar">L</div>
           </div>
         </header>
@@ -562,9 +552,7 @@ function App() {
               fontScale={fontScale}
               onFontScaleChange={changeFontScale}
             />
-          ) : (
-            <ModuleWorkspace workspace={workspace} onImport={importProject} />
-          )}
+          ) : null}
         </div>
       </main>
 

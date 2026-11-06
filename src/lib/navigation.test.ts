@@ -3,25 +3,24 @@ import { buildNavGroups, workspaceLabel } from "./navigation";
 
 describe("buildNavGroups", () => {
   it("返回两组导航，顺序固定", () => {
-    const groups = buildNavGroups({ projects: 0, remotes: 0, tasks: 0 });
+    const groups = buildNavGroups({ projects: 0, remotes: 0 });
     expect(groups.map((group) => group.label)).toEqual(["工作区", "工具"]);
   });
 
   it("计数为 0 时不显示徽标", () => {
-    const groups = buildNavGroups({ projects: 0, remotes: 0, tasks: 0 });
+    const groups = buildNavGroups({ projects: 0, remotes: 0 });
     const projects = groups[0].items.find((item) => item.id === "projects");
     expect(projects?.count).toBeUndefined();
   });
 
   it("计数大于 0 时显示字符串徽标", () => {
-    const groups = buildNavGroups({ projects: 12, remotes: 3, tasks: 1 });
+    const groups = buildNavGroups({ projects: 12, remotes: 3 });
     expect(groups[0].items.find((item) => item.id === "projects")?.count).toBe("12");
     expect(groups[0].items.find((item) => item.id === "remotes")?.count).toBe("3");
-    expect(groups[1].items.find((item) => item.id === "tasks")?.count).toBe("1");
   });
 
   it("覆盖全部 7 个视图且无重复", () => {
-    const ids = buildNavGroups({ projects: 1, remotes: 1, tasks: 1 }).flatMap((group) =>
+    const ids = buildNavGroups({ projects: 1, remotes: 1 }).flatMap((group) =>
       group.items.map((item) => item.id),
     );
     expect(ids).toEqual([

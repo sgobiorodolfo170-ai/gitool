@@ -15,7 +15,7 @@ export type UpdaterApi = {
   /** 手动触发一次远程版本检查；有更新则填充 available。 */
   check: () => Promise<boolean>;
   download: () => Promise<void>;
-  install: () => void;
+  install: () => Promise<void>;
   dismiss: () => void;
 };
 
@@ -69,11 +69,16 @@ export function useUpdater(onError: (message: string) => void): UpdaterApi {
     }
   }, [onError]);
 
-  const install = useCallback(() => {
+  // 主进程会校验安装包路径并可能拒绝执行，失败必须对用户可见
+  const install = useCallback(async () => {
     const bridge = getDesktopBridge();
     if (!bridge || !downloadedPath) return;
-    bridge.installUpdate(downloadedPath);
-  }, [downloadedPath]);
+    try {
+      await bridge.installUpdate(downloadedPath);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "启动安装失败");
+    }
+  }, [downloadedPath, onError]);
 
   const dismiss = useCallback(() => setAvailable(null), []);
 

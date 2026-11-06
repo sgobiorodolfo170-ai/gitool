@@ -154,9 +154,7 @@ const bridge: DesktopBridge = {
   hasAiApiKey: () => invoke<boolean>("ai:hasKey"),
   checkForUpdates: () => invoke<UpdateCheckResult>("updater:check"),
   downloadUpdate: () => invoke<string>("updater:download"),
-  installUpdate: (filePath) => {
-    invoke<void>("updater:install", filePath);
-  },
+  installUpdate: (filePath) => invoke<void>("updater:install", filePath),
   onUpdateAvailable: (callback) => {
     const listener = (_event: unknown, payload: unknown) => {
       callback(payload as { version: string });
