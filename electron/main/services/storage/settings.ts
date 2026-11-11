@@ -25,6 +25,7 @@ export function loadSettings(): AppSettings {
     aiApiKeyConfigured: values.get("aiApiKeyConfigured") === "1",
     aiModel: values.get("aiModel") ?? "",
     aiBaseUrl: values.get("aiBaseUrl") ?? "",
+    closeToTray: values.get("closeToTray") === "1",
   };
 }
 
@@ -44,6 +45,7 @@ export function saveSettings(settings: AppSettings): void {
     statement.run("aiApiKeyConfigured", settings.aiApiKeyConfigured ? "1" : "0");
     statement.run("aiModel", settings.aiModel);
     statement.run("aiBaseUrl", settings.aiBaseUrl);
+    statement.run("closeToTray", settings.closeToTray ? "1" : "0");
     connection.exec("COMMIT");
   } catch (error) {
     connection.exec("ROLLBACK");

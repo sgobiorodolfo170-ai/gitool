@@ -162,12 +162,19 @@ describe("appSettingsSchema", () => {
     const parsed = appSettingsSchema.parse({});
     expect(parsed.gitPath).toBe("");
     expect(parsed.aiApiKeyConfigured).toBe(false);
+    expect(parsed.closeToTray).toBe(false);
   });
 
   it("类型错误的字段退回默认值而不是抛错", () => {
     const parsed = appSettingsSchema.parse({ gitPath: 123, aiApiKeyConfigured: "yes" });
     expect(parsed.gitPath).toBe("");
     expect(parsed.aiApiKeyConfigured).toBe(false);
+  });
+
+  it("closeToTray 非布尔值回退 false（缺键/坏数据不破坏关闭行为判定）", () => {
+    expect(appSettingsSchema.parse({ closeToTray: "yes" }).closeToTray).toBe(false);
+    expect(appSettingsSchema.parse({ closeToTray: 1 }).closeToTray).toBe(false);
+    expect(appSettingsSchema.parse({ closeToTray: true }).closeToTray).toBe(true);
   });
 });
 

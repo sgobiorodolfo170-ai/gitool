@@ -1,7 +1,8 @@
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import type { TaskRun } from "../../../shared/types";
 import { quoteWindowsArg, splitCommandLine } from "./commandLine";
+import { killProcessTree, registerProcessStopper } from "./processCleanup";
 import { getTaskProfile, updateTaskRun } from "./storage/tasks";
 
 const runningTasks = new Map<string, { process: ReturnType<typeof spawn>; output: () => string }>();
@@ -41,6 +42,12 @@ export async function runTask(profileId: string): Promise<TaskRun> {
     shell: process.platform === "win32",
   });
   runningTasks.set(run.id, { process: child, output: () => output });
+  // 应用退出时的统一回收：标记 stopRequested 让 close 事件把状态记为
+  // stopped（而非 failed），再杀整棵进程树。自然结束由 close 注销。
+  const unregisterStopper = registerProcessStopper(() => {
+    stopRequested.add(run.id);
+    killProcessTree(child);
+  });
 
   const appendOutput = (chunk: Buffer | string): void => {
     output += chunk.toString();
@@ -71,6 +78,7 @@ export async function runTask(profileId: string): Promise<TaskRun> {
 
   child.on("error", (error) => {
     if (timer) clearTimeout(timer);
+    unregisterStopper();
     runningTasks.delete(run.id);
     run.status = "failed";
     run.finishedAt = new Date().toISOString();
@@ -80,6 +88,7 @@ export async function runTask(profileId: string): Promise<TaskRun> {
 
   child.on("close", (code) => {
     if (timer) clearTimeout(timer);
+    unregisterStopper();
     runningTasks.delete(run.id);
     // 超时路径已在定时器回调里定稿（含 [任务超时，已终止] 标注）：
     // 这里无条件回填会抹掉标注并重复持久化（2026-11-07 审查 P2-1）。
@@ -120,36 +129,6 @@ export function stopTask(runId: string): void {
   stopRequested.add(runId);
   killProcessTree(running.process);
   runningTasks.delete(runId);
-}
-
-/**
- * 终止整个进程树。
- *
- * Windows 上 `child.kill()` 只结束直接子进程：`npm run build` 会派生 node / tsc / vite，
- * 父进程被杀后子进程继续占用端口与文件句柄，用户点「停止」后日志停了、进程还在跑。
- * 因此 Windows 走 `taskkill /T /F`（必须用 execFile 数组参数，不经 shell）。
- */
-function killProcessTree(child: ReturnType<typeof spawn>): void {
-  const pid = child.pid;
-  if (pid === undefined) {
-    try {
-      child.kill();
-    } catch {
-      // 进程已退出
-    }
-    return;
-  }
-  if (process.platform === "win32") {
-    execFile("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true }, () => {
-      // 失败（进程已退出 / 权限不足）不影响状态流转，close 事件仍会触发
-    });
-    return;
-  }
-  try {
-    child.kill("SIGTERM");
-  } catch {
-    // 进程已退出
-  }
 }
 
 export function isTaskRunning(runId: string): boolean {

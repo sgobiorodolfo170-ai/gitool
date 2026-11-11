@@ -45,6 +45,7 @@ import type {
 } from "../../../shared/types";
 import { readCredential } from "./credentials";
 import { mapLimit } from "./concurrency";
+import { killProcessTree, registerProcessStopper } from "./processCleanup";
 import { assertDirectory as assertDirectoryShared, errorMessage } from "./serviceUtils";
 import { notifyRenderer } from "./events";
 import {
@@ -663,6 +664,9 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
       },
     });
     let accumulated = "";
+    // 应用退出时的统一回收：克隆是长生命周期子进程，退出前杀掉整棵进程树，
+    // close 事件随后把半成品目录清掉并把 Promise 收口。自然结束由 close/error 注销。
+    const unregisterStopper = registerProcessStopper(() => killProcessTree(child));
     child.stdout?.on("data", (chunk) => {
       accumulated += chunk.toString();
       emitProgress(
@@ -684,6 +688,7 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
       );
     });
     child.on("error", (error) => {
+      unregisterStopper();
       emitProgress(0, "失败", error.message, true, false);
       if (existsSync(targetPath)) {
         rmSync(targetPath, { recursive: true, force: true });
@@ -691,6 +696,7 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
       resolve({ success: false, output: error.message, path: targetPath });
     });
     child.on("close", (code) => {
+      unregisterStopper();
       if (code === 0) {
         emitProgress(100, "完成", "克隆完成。", true, true);
         resolve({ success: true, output: "克隆完成。", path: targetPath });

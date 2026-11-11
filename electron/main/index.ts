@@ -2,6 +2,8 @@ import { BrowserWindow, Menu, Tray, app, nativeImage, shell } from "electron";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc.js";
 import { checkForUpdates, CHECK_INTERVAL_MS } from "./services/updater.js";
+import { killAllProcesses } from "./services/processCleanup.js";
+import { loadSettings } from "./services/storage/settings.js";
 
 function notifyUpdateIfAvailable(window: BrowserWindow): void {
   void checkForUpdates()
@@ -19,6 +21,33 @@ const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
 let tray: Tray | null = null;
 let isQuitting = false;
+let updateTimer: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * 真实退出前的统一资源回收。
+ *
+ * 「关闭窗口」与「最小化到托盘」是两种行为：托盘模式只隐藏窗口、进程与
+ * 子任务保持运行；而任何真实退出路径（托盘菜单退出、X 关闭、安装更新重启）
+ * 都会汇聚到 before-quit，在这里杀掉全部在册子进程（运行中的任务、git clone）
+ * 并销毁托盘图标，确保完全退出、不残留后台进程。
+ */
+function runShutdownCleanup(): void {
+  isQuitting = true;
+  if (updateTimer) {
+    clearInterval(updateTimer);
+    updateTimer = null;
+  }
+  killAllProcesses();
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+}
+
+function quitApp(): void {
+  isQuitting = true;
+  app.quit();
+}
 
 function createTray(window: BrowserWindow): void {
   const icon = createTrayIcon();
@@ -26,14 +55,10 @@ function createTray(window: BrowserWindow): void {
   tray.setToolTip("Gitool");
   const contextMenu = Menu.buildFromTemplate([
     { label: "打开 Gitool", click: () => showMainWindow(window) },
+    // 显式进入托盘模式的入口：仅隐藏界面，进程保持后台运行
+    { label: "隐藏到托盘", click: () => window.hide() },
     { type: "separator" },
-    {
-      label: "退出",
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      },
-    },
+    { label: "退出", click: quitApp },
   ]);
   tray.setContextMenu(contextMenu);
   tray.on("double-click", () => showMainWindow(window));
@@ -83,10 +108,25 @@ function createMainWindow(): BrowserWindow {
   });
 
   window.on("close", (event) => {
-    if (!isQuitting) {
+    // 真实退出进行中（托盘退出 / 安装更新重启）：放行关闭，由 before-quit 统一回收。
+    if (isQuitting) {
+      return;
+    }
+    // 关闭行为实时读库：设置改动无需重启即生效。
+    // 读取失败按默认行为处理（彻底退出），不让设置层故障阻断关闭。
+    let closeToTray = false;
+    try {
+      closeToTray = loadSettings().closeToTray;
+    } catch {
+      // 保持默认
+    }
+    if (closeToTray) {
+      // 托盘模式：仅隐藏主窗口，进程与后台任务保持运行
       event.preventDefault();
       window.hide();
+      return;
     }
+    // 默认行为：放行关闭 → window-all-closed → app.quit() → 统一回收
   });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -124,14 +164,16 @@ if (!hasSingleInstanceLock) {
     }
   });
 
+  // 回收挂在 before-quit：所有真实退出路径（含 updater 的 app.quit()）都经过这里
+  app.on("before-quit", runShutdownCleanup);
+
   void app.whenReady().then(() => {
     app.setAppUserModelId("com.gitool.desktop");
     registerIpcHandlers();
     const window = createMainWindow();
     createTray(window);
     notifyUpdateIfAvailable(window);
-    const updateTimer = setInterval(() => notifyUpdateIfAvailable(window), CHECK_INTERVAL_MS);
-    app.on("before-quit", () => clearInterval(updateTimer));
+    updateTimer = setInterval(() => notifyUpdateIfAvailable(window), CHECK_INTERVAL_MS);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -140,12 +182,10 @@ if (!hasSingleInstanceLock) {
     });
   });
 
-  app.on("before-quit", () => {
-    isQuitting = true;
-  });
-
   app.on("window-all-closed", () => {
-    if (process.platform !== "darwin" && isQuitting) {
+    // closeToTray=false 时 X 关闭走到这里 → 退出 → before-quit 统一回收；
+    // 托盘模式下窗口只是隐藏，不会触发本事件。
+    if (process.platform !== "darwin") {
       app.quit();
     }
   });

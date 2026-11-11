@@ -25,6 +25,7 @@ const INITIAL_SETTINGS: AppSettings = {
   aiApiKeyConfigured: false,
   aiModel: "",
   aiBaseUrl: "",
+  closeToTray: false,
 };
 
 /**

@@ -132,6 +132,22 @@ export function AppSettingsTab({
             rows={3}
           />
         </label>
+        <label>
+          关闭主窗口时
+          <span className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={settings.closeToTray}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, closeToTray: event.target.checked }))
+              }
+            />
+            最小化到系统托盘（后台保持运行）
+          </span>
+          <small className="setting-hint">
+            勾选：点关闭按钮仅隐藏窗口，运行中的任务继续执行，从托盘图标恢复；不勾选：关闭即彻底退出，运行中的任务与子进程全部终止
+          </small>
+        </label>
         <button className="button primary form-submit" disabled={busy}>
           {busy ? "保存中..." : "保存设置"}
         </button>

@@ -361,6 +361,8 @@ export type AppSettings = {
   aiApiKeyConfigured: boolean;
   aiModel: string;
   aiBaseUrl: string;
+  /** 关闭主窗口时的行为：false = 彻底退出并回收子进程；true = 隐藏到托盘保持后台运行。 */
+  closeToTray: boolean;
 };
 
 export type MoveProjectInput = {

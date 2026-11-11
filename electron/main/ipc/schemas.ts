@@ -63,6 +63,7 @@ export const appSettingsSchema = z.object({
   aiApiKeyConfigured: z.boolean().catch(false),
   aiModel: looseString(),
   aiBaseUrl: looseString(),
+  closeToTray: z.boolean().catch(false),
 }) satisfies z.ZodType<AppSettings>;
 
 export const aiSummaryRequestSchema = z.object({

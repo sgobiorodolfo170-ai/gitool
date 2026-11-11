@@ -32,6 +32,7 @@ export default defineConfig({
         "electron/main/services/concurrency.ts",
         "electron/main/services/gitParsing.ts",
         "electron/main/services/operationCsv.ts",
+        "electron/main/services/processCleanup.ts",
         "electron/main/services/version.ts",
         "electron/main/services/storage/backups.ts",
         "electron/main/services/storage/database.ts",
