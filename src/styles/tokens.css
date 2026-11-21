@@ -72,16 +72,50 @@
   --status-conflict-bg: #f8dfe4;
 
   /* ---- 反馈色（Toast / 表单错误共用） ---- */
-  --feedback-success-fg: #256b4f;
-  --feedback-success-bg: #e8f7f1;
-  --feedback-success-border: #bde0d4;
-  --feedback-error-fg: #8a3547;
+  --feedback-success-fg: var(--status-clean-fg);
+  --feedback-success-bg: var(--status-clean-bg);
+  --feedback-success-border: var(--border-accent);
+  --feedback-error-fg: var(--status-conflict-fg);
   --feedback-error-bg: #fdf1f3;
-  --feedback-error-border: #f0cfd6;
-  --feedback-warning-fg: #7a5a1e;
-  --feedback-warning-bg: #fdf6e3;
+  --feedback-error-border: var(--danger-soft);
+  --feedback-warning-fg: var(--status-behind-fg);
+  --feedback-warning-bg: var(--status-behind-bg);
   --feedback-warning-border: #f0dfb8;
-  --feedback-info-fg: #3d5f7d;
-  --feedback-info-bg: #eef4fa;
+  --feedback-info-fg: var(--status-ahead-fg);
+  --feedback-info-bg: var(--status-ahead-bg);
   --feedback-info-border: #d5e3f0;
+
+  /* ---- 基础变量迁移（C10）：styles.css 不再定义具体色值 ---- */
+  --font-scale: 1;
+  --bg-app: #f5f7f9;
+  --bg-surface: #ffffff;
+  --bg-subtle: #fbfcfc;
+  --bg-muted: #fbfcfc;
+  --bg-accent-soft: #f2faf7;
+  --bg-sidebar: #15232b;
+  --bg-sidebar-hover: #20343c;
+  --border-subtle: #edf0f1;
+  --border-default: #dfe6e8;
+  --border-strong: #dfe6e8;
+  --border-muted: #edf0f1;
+  --border-accent: #bcdcd3;
+  --border-sidebar: #2e4148;
+  --text-strong: #1e2b34;
+  --text-body: #4b5b63;
+  --text-secondary: #5a6c72;
+  --text-secondary-strong: #5a6c72;
+  --text-muted: #5f6d74;
+  --text-tertiary: var(--text-muted);
+  --text-subtle: #727f85;
+  --text-faint: #9aa6ab;
+  --text-sidebar-muted: #6e858a;
+  --text-on-dark: #eef8f3;
+  --accent: #4a9a83;
+  --accent-strong: #2d7664;
+  --accent-light: #82bdad;
+  --danger: #a04a4a;
+  --danger-soft: #f0cfcf;
+  --provider-github: var(--text-strong);
+  --provider-gitee: #c94d55;
+  --provider-gitlab: #d97931;
 }

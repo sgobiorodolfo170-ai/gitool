@@ -32,14 +32,5 @@ export default {
         "color-no-hex": null,
       },
     },
-    {
-      // 存量文件：阶段 C 完成后删除本 override
-      files: ["src/styles.css"],
-      rules: {
-        "color-no-hex": null,
-        "declaration-no-important": null,
-        "declaration-property-value-disallowed-list": null,
-      },
-    },
   ],
 };
