@@ -3409,6 +3409,82 @@ body.is-resizing {
   font-weight: 600;
 }
 
+/* ---- 统一页面头（阶段 D1/D2）---- */
+.page-heading-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.page-icon {
+  display: grid;
+  flex: 0 0 44px;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--accent-strong);
+  background: var(--bg-accent-soft);
+  border-radius: var(--radius-lg);
+}
+
+/* ---- 空态与骨架（阶段 D3）---- */
+.empty-state {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  padding: 48px 20px 56px;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.empty-state-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: var(--space-3);
+  color: var(--accent-strong);
+  background: var(--bg-accent-soft);
+  border-radius: var(--radius-lg);
+}
+
+.empty-state strong {
+  color: var(--text-body);
+  font-size: calc(13px * var(--font-scale));
+}
+
+.empty-state span {
+  margin-top: var(--space-2);
+  font-size: calc(11px * var(--font-scale));
+}
+
+.empty-state-error .empty-state-icon {
+  color: var(--status-conflict-fg);
+  background: var(--status-conflict-bg);
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.skeleton-block {
+  height: 64px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+}
+
+.skeleton-card .skeleton-block {
+  height: 99px;
+}
+
+.skeleton-panel .skeleton-block {
+  height: 220px;
+}
+
 /* ---- 数字等宽（阶段 C6）：时间/哈希/指标刷新时不抖动 ---- */
 .metric-content strong,
 .detail-updated,
