@@ -24,7 +24,7 @@ export function AttentionPanel({
           <h2>需要关注</h2>
           <span>未提交 / 领先 / 落后 / 冲突 项目</span>
         </div>
-        <span className="secure-label">
+        <span className="count-badge">
           <CircleAlert size={13} />
           {attention.length} 项
         </span>

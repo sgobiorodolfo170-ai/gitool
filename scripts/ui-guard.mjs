@@ -27,10 +27,10 @@ const SRC = join(ROOT, "src");
 /** 当前允许的存量上限。每完成一项整改，把对应值下调；归零后保持 0。 */
 const BASELINE = {
   nativeDialogs: 0,
-  dmMono: 17,
-  tinyFonts: 75,
+  dmMono: 0,
+  tinyFonts: 0,
   failureNotice: 0,
-  important: 8,
+  important: 0,
 };
 
 function walk(directory) {
