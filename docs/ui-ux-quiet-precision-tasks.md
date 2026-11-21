@@ -126,7 +126,7 @@ F6 → G1 → G2 → G3 → G4 → v0.11.1
 | B3 | `ConfirmProvider` + `useConfirm` + 测试 | M | A6、B1 | `ConfirmProvider.tsx`、测试 | Promise 返回布尔；ESC 取消；焦点归还 |
 | B4 | 失败语义替换（hooks） | M | B2 | `useGitOperations`、`useImportFlow`、`useProjects`、`useRemotes`、`useWorkspaces`、`useAccounts` | 失败/警告全部走 `showError/showWarning` |
 | B5 | 失败语义替换（页面） | M | B2 | `TasksWorkspace`、`SettingsWorkspace`、`BackupsWorkspace`、`LogsWorkspace` | 同上 |
-| B6 | 原生对话框 13 处替换 | M | B3 | 8 个文件（10 confirm + 3 alert） | `lint:ui` 对 confirm/alert 报告 0 |
+| B6 | 原生对话框 16 处替换 | M | B3 | 11 个文件（13 confirm + 3 alert，含 `git/BranchesTab`/`HistoryTab`/`TagsTab`） | `lint:ui` 对 confirm/alert 报告 0 |
 | B7 | 阶段 B 验收 + v0.9.0 | S | B4、B5、B6 | — | 失败路径手工触发 3 例，全部红色 + aria-live |
 
 **B2 验收细节**：
@@ -373,7 +373,7 @@ Loop: P0/P1/P2 <任务号>
 | --- | --- |
 | 失败提示绿色对勾 | B2、B4、B5 |
 | 提示无队列/不可回溯 | A4、B1、B2 |
-| 原生 confirm/alert 13 处 | B3、B6 |
+| 原生 confirm/alert 16 处 | B3、B6 |
 | 环境页状态色被覆盖 | C5、C8 |
 | `.secure-label` 语义借用 | C8 |
 | 75 处 ≤9px / 137 处 ≤11px | C1–C4 |

@@ -5,12 +5,13 @@
 | 文档性质 | **实施方案（归档）**，本次仅落盘，不改代码、不提交 |
 | 任务 | 以 Quiet Precision 为框架的 UI/UX 系统性评估与整改方案 |
 | 创建日期 | 2026-11-21 |
-| 基线 | `HEAD 89cee36`（v0.8.8，2026-11-21）；工作树另有首启性能优化未提交改动（`src/App.tsx`、`environment.ts` 等），本方案未触碰 |
+| 编写基线 | `HEAD 89cee36`（v0.8.8，2026-11-21）；编写时工作树另有首启性能优化未提交改动，本方案未触碰 |
+| 执行基线 | `HEAD f90d94c`（v0.8.9）：原生对话框实测 16 处（13 confirm + 3 alert），比编写时多 3 处 git tab |
 | 覆盖范围 | **P0 + P1 + P2 全部**（反馈语义、排版色彩、结构一致性、无障碍、暗色模式） |
 | 不变量 | 业务逻辑、Git 执行、IPC 参数语义、数据库表结构不变；`AppSettings` 仅新增 `theme` 字段且带默认值；现有覆盖率门槛 95/85/90/95 不降；最小窗口 1120×720 与字号 90%–180% 继续可用 |
 | 预估周期 | 约 9.5 个工作日（阶段 A–G） |
 | 预计版本 | v0.9.0 → v0.9.1 → v0.10.0 → v0.10.1 → v0.11.0 → v0.11.1 |
-| 当前状态 | **方案已归档，尚未执行**；执行时每个阶段独立提交、独立验收 |
+| 当前状态 | 阶段 A 已完成（提交 `4a976a7`）；B–G 待执行 |
 
 > 行号与统计值均以基线 `89cee36` 为准。代码改动后行号会漂移，执行阶段应以文件内注释与类名定位，不要机械按行号修改。
 >
@@ -28,7 +29,7 @@
 | 配色方案 | 3.5 | 243 个硬编码色值；`--border-strong` 比 `--border-default` 浅；环境页状态色被覆盖 |
 | 字体与排版 | 1.5 | 137 处 ≤11px、75 处 ≤9px；辅助文字对比度 2.5–3.2:1；DM Mono 不存在；中文负字距 |
 | 留白与间距 | 2.5 | 圆角 11 档（2–12px）；间距大量非 4 倍数 |
-| 交互反馈与动效 | 2.0 | 失败也显示绿色对勾；13 处原生 confirm/alert；无加载态 |
+| 交互反馈与动效 | 2.0 | 失败也显示绿色对勾；16 处原生 confirm/alert；无加载态 |
 | 组件一致性 | 2.5 | `.secure-label`/`.setting-value` 语义借用；图标尺寸 12–25px 混用 |
 | 可用性与可访问性 | 2.0 | 无 `:focus-visible`；`role=button` 嵌套交互；键盘无法打开工作区菜单 |
 | **综合** | **2.4 / 5（约 62/100）** | 骨架合格，**精度与反馈诚实度**不达标 |
@@ -47,7 +48,7 @@
 | `!important` | 8 | 0 |
 | 唯一圆角 | 11（2–12px） | ≤ 4（4/8/12/pill） |
 | `onNotice` 调用点 | 77 | 不增；失败语义全部走 `showError` |
-| `window.confirm` + `window.alert` | 13（10+3） | 0 |
+| `window.confirm` + `window.alert` | 16（13+3） | 0 |
 | `:focus-visible` 规则 | 0 | 全局覆盖 |
 | `prefers-reduced-motion` | 无 | 有 |
 | `font-variant-numeric: tabular-nums` | 无 | 数字/时间/哈希覆盖 |
@@ -87,7 +88,7 @@
 | D1 | 新增 `src/styles/tokens.css`；`styles.css` 保留为聚合入口；按域渐进迁出 `base/layout/components/pages/dark` | 一次性重写 3300 行风险过高；每阶段可回滚。迁移期 token 与旧值并存 |
 | D2 | `<html data-theme="light\|dark">` + `prefers-color-scheme` + `AppSettings.theme` + Electron `nativeTheme` | 避免启动白闪；跨进程一致；老库默认 `system` |
 | D3 | `NoticeProvider` + 队列 + 4 种 kind；保留 `showNotice(message)` 兼容签名（默认 success） | 77 个调用点中约 34 个需要改语义，其余零改动 |
-| D4 | Promise 式 `confirmDialog(options)` + `useFocusTrap` | 替换 13 处原生对话框；统一 ESC/焦点归还 |
+| D4 | Promise 式 `confirmDialog(options)` + `useFocusTrap` | 替换 16 处原生对话框；统一 ESC/焦点归还 |
 | D5 | 8 档字号 token，最小 10px（元信息），正文 13px，辅助 11–12px | 提高默认可读性；保留 `--font-scale` 缩放机制 |
 | D6 | 等宽字体统一为 `ui-monospace, "Cascadia Mono", Consolas, monospace` | DM Mono 未随包分发，17 处声明必然回退；不自托管以控制包体与许可风险 |
 | D7 | 间距 4px 栅格；圆角 3 档 + pill | 建立可复用的节奏，减少“近似但不同”的取值 |
@@ -203,7 +204,7 @@ npm run typecheck
   - hooks：`useGitOperations.ts`、`useImportFlow.ts`、`useProjects.ts`、`useRemotes.ts`、`useWorkspaces.ts`、`useAccounts.ts`
   - 页面：`TasksWorkspace.tsx`、`SettingsWorkspace.tsx`、`BackupsWorkspace.tsx`、`LogsWorkspace.tsx`
   - `RemoteRepositoriesWorkspace.tsx`：3 处 `window.alert` → `showError`
-- 原生确认框替换：`BackupsWorkspace.tsx`、`LogsWorkspace.tsx`、`TasksWorkspace.tsx`、`SettingsWorkspace.tsx`、`useImportFlow.ts`、`useProjects.ts`、`useRemotes.ts`、`App.tsx`。
+- 原生确认框替换：`BackupsWorkspace.tsx`、`LogsWorkspace.tsx`、`TasksWorkspace.tsx`、`SettingsWorkspace.tsx`、`git/BranchesTab.tsx`、`git/HistoryTab.tsx`、`git/TagsTab.tsx`、`useImportFlow.ts`、`useProjects.ts`、`useRemotes.ts`、`App.tsx`（执行基线实测 13 处 confirm + 3 处 alert）。
 
 **验收**
 - 断网克隆 / 无 Git 执行操作 / 保存失败：红色或琥珀提示 + 对应图标 + `role="alert"`。
@@ -482,7 +483,7 @@ Loop: P0/P1/P2 <阶段号>
 
 | 阶段 | 开始 | 完成 | 提交 | 门禁结果 | 备注 |
 | --- | --- | --- | --- | --- | --- |
-| A 基础设施 | — | — | — | — | — |
+| A 基础设施 | 2026-11-21 | 2026-11-21 | `4a976a7` | 全绿（覆盖 97.71/91.31/97.67/97.79） | 新增 24 条单测；format 基线清理 13 个文件 |
 | B 反馈系统 | — | — | — | — | — |
 | C 排版色彩 | — | — | — | — | — |
 | D 结构一致性 | — | — | — | — | — |
@@ -522,7 +523,7 @@ $vals.Count                                                                  # 1
 | --- | --- | --- |
 | 失败提示显示绿色对勾 | `App.tsx:506-511` | B |
 | 提示无队列、不可回溯 | `useNotice.ts:33-45` | B |
-| 原生 confirm/alert 13 处 | 见 4.B | B |
+| 原生 confirm/alert 16 处 | 见 4.B | B |
 | 环境页状态色被 `.setting-value` 覆盖 | `EnvironmentTab.tsx:59-136`、`styles.css:931/2289` | C |
 | `.secure-label` 语义借用 | `AttentionPanel.tsx:27`、`styles.css:1398-1407` | C |
 | 75 处 ≤9px / 137 处 ≤11px | `styles.css` | C |
