@@ -6,9 +6,11 @@ import {
   assertLocalAbsolutePath,
   assertPathAllowed,
   assertRegistrableProjectPath,
+  backupPathRoots,
   collectAllowedRoots,
   pathsNeedingValidation,
   PathPolicyError,
+  requireAllowedBackupPath,
 } from "./pathPolicy";
 
 /**
@@ -237,6 +239,86 @@ describe("collectAllowedRoots", () => {
   it.runIf(process.platform === "win32")("默认包含用户主目录", () => {
     const roots = collectAllowedRoots();
     expect(roots).toContain(win32.resolve(homedir()));
+  });
+});
+
+/**
+ * 备份允许根：备份产物 / 归档 / 恢复目标必须落在用户可控目录内。
+ *
+ * why 这些用例是 P1-2 的回归靶子：修复前 backups:create / backups:restore 只做 schema
+ * 校验，系统目录可以当源目录或恢复目标。这里的断言覆盖「设置被污染」这一最坏情况——
+ * 即使默认备份目录被改成 C:\Windows\System32，也必须被系统关键目录拒绝。
+ */
+describe("backupPathRoots", () => {
+  it("组合主目录、默认备份目录与会话选择目录（不含已登记项目）", () => {
+    expect(
+      backupPathRoots({
+        homeDirectory: HOME,
+        backupDirectory: "D:\\gitool-backups",
+        extraRoots: ["E:\\picked-in-dialog"],
+      }),
+    ).toEqual([HOME, "D:\\gitool-backups", "E:\\picked-in-dialog"]);
+  });
+
+  it("丢弃非法根并大小写不敏感去重", () => {
+    expect(
+      backupPathRoots({
+        homeDirectory: HOME,
+        backupDirectory: HOME.toLowerCase(),
+        extraRoots: ["\\\\evil\\share", "relative\\dir", "D:\\backups"],
+      }),
+    ).toEqual([HOME, "D:\\backups"]);
+  });
+});
+
+describe("requireAllowedBackupPath", () => {
+  const options = { homeDirectory: HOME, backupDirectory: "D:\\gitool-backups" };
+
+  it("放行主目录、默认备份目录与会话选择目录下的路径", () => {
+    expect(requireAllowedBackupPath(`${HOME}\\backups`, options, "备份目录")).toBe(
+      `${HOME}\\backups`,
+    );
+    expect(requireAllowedBackupPath("D:\\gitool-backups\\demo-2026.zip", options, "备份文件")).toBe(
+      "D:\\gitool-backups\\demo-2026.zip",
+    );
+    expect(
+      requireAllowedBackupPath(
+        "E:\\picked\\demo",
+        { ...options, extraRoots: ["E:\\picked"] },
+        "恢复目录",
+      ),
+    ).toBe("E:\\picked\\demo");
+  });
+
+  it("拒绝允许根之外的普通目录", () => {
+    expect(() => requireAllowedBackupPath("C:\\srv\\backups", options, "备份目录")).toThrow(
+      /不在允许范围内/,
+    );
+  });
+
+  it("拒绝盘符根目录", () => {
+    expect(() => requireAllowedBackupPath("D:\\", options, "备份目录")).toThrow(/磁盘根目录/);
+    expect(() => requireAllowedBackupPath("D:/", options, "备份目录")).toThrow(/磁盘根目录/);
+  });
+
+  it("拒绝 UNC、相对路径与 .. 穿越（复用本机绝对路径断言）", () => {
+    expect(() => requireAllowedBackupPath("\\\\evil\\share\\backups", options)).toThrow(/UNC/);
+    expect(() => requireAllowedBackupPath("backups\\demo", options)).toThrow(/绝对路径/);
+    expect(() => requireAllowedBackupPath(`${HOME}\\backups\\..\\..\\Windows`, options)).toThrow(
+      /上级目录/,
+    );
+  });
+
+  it("拒绝被配置成允许根的系统关键目录（settings 被污染）", () => {
+    const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
+    const system32 = win32.join(systemRoot, "System32");
+    expect(() =>
+      requireAllowedBackupPath(
+        system32,
+        { homeDirectory: HOME, backupDirectory: system32 },
+        "恢复目录",
+      ),
+    ).toThrow(/系统关键目录/);
   });
 });
 

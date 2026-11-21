@@ -17,12 +17,36 @@ const REF_NAME_PATTERN = /^[A-Za-z0-9._/][A-Za-z0-9._/-]*$/;
 /** 提交哈希：7-40 位十六进制，可带 `^` / `~N` 后缀（如 `abc1234^`）。 */
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}([\^~][0-9]*)?$/i;
 
-export function isValidRefName(value: string): boolean {
+/**
+ * ref 名长度上限（255）。
+ * why 与字符集判断拆开：超长名的真实原因只有一个——太长，若和字符集共用一个
+ * 返回值，服务层就只能抛「只能包含字母…」，用户拿 500 字符的名字去试会一头雾水
+ * （2026-11-21 冒烟 P2-1：`git:createTag` 传 500 字符名时报的是字符集错误）。
+ */
+export const REF_NAME_MAX_LENGTH = 255;
+
+/** ref 名字符集白名单的说明文案（供服务层拼错误信息，避免各处手抄一遍）。 */
+const REF_NAME_CHARSET_HINT = "只能包含字母、数字、点、下划线、斜杠和连字符";
+
+/**
+ * 校验 ref 名并给出**可展示的失败原因**；合法时返回 null。
+ *
+ * 判定结果必须与 isValidRefName 完全一致（后者现在直接委托本函数），
+ * 因此这里只是把「为什么失败」拆成两类：长度 / 字符集。空白裁剪规则同旧实现。
+ */
+export function refNameInvalidReason(value: string): string | null {
   const trimmed = value.trim();
-  if (trimmed.length === 0 || trimmed.length > 255) {
-    return false;
+  if (trimmed.length > REF_NAME_MAX_LENGTH) {
+    return `过长（最多 ${REF_NAME_MAX_LENGTH} 字符）`;
   }
-  return REF_NAME_PATTERN.test(trimmed);
+  if (trimmed.length === 0 || !REF_NAME_PATTERN.test(trimmed)) {
+    return REF_NAME_CHARSET_HINT;
+  }
+  return null;
+}
+
+export function isValidRefName(value: string): boolean {
+  return refNameInvalidReason(value) === null;
 }
 
 export function isValidCommitHash(value: string): boolean {

@@ -25,6 +25,7 @@ import {
   redactGitOutput,
   runGit,
   runGitProcess,
+  runGitProcessVerbatim,
 } from "./core";
 
 /**
@@ -179,7 +180,13 @@ export async function getProjectSnapshot(projectPath: string): Promise<GitSnapsh
 
 export async function listChangedFiles(projectPath: string): Promise<ChangeFile[]> {
   assertDirectory(projectPath);
-  const porcelain = await runGit(projectPath, buildStatusPorcelainZArgs()).catch(() => "");
+  // why 走 Verbatim 出口而不是 runGit：`-z` 输出是**结构化数据**，首条记录的
+  // 前导空格是 XY 状态位的一部分（未暂存为 `" M"`）。runGit 的 stdout.trim()
+  // 会把它削成 `"M "`，parseStatusPorcelainZ 判为非法记录丢弃，导致「只有一处
+  // 未暂存修改」时列表为空（2026-11-21 冒烟 P1-1）。失败保持原语义：解析空数组。
+  const porcelain = await runGitProcessVerbatim(projectPath, buildStatusPorcelainZArgs())
+    .then((result) => (result.success ? result.output : ""))
+    .catch(() => "");
   if (!porcelain) {
     return [];
   }

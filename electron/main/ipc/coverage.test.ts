@@ -213,6 +213,8 @@ const PATH_GUARDED_CHANNELS: ReadonlySet<string> = new Set([
   "git:revert",
   "operations:export",
   "projects:move",
+  "backups:create",
+  "backups:restore",
 ]);
 
 const IPC_SOURCE = readFileSync(new URL("../ipc.ts", import.meta.url), "utf8");
@@ -274,8 +276,12 @@ function findUnclassified(blocks: readonly HandlerBlock[]): string[] {
     .map(describeBlock);
 }
 
-/** 路径语义准入的两个入口：项目路径 helper，以及需要自定义允许根时直接调用的断言。 */
-const PATH_GUARD_CALLS = ["requireAllowedProjectPath(", "assertPathAllowed("] as const;
+/** 路径语义准入的三个入口：项目路径 helper、自定义允许根断言，以及备份专用允许根。 */
+const PATH_GUARD_CALLS = [
+  "requireAllowedProjectPath(",
+  "assertPathAllowed(",
+  "requireAllowedBackupPath(",
+] as const;
 
 /** 该代码块是否**直接**做了路径语义准入（不接受 helper 间接，理由同 isWired）。 */
 function isPathGuarded(code: string): boolean {
@@ -393,11 +399,11 @@ describe("IPC 通道校验覆盖（源码级接线）", () => {
     expect(wiredNoInput).toEqual([]);
   });
 
-  it("路径通道基线数量为 32，且必须全部属于已校验通道", () => {
-    // 硬编码基线：ipc.ts 中接收路径的 handler 共 32 个（以实际
-    // requireAllowedProjectPath / assertPathAllowed 调用点为准）。数量变化意味着有通道
-    // 新增或移除了路径语义，必须显式确认后同步改这里。
-    expect(PATH_GUARDED_CHANNELS.size).toBe(32);
+  it("路径通道基线数量为 34，且必须全部属于已校验通道", () => {
+    // 硬编码基线：ipc.ts 中接收路径的 handler 共 34 个（以实际
+    // requireAllowedProjectPath / assertPathAllowed / requireAllowedBackupPath 调用点为准）。
+    // 数量变化意味着有通道新增或移除了路径语义，必须显式确认后同步改这里。
+    expect(PATH_GUARDED_CHANNELS.size).toBe(34);
     // 路径通道必然要先过 schema：凡是路径通道都必须已在 VALIDATED_CHANNELS 登记。
     expect(
       [...PATH_GUARDED_CHANNELS].filter((channel) => !VALIDATED_CHANNELS.has(channel)),

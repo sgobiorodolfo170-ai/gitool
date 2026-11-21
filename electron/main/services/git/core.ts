@@ -204,6 +204,48 @@ export async function runGitProcessRaw(cwd: string, args: string[]): Promise<Git
 }
 
 /**
+ * git **结构化输出**的原文出口：stdout 一个字符都不改写（不 trim、不脱敏）。
+ *
+ * why 必须单独开一条出口：`runGit` 与 `runGitProcessRaw` 都会 `stdout.trim()`。
+ * 对展示型文本这是想要的（去掉命令回声后的空行/换行），但对 `-z` 这类
+ * NUL 分隔的机器可读格式，**首尾空白本身就是数据**：
+ * `git status --porcelain=v1 -z` 的首条记录是 `" M README.md\0"`，XY 状态位为
+ * `" M"`（未暂存）；trim 会把它削成 `"M README.md\0"`，`parseStatusPorcelainZ`
+ * 因状态位非法（第三字符不是空格）把该条整条丢弃——实测只有一处未暂存修改时
+ * 变更列表返回空数组、与快照的 `dirty` 自相矛盾（2026-11-21 冒烟 P1-1）。
+ *
+ * why 不去改 `runGit` 的 trim：它服务于分支名、短哈希、提交信息等展示/单值场景，
+ * 去掉 trim 会让这些调用方自己收拾首尾换行，风险面远大于收益。
+ *
+ * why 成功时只返回 stdout：结构化数据必须能被逐段解析，把 stderr（警告文本）
+ * 拼进来会污染数据流。失败时（success=false）才把 stderr/异常信息作为文案返回，
+ * 调用方按「失败即解析空结果」处理。
+ */
+export async function runGitProcessVerbatim(
+  cwd: string,
+  args: string[],
+): Promise<GitProcessResult> {
+  try {
+    const { stdout } = await execFileAsync(getActiveGitBinary(), buildGitCwdArgs(cwd, args), {
+      windowsHide: true,
+      maxBuffer: MAX_BUFFER,
+    });
+    return { success: true, output: stdout };
+  } catch (error) {
+    const failure = error as {
+      stdout?: string;
+      stderr?: string;
+      message?: string;
+    };
+    const output = [failure.stdout?.trim(), failure.stderr?.trim()].filter(Boolean).join("\n");
+    return {
+      success: false,
+      output: output || failure.message || "Git 命令执行失败",
+    };
+  }
+}
+
+/**
  * 应用级子进程登记/回收出口（供 clone 这类长生命周期子进程使用）。
  *
  * why 从 core 再导出一层：让「进程生命周期」与「git 执行」同处一层，子域不必各自

@@ -243,6 +243,71 @@ export function collectAllowedRoots(options: AllowedRootOptions = {}): string[] 
   return roots;
 }
 
+/**
+ * 备份类通道的允许根参数。
+ *
+ * why 与 AllowedRootOptions 分开：备份的「目标/归档」和「项目路径」不是同一个信任面。
+ * 备份产物没有理由写进任意已登记项目目录，因此这里刻意不接收 registeredProjectPaths，
+ * 只允许用户主目录、设置里的默认备份目录，以及本次会话在系统对话框里选过的目录。
+ */
+export interface BackupPathOptions {
+  /** 用户主目录；未提供时取 os.homedir()。 */
+  readonly homeDirectory?: string;
+  /** 设置里的默认备份目录；非法值会被 canonicalizeRoot 丢弃。 */
+  readonly backupDirectory?: string | null;
+  /** 会话内由 system:selectDirectory 选出的目录。 */
+  readonly extraRoots?: readonly string[];
+}
+
+/**
+ * 组装备份类通道的允许根：用户主目录 + 默认备份目录 + 会话选择目录。
+ *
+ * why 不并入 collectAllowedRoots 的默认全集：collectAllowedRoots 是「项目路径」的
+ * 组合器，把已登记项目也当作根；备份目标若沿用它会扩大放行面（渲染层可先登记一个
+ * 假项目，再把备份写进该项目目录）。这里用独立入口把「哪些来源可以作为备份根」
+ * 写死在代码里，调用方只能传值、不能改语义。
+ */
+export function backupPathRoots(options: BackupPathOptions = {}): string[] {
+  return collectAllowedRoots({
+    homeDirectory: options.homeDirectory,
+    backupDirectory: options.backupDirectory,
+    extraRoots: options.extraRoots,
+  });
+}
+
+/**
+ * 断言 target 可以作为备份目录 / 备份归档路径，并返回规范化后的路径。
+ *
+ * why 需要独立于 assertPathAllowed：备份目标不应是系统目录。即使有人把
+ * settings.defaultBackupDirectory 改成 `C:\Windows\System32`（settings:save 目前没有
+ * 路径语义校验），也不能让备份通道亲手把 zip 写进去——所以系统关键目录在「命中
+ * 允许根」之前就被显式拒绝，不能指望白名单天然覆盖不到它。
+ *
+ * 校验顺序（越靠前越先拒绝）：
+ * 1. 本机绝对路径语义（UNC / 相对 / `..` / 控制字符 / 保留设备名）；
+ * 2. 盘符根（`C:\`）——备份落到整盘根等于把残留文件撒到系统盘；
+ * 3. 系统关键目录（SystemRoot / ProgramFiles / ProgramData）及其子目录；
+ * 4. 允许根（主目录 + 默认备份目录 + 会话选择目录）。
+ */
+export function requireAllowedBackupPath(
+  target: string,
+  options: BackupPathOptions = {},
+  label = "备份路径",
+): string {
+  const resolved = assertLocalAbsolutePath(target, label);
+  if (win32.parse(resolved).root === resolved) {
+    throw new PathPolicyError(`${label}不能是磁盘根目录`);
+  }
+  const criticalRoot = findContainingRoot(resolved, systemCriticalRoots());
+  if (criticalRoot !== null) {
+    throw new PathPolicyError(`${label}位于系统关键目录（${criticalRoot}）之下`);
+  }
+  if (findContainingRoot(resolved, backupPathRoots(options)) === null) {
+    throw new PathPolicyError(`${label}不在允许范围内`);
+  }
+  return resolved;
+}
+
 /** 拒绝路径中出现 `..` 段（`...`、`..cache` 是合法文件名，不能误伤）。 */
 function assertNoParentTraversal(target: string, label: string): void {
   if (target.split(/[\\/]+/).includes("..")) {

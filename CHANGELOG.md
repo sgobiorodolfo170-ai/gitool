@@ -63,3 +63,4 @@
 | v0.8.5 | 2026-11-21 | ipc 编排下沉（operations.ts + projects.findByPath + path 索引）、任务生命周期单点、src/lib 零依赖测试 49 例、bridge null 归一（A-21/A-22/A-24 第一阶段）|
 | v0.8.6 | 2026-11-21 | 实体工厂单点化（P0）+ schema 业务字段不再静默兜底、路径策略与 32 通道白名单、projects:save 登记门与增量校验（A-15/A-11）|
 | v0.8.7 | 2026-11-21 | IPC 入参校验全覆盖：schema 基元与长度上限、源码级接线门禁（parseOrThrow + 路径准入双锚点）、README 对齐（A-13）|
+| v0.8.8 | 2026-11-21 | 冒烟修复：变更列表丢首条（porcelain -z 前导空格被 trim）、备份通道补路径白名单、标签超长文案（P1-1/P1-2/P2-1）|

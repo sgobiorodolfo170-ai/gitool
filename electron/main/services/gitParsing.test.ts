@@ -10,6 +10,8 @@ import {
   parseCommitHistory,
   parseNumstatPaths,
   parseStatusPorcelainZ,
+  REF_NAME_MAX_LENGTH,
+  refNameInvalidReason,
   toLiteralPathspec,
 } from "./gitParsing";
 
@@ -36,6 +38,21 @@ describe("isValidRefName", () => {
     expect(isValidRefName("")).toBe(false);
     expect(isValidRefName("   ")).toBe(false);
     expect(isValidRefName("a".repeat(256))).toBe(false);
+  });
+});
+
+describe("refNameInvalidReason", () => {
+  it("把「过长」与「字符集不合法」拆成两种原因", () => {
+    // 2026-11-21 冒烟 P2-1：500 字符名曾报「只能包含字母…」，排查方向被带偏
+    expect(refNameInvalidReason("a".repeat(REF_NAME_MAX_LENGTH))).toBeNull();
+    expect(refNameInvalidReason("a".repeat(500))).toBe("过长（最多 255 字符）");
+    expect(refNameInvalidReason("a b")).toBe("只能包含字母、数字、点、下划线、斜杠和连字符");
+  });
+
+  it("判定结果与 isValidRefName 完全一致", () => {
+    for (const name of ["main", "v1.0.0", "", "   ", "a b", "-D", "a".repeat(256)]) {
+      expect(refNameInvalidReason(name) === null, name).toBe(isValidRefName(name));
+    }
   });
 });
 

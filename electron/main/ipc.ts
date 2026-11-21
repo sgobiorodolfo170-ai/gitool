@@ -13,6 +13,8 @@ import {
   collectAllowedRoots,
   pathsNeedingValidation,
   PathPolicyError,
+  requireAllowedBackupPath,
+  type BackupPathOptions,
 } from "./services/pathPolicy";
 import {
   compareVersions,
@@ -191,6 +193,21 @@ function defaultBackupDirectory(): string | null {
     // why 吞掉异常：一条无关配置读取失败不应让导出整体不可用；此时仍有两道放行面。
     return null;
   }
+}
+
+/**
+ * 备份类通道的允许根参数：用户主目录 + 设置里的默认备份目录 + 会话内选择的目录。
+ *
+ * why 不含已登记项目：备份产物（zip）与恢复目标没有任何理由写进项目目录；
+ * 恰好位于主目录下的项目仍由主目录根放行。系统目录 / 盘符根 / UNC 不会凭空出现在
+ * 这三个来源里，且即使 settings.defaultBackupDirectory 被改成系统目录，
+ * requireAllowedBackupPath 也会在命中白名单之前显式拒绝。
+ */
+function backupPathOptions(): BackupPathOptions {
+  return {
+    backupDirectory: defaultBackupDirectory(),
+    extraRoots: sessionSelectedDirectories,
+  };
 }
 
 /**
@@ -528,12 +545,37 @@ export function registerIpcHandlers(): void {
   );
 
   ipcMain.handle("backups:list", () => listBackups());
-  ipcMain.handle("backups:create", (_event, input: unknown) =>
-    createBackup(parseOrThrow(backupCreateInputSchema, input, "备份参数")),
-  );
-  ipcMain.handle("backups:restore", (_event, input: unknown) =>
-    restoreBackup(parseOrThrow(backupRestoreInputSchema, input, "恢复参数")),
-  );
+  ipcMain.handle("backups:create", (_event, input: unknown) => {
+    const parsed = parseOrThrow(backupCreateInputSchema, input, "备份参数");
+    // why 源用项目白名单（只读语义）：备份只读取项目目录，放行面应与打开/分析通道一致。
+    // why 目标用备份根：zip 是新产物，不能借备份把文件写进系统目录或任意 UNC 位置。
+    const sourcePath = requireAllowedProjectPath(
+      parseOrThrow(localPathSchema, parsed.sourcePath, "源路径"),
+      "源路径",
+    );
+    const targetDirectory = requireAllowedBackupPath(
+      parseOrThrow(localPathSchema, parsed.targetDirectory, "备份目录"),
+      backupPathOptions(),
+      "备份目录",
+    );
+    return createBackup({ ...parsed, sourcePath, targetDirectory }, sessionSelectedDirectories);
+  });
+  ipcMain.handle("backups:restore", (_event, input: unknown) => {
+    const parsed = parseOrThrow(backupRestoreInputSchema, input, "恢复参数");
+    // why 归档也走备份根：archivePath 决定「从哪里解包」，targetDirectory 决定
+    // 「解包写到哪里」，任一未校验都等于绕过 A-11；两者都必须落在可写的备份根内。
+    const archivePath = requireAllowedBackupPath(
+      parseOrThrow(localPathSchema, parsed.archivePath, "备份文件"),
+      backupPathOptions(),
+      "备份文件",
+    );
+    const targetDirectory = requireAllowedBackupPath(
+      parseOrThrow(localPathSchema, parsed.targetDirectory, "恢复目录"),
+      backupPathOptions(),
+      "恢复目录",
+    );
+    return restoreBackup({ archivePath, targetDirectory }, sessionSelectedDirectories);
+  });
 
   ipcMain.handle("operations:list", () => listOperationRecords());
   ipcMain.handle("operations:clear", () => clearOperationRecords());

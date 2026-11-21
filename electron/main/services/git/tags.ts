@@ -4,7 +4,7 @@
  * 依赖方向：只依赖 core 与 gitParsing；不 import 其他子域。
  */
 import type { CreateTagInput, GitTag } from "../../../../shared/types";
-import { isValidRefName } from "../gitParsing";
+import { isValidRefName, refNameInvalidReason } from "../gitParsing";
 import { assertDirectory, runGit, runGitProcess } from "./core";
 
 /**
@@ -67,8 +67,12 @@ export async function listTags(projectPath: string): Promise<GitTag[]> {
 export async function createTag(input: CreateTagInput): Promise<void> {
   assertDirectory(input.path);
   const name = input.name.trim();
-  if (!isValidRefName(name)) {
-    throw new Error("标签名只能包含字母、数字、点、下划线、斜杠和连字符");
+  // why 用 refNameInvalidReason 而不是 isValidRefName：需要把「过长」与「字符集
+  // 不合法」两种原因分别告诉用户。500 字符的名字报「只能包含字母…」会误导排查方向
+  // （2026-11-21 冒烟 P2-1）。判定结果与 isValidRefName 完全一致。
+  const invalidReason = refNameInvalidReason(name);
+  if (invalidReason) {
+    throw new Error(`标签名${invalidReason}`);
   }
   const message = input.message?.trim() ?? "";
   const result = await runGitProcess(input.path, buildCreateTagArgs(name, message));

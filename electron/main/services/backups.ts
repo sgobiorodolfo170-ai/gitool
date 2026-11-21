@@ -3,9 +3,10 @@ import { readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import type { BackupCreateInput, BackupRecord, BackupRestoreInput } from "../../../shared/types";
+import { requireAllowedBackupPath } from "./pathPolicy";
+import { assertDirectory as assertDirectoryShared, errorMessage } from "./serviceUtils";
 import { insertBackup } from "./storage/backups";
 import { loadSettings } from "./storage/settings";
-import { assertDirectory as assertDirectoryShared, errorMessage } from "./serviceUtils";
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 64 * 1024 * 1024;
@@ -30,13 +31,20 @@ const GIT_CONFIG_EXCLUDES = [
   "*/.git/config.worktree",
 ] as const;
 
-export async function createBackup(input: BackupCreateInput): Promise<BackupRecord> {
+export async function createBackup(
+  input: BackupCreateInput,
+  sessionDirectories: readonly string[] = [],
+): Promise<BackupRecord> {
   const now = new Date().toISOString();
   // 文件名必须精确到秒：曾只截取到日期，同一天对同一项目重复备份会静默覆盖前一个 zip，
   // 而数据库里却插入两条指向同一文件的记录。
   const archiveName = `${sanitizeFileName(input.projectName)}-${formatTimestamp(now)}.zip`;
   const archivePath = join(input.targetDirectory, archiveName);
 
+  // why 先做语义准入再 assertDirectory：目标目录即使存在且可写，也不能是系统目录。
+  // 这是 ipc 白名单之外的第二道门——本函数是导出 API，新增入口（任务调度/自动化）
+  // 直接调用时不应重新暴露「把备份写进 C:\Windows\System32」的能力。
+  assertAllowedBackupRoot(input.targetDirectory, "备份目录", sessionDirectories);
   assertDirectory(input.sourcePath);
   if (!isDirectoryWritable(input.targetDirectory)) {
     throw new Error("备份目录不存在或不可写");
@@ -88,7 +96,15 @@ export async function createBackup(input: BackupCreateInput): Promise<BackupReco
   }
 }
 
-export async function restoreBackup(input: BackupRestoreInput): Promise<void> {
+export async function restoreBackup(
+  input: BackupRestoreInput,
+  sessionDirectories: readonly string[] = [],
+): Promise<void> {
+  // why 归档与目标都要过同一套备份根：归档是「读来源」、目标是「写去向」，
+  // 两者都可能是渲染层直接构造的路径。只校验目标会让恢复从任意系统目录解包，
+  // 只校验归档会让解包把文件铺进 C:\Windows\System32。
+  assertAllowedBackupRoot(input.archivePath, "备份文件", sessionDirectories);
+  assertAllowedBackupRoot(input.targetDirectory, "恢复目录", sessionDirectories);
   if (!isArchiveReadable(input.archivePath)) {
     throw new Error("备份文件不存在或不可读");
   }
@@ -107,6 +123,31 @@ export async function restoreBackup(input: BackupRestoreInput): Promise<void> {
   } catch (error) {
     throw new Error(`恢复失败：${errorMessage(error)}`);
   }
+}
+
+/**
+ * 服务层兜底的备份路径语义校验。
+ *
+ * why 读设置而不复用 ipc 的 defaultBackupDirectory：服务层不能 import ipc（反向依赖会
+ * 把 electron 拉进纯 Node 单测），因此在这里自行读一次设置；读取失败按 null 处理，
+ * 与 ipc 的退化策略一致——仍保留「主目录 + 会话目录」两道放行面，不因配置损坏而放宽。
+ *
+ * why 需要 sessionDirectories 参数：允许根里的「会话选择目录」只存在于 ipc 进程状态，
+ * 服务层拿不到；调用方必须显式透传，否则用户刚在对话框里选中的新目录会被误拒。
+ */
+function assertAllowedBackupRoot(
+  target: string,
+  label: string,
+  sessionDirectories: readonly string[],
+): void {
+  let backupDirectory: string | null = null;
+  try {
+    backupDirectory = loadSettings().defaultBackupDirectory.trim() || null;
+  } catch {
+    // 数据库未初始化 / 配置损坏：退化为「主目录 + 会话目录」，与 ipc 行为对齐。
+    backupDirectory = null;
+  }
+  requireAllowedBackupPath(target, { backupDirectory, extraRoots: sessionDirectories }, label);
 }
 
 /**
