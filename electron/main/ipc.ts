@@ -43,7 +43,9 @@ import { installGit } from "./services/setup";
 import {
   createRemoteRepository,
   deleteRemoteRepository,
+  loadCachedRemoteRepositories,
   loadRemoteRepositories,
+  loadRemoteRepositoryCacheMeta,
   resolveTokenUser,
   searchRemoteRepositories,
   toggleRepositoryInteraction,
@@ -51,10 +53,6 @@ import {
   updateRemoteRepository,
 } from "./services/providers";
 import { deleteAccount, loadAccounts, upsertAccount } from "./services/storage/accounts";
-import {
-  getRemoteRepositoryCacheMeta,
-  loadRemoteRepositoryCache,
-} from "./services/storage/remoteRepositoryCache";
 import { loadProjects, saveProjects } from "./services/storage/projects";
 import {
   createWorkspace,
@@ -76,9 +74,9 @@ import {
   listTaskProfiles,
   listTaskRuns,
   saveTaskProfile,
-  updateTaskRun,
 } from "./services/storage/tasks";
 import { getRunningTaskOutput, runTask, stopTask } from "./services/tasks";
+import { redactSecrets } from "./services/serviceUtils";
 import {
   checkForUpdates,
   downloadUpdate,
@@ -104,7 +102,6 @@ import {
   initRepositoryInputSchema,
   moveProjectInputSchema,
   openEditorInputSchema,
-  operationRecordSchema,
   parseOrThrow,
   projectsSchema,
   remoteRepositorySearchInputSchema,
@@ -115,7 +112,6 @@ import {
   setRemoteUrlInputSchema,
   switchBranchInputSchema,
   taskProfileSchema,
-  taskRunSchema,
 } from "./ipc/schemas";
 
 let cachedDownloadUrl = "";
@@ -282,13 +278,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("remoteRepositories:load", (_event, accountId: unknown) =>
     loadRemoteRepositories(requireString(accountId, "账号 ID")),
   );
-  ipcMain.handle(
-    "remoteRepositories:loadCached",
-    (_event, accountId: unknown) =>
-      loadRemoteRepositoryCache(requireString(accountId, "账号 ID")) ?? [],
+  ipcMain.handle("remoteRepositories:loadCached", (_event, accountId: unknown) =>
+    loadCachedRemoteRepositories(requireString(accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:cacheMeta", (_event, accountId: unknown) =>
-    getRemoteRepositoryCacheMeta(requireString(accountId, "账号 ID")),
+    loadRemoteRepositoryCacheMeta(requireString(accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:create", (_event, input: unknown) =>
     createRemoteRepository(parseOrThrow(remoteRepositoryWriteInputSchema, input, "远程仓库参数")),
@@ -338,10 +332,6 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("tasks:getRunningOutput", (_event, runId: unknown) =>
     getRunningTaskOutput(requireString(runId, "运行 ID")),
   );
-  ipcMain.handle("tasks:updateRun", (_event, run: unknown) => {
-    const validated = parseOrThrow(taskRunSchema, run, "任务运行记录");
-    updateTaskRun(validated);
-  });
 
   ipcMain.handle("backups:list", () => listBackups());
   ipcMain.handle("backups:create", (_event, input: unknown) =>
@@ -356,9 +346,6 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("operations:export", (_event, directory: unknown) =>
     exportOperationRecords(requireString(directory, "导出目录")),
   );
-  ipcMain.handle("operations:record", (_event, record: unknown) => {
-    insertOperationRecord(parseOrThrow(operationRecordSchema, record, "操作记录"));
-  });
 
   ipcMain.handle("settings:load", () => loadSettings());
   ipcMain.handle("settings:save", (_event, settings: unknown) => {
@@ -406,11 +393,13 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle("updater:install", async (_event, filePath: unknown) => {
     const installerPath = requireString(filePath, "安装包路径");
-    // 该入参最终会被 cmd start 执行，必须限制在下载目录内且为 exe。
+    // 该入参最终由 spawn 直接执行（已移除 cmd 链路），必须限制在下载目录内且命中文件名白名单。
     if (!isTrustedInstallerPath(installerPath)) {
       throw new Error("安装包路径不受信任，已拒绝执行");
     }
-    installUpdate(installerPath);
+    // 必须 return：installUpdate 启动失败时是 reject 而不是 throw，
+    // 不返回这个 Promise，错误只会在主进程内部变成一条日志，渲染层收不到任何反馈
+    return installUpdate(installerPath);
   });
 }
 
@@ -453,7 +442,9 @@ function recordOperation(
       // 恒为空串会让归组永远失效（2026-11-07 审查 P2-21）
       projectId: resolveProjectIdByPath(path),
       projectPath: path,
-      detail: detail.slice(0, 500),
+      // 脱敏必须在截断之前：令牌被切到只剩一小段时可能不再满足前缀+长串的形态，
+      // 先整体替换成 *** 再截 500 字，才不会在库/界面里留下半截凭据（审查 A-03）
+      detail: redactSecrets(detail).slice(0, 500),
       result,
       createdAt: new Date().toISOString(),
     });

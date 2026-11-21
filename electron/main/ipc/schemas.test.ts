@@ -4,34 +4,11 @@ import {
   appSettingsSchema,
   createBranchInputSchema,
   gitOperationSchema,
-  operationRecordSchema,
   parseOrThrow,
   projectSchema,
   taskProfileSchema,
   remoteRepositoryWriteInputSchema,
 } from "./schemas";
-
-describe("operationRecordSchema", () => {
-  it("非法 result 抛错而不是静默美化成 ok", () => {
-    // 关键回归（2026-11-07 审查 P2-9）：审计字段失真比拒绝写入更糟
-    expect(() =>
-      operationRecordSchema.parse({
-        id: "op-1",
-        operation: "pull",
-        result: "bogus",
-        createdAt: "2026-01-01T00:00:00Z",
-      }),
-    ).toThrow();
-    expect(
-      operationRecordSchema.parse({
-        id: "op-1",
-        operation: "pull",
-        result: "ok",
-        createdAt: "2026-01-01T00:00:00Z",
-      }).result,
-    ).toBe("ok");
-  });
-});
 
 describe("aiSecretSchema", () => {
   it("空值与超长值拒绝", () => {

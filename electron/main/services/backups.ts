@@ -10,6 +10,26 @@ import { assertDirectory as assertDirectoryShared, errorMessage } from "./servic
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 64 * 1024 * 1024;
 
+/**
+ * 备份必须排除的 git 配置文件（相对备份根目录）。
+ *
+ * why：`.git/config` 里可能残留明文凭据（`url = https://user:token@host/...` 的
+ * 改写结果）以及 `includeIf` / `core.sshCommand` 指向的可执行 helper。备份包常被
+ * 复制到网盘、发给同事或上传工单，把这类文件一起打进去等于把凭据外发，
+ * 而备份本身只需要提交历史，不需要本机配置。
+ *
+ * 为什么同时写「带目录前缀」和「裸相对路径」两种形式：tar 在 Windows 上是
+ * bsdtar，`--exclude` 模式按成员全名匹配（成员名带被测目录名前缀，如
+ * `demo/.git/config`）；而 GNU tar 对含 `/` 的模式另有锚定规则。两种都列出，
+ * 才能保证在任一种实现下都真的排掉（多余的模式只是不匹配，不会报错）。
+ */
+const GIT_CONFIG_EXCLUDES = [
+  ".git/config",
+  ".git/config.worktree",
+  "*/.git/config",
+  "*/.git/config.worktree",
+] as const;
+
 export async function createBackup(input: BackupCreateInput): Promise<BackupRecord> {
   const now = new Date().toISOString();
   // 文件名必须精确到秒：曾只截取到日期，同一天对同一项目重复备份会静默覆盖前一个 zip，
@@ -41,6 +61,10 @@ export async function createBackup(input: BackupCreateInput): Promise<BackupReco
     // 不再硬编码排除 .git/*：README 承诺备份含提交历史，恢复后可直接导入。
     // 需要瘦身的用户可在「备份排除规则」里自行添加，规则完全交给用户配置。
     const args = ["-a", "-c", "-f", archivePath, "-C", parentDirectory];
+    // 安全排除项先于用户规则加入：用户把「备份排除规则」清空也不能把凭据配置带进包里
+    for (const pattern of GIT_CONFIG_EXCLUDES) {
+      args.push("--exclude", pattern);
+    }
     const patterns = settings.backupExcludePatterns
       .split(/[,\n;]/)
       .map((item) => item.trim())

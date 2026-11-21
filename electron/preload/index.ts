@@ -51,7 +51,11 @@ function cleanMessage(error: unknown): string {
   return message.replace(/^Error invoking remote method '[^']*':\s*/, "").replace(/^Error:\s*/, "");
 }
 
-const bridge: DesktopBridge = {
+/**
+ * bridge 之所以导出：契约一致性测试要拿它的键名与主进程 ipcMain 注册表做差集
+ * （审查 L-14 的死通道门禁）。导出不改变运行时暴露面——挂到 window 上的仍是下面这一个对象。
+ */
+export const bridge: DesktopBridge = {
   environment: () => invoke<EnvironmentStatus>("system:environment"),
   refreshEnvironment: () => invoke<EnvironmentStatus>("system:refreshEnvironment"),
   installGit: () => invoke<InstallGitResult>("system:installGit"),

@@ -1,4 +1,5 @@
 import type { OperationRecord } from "../../../shared/types";
+import { redactSecrets } from "./serviceUtils";
 
 /**
  * 操作记录导出为 CSV。
@@ -13,9 +14,13 @@ import type { OperationRecord } from "../../../shared/types";
  * 以 `= + - @` 开头的值前缀单引号：Excel/WSPS 会把它们当公式执行
  * （CSV 公式注入，detail 来自 git 输出与用户操作，不可信），
  * 前缀单引号是 Excel 官方认可的按文本呈现方案（2026-11-07 审查 P2-10）。
+ *
+ * 公式防护之后再过 redactSecrets：CSV 是会被外发/上传的产物，
+ * 历史 detail 里可能残留带凭据的远端地址与令牌（审查 A-03 的出口兜底）。
  */
 export function csvEscape(value: string): string {
-  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  const guarded = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  const safe = redactSecrets(guarded);
   return `"${safe.replaceAll('"', '""')}"`;
 }
 

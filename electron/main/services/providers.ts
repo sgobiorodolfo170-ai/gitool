@@ -10,6 +10,7 @@ import { readCredential } from "./credentials";
 import { errorMessage } from "./serviceUtils";
 import { getAccount, loadAccounts, updateAccount } from "./storage/accounts";
 import {
+  getRemoteRepositoryCacheMeta,
   loadRemoteRepositoryCache,
   saveRemoteRepositoryCache,
 } from "./storage/remoteRepositoryCache";
@@ -156,6 +157,17 @@ export async function loadRemoteRepositories(accountId: string): Promise<RemoteR
 
 export async function loadCachedRemoteRepositories(accountId: string): Promise<RemoteRepository[]> {
   return loadRemoteRepositoryCache(accountId) ?? [];
+}
+
+/**
+ * 缓存元信息（上次同步时间）。
+ *
+ * why 放在这里：ipc 层不应直接 import `storage/remoteRepositoryCache`（审查 L-14/D-03）。
+ * 仓库列表与它的元信息属于同一个缓存入口，必须由服务层统一暴露，
+ * 否则「读缓存走服务层、读缓存时间走 storage」的半吊子分层会把先例重新打开。
+ */
+export function loadRemoteRepositoryCacheMeta(accountId: string): { syncedAt: string } | null {
+  return getRemoteRepositoryCacheMeta(accountId);
 }
 
 async function fetchRemoteRepositories(

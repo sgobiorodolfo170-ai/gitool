@@ -46,7 +46,11 @@ import type {
 import { readCredential } from "./credentials";
 import { mapLimit } from "./concurrency";
 import { killProcessTree, registerProcessStopper } from "./processCleanup";
-import { assertDirectory as assertDirectoryShared, errorMessage } from "./serviceUtils";
+import {
+  assertDirectory as assertDirectoryShared,
+  errorMessage,
+  redactSecrets,
+} from "./serviceUtils";
 import { notifyRenderer } from "./events";
 import {
   bracketValue,
@@ -68,6 +72,52 @@ import { loadSettings } from "./storage/settings";
 
 const execFileAsync = promisify(execFile);
 const MAX_BUFFER = 10 * 1024 * 1024;
+
+/**
+ * 克隆凭据的注入键名：用进程级环境变量而不是 `git clone --config`。
+ *
+ * why 不用 `--config`：`--config credential.helper=...` 的键值会被 git 写进目标仓库的
+ * `.git/config`，等于把一段可执行 shell 脚本随仓库一起落盘/分享（A-04 / SEC-06）。
+ * `GIT_CONFIG_COUNT` + `GIT_CONFIG_KEY_<n>` + `GIT_CONFIG_VALUE_<n>` 是 git 2.31+
+ * 的进程级配置注入：只在本次 git 进程内生效，不写入任何配置文件。
+ *
+ * why 必须先清空再注入（F-01）：`credential.helper` 在 git 里是 multivar（多值累加），
+ * `GIT_CONFIG_*` 注入的条目是**追加到链尾**。Windows 默认安装的系统级配置
+ * `C:/Program Files/Git/etc/gitconfig` 带 `credential.helper=manager`，于是 GCM 稳居链首：
+ * 私有 HTTPS 仓库克隆会先唤起 GCM，弹窗或长时间挂起（实测仅注入脚本时
+ * `git credential fill` 10s 不返回），而 `GIT_TERMINAL_PROMPT=0` 只抑制 git 自身的
+ * 终端提示，抑制不了 GCM，且 GCM 里已有的凭据会顶掉用户所选账号的 token。
+ * 因此第 0 条注入空值把继承来的 helper 列表整个重置，第 1 条再注入我们的脚本
+ * （实测重置后 92ms 即返回注入的凭据）。
+ *
+ * why 不用命令行的 `-c credential.helper=`：实测它与 env 注入同处「命令行层」，
+ * 空值会把同层的注入脚本一并清掉，git 退化为终端提示并失败（exit 128）。
+ *
+ * why 不做静默降级：git < 2.31 不认识这组变量，鉴权会失败；此处刻意让失败暴露，
+ * 而不是回退到 `--config`——回退等于把「凭据落盘」这个漏洞重新打开。
+ */
+const GIT_CONFIG_COUNT_ENV = "GIT_CONFIG_COUNT";
+const GIT_CONFIG_KEY_0_ENV = "GIT_CONFIG_KEY_0";
+const GIT_CONFIG_VALUE_0_ENV = "GIT_CONFIG_VALUE_0";
+const GIT_CONFIG_KEY_1_ENV = "GIT_CONFIG_KEY_1";
+const GIT_CONFIG_VALUE_1_ENV = "GIT_CONFIG_VALUE_1";
+/** 注入的配置条目数量，必须与下面用到的 `*_KEY_<n>` / `*_VALUE_<n>` 对数一致。 */
+const INJECTED_CONFIG_COUNT = "2";
+const CREDENTIAL_HELPER_CONFIG_KEY = "credential.helper";
+/** 空值条目：multivar 语义下空字符串会重置整条 helper 列表（git 文档 credential.helper）。 */
+const CREDENTIAL_HELPER_RESET_VALUE = "";
+
+/**
+ * credential helper 脚本：从环境变量取 token 后从 stdout 交给 git。
+ *
+ * `$GITOOL_ASKPASS_TOKEN` 必须保持字面量（单引号 JS 字符串），由 git 调起的 shell
+ * 在运行时展开——脚本本身与 git 命令行都不含明文 token（命令行会出现在进程列表里）。
+ */
+const CREDENTIAL_HELPER_SCRIPT =
+  '!f() { echo username=x-access-token; echo password="$GITOOL_ASKPASS_TOKEN"; }; f';
+const ASKPASS_TOKEN_ENV = "GITOOL_ASKPASS_TOKEN";
+const TERMINAL_PROMPT_ENV = "GIT_TERMINAL_PROMPT";
+const TERMINAL_PROMPT_OFF = "0";
 
 // 解析当前应使用的 git 可执行文件路径：优先使用 settings.gitPath，
 // 为空时回退到系统 PATH 中的 "git"。
@@ -191,6 +241,8 @@ export async function setRemoteUrl(input: SetRemoteUrlInput): Promise<void> {
   if (url.startsWith("-")) {
     throw new Error("远程地址不能以 - 开头");
   }
+  // 内嵌凭据会被 git 写入 .git/config，并随错误输出/日志外泄（A-03）
+  assertNoCredentialInUrl(url, "远程地址");
   const remotesOutput = await runGit(input.path, ["remote"]).catch(() => "");
   const hasRemote = remotesOutput.split(/\r?\n/).includes(remote);
   const result = hasRemote
@@ -634,10 +686,6 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
   if (input.accountId) {
     const account = getAccount(input.accountId);
     token = readCredential(account.credentialRef);
-    args.push(
-      "--config",
-      'credential.helper=!f() { echo username=x-access-token; echo password="$GITOOL_ASKPASS_TOKEN"; }; f',
-    );
   }
   // `--` 隔离选项：URL 形如 `-xxx` 时不会被 git 当选项解析
   args.push("--", url, targetPath);
@@ -650,18 +698,24 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
     done: boolean,
     success: boolean,
   ) => {
-    notifyRenderer("git:cloneProgress", { runId, percent, phase, output, done, success });
+    // 进度文本来自 git 的 stderr/远程响应，可能夹带内嵌凭据的 URL，
+    // 统一在推给渲染层前脱敏（真实执行参数不受影响）。
+    notifyRenderer("git:cloneProgress", {
+      runId,
+      percent,
+      phase,
+      output: redactCloneOutput(output),
+      done,
+      success,
+    });
   };
 
   return new Promise<CloneRepositoryResult>((resolve) => {
     const child = spawn(getActiveGitBinary(), args, {
       cwd: dirname(targetPath),
       windowsHide: true,
-      env: {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-        GITOOL_ASKPASS_TOKEN: token,
-      },
+      // 凭据只经环境变量进入子进程：不进命令行（进程列表可见），也不进仓库配置
+      env: { ...process.env, ...buildCredentialEnv(token) },
     });
     let accumulated = "";
     // 应用退出时的统一回收：克隆是长生命周期子进程，退出前杀掉整棵进程树，
@@ -693,22 +747,83 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
       if (existsSync(targetPath)) {
         rmSync(targetPath, { recursive: true, force: true });
       }
-      resolve({ success: false, output: error.message, path: targetPath });
+      resolve({ success: false, output: redactCloneOutput(error.message), path: targetPath });
     });
     child.on("close", (code) => {
       unregisterStopper();
       if (code === 0) {
         emitProgress(100, "完成", "克隆完成。", true, true);
-        resolve({ success: true, output: "克隆完成。", path: targetPath });
+        resolve({ success: true, output: redactCloneOutput("克隆完成。"), path: targetPath });
       } else {
         emitProgress(100, "失败", accumulated.slice(-400), true, false);
         if (existsSync(targetPath)) {
           rmSync(targetPath, { recursive: true, force: true });
         }
-        resolve({ success: false, output: accumulated.trim() || "克隆失败", path: targetPath });
+        resolve({
+          success: false,
+          output: redactCloneOutput(accumulated.trim() || "克隆失败"),
+          path: targetPath,
+        });
       }
     });
   });
+}
+
+/**
+ * 构造克隆子进程的凭据相关环境变量。
+ *
+ * token 单独走 `GITOOL_ASKPASS_TOKEN`，helper 脚本从该变量读取，脚本与命令行都不含明文；
+ * 配置项经 `GIT_CONFIG_*` 只在进程内注入：第 0 条空值重置继承来的 helper 列表
+ * （Windows 系统级 `manager` 必须清掉，见上方 F-01 说明），第 1 条注入我们的脚本。
+ * 无 token 时不注入这两条，避免给匿名克隆挂一个没有 token 的 helper。
+ *
+ * 导出供单测直接复刻真实子进程环境（`git credential fill` 走完整 helper 链路）。
+ */
+export function buildCredentialEnv(token: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    [TERMINAL_PROMPT_ENV]: TERMINAL_PROMPT_OFF,
+    [ASKPASS_TOKEN_ENV]: token,
+  };
+  if (token.length > 0) {
+    env[GIT_CONFIG_COUNT_ENV] = INJECTED_CONFIG_COUNT;
+    env[GIT_CONFIG_KEY_0_ENV] = CREDENTIAL_HELPER_CONFIG_KEY;
+    env[GIT_CONFIG_VALUE_0_ENV] = CREDENTIAL_HELPER_RESET_VALUE;
+    env[GIT_CONFIG_KEY_1_ENV] = CREDENTIAL_HELPER_CONFIG_KEY;
+    env[GIT_CONFIG_VALUE_1_ENV] = CREDENTIAL_HELPER_SCRIPT;
+  }
+  return env;
+}
+
+/**
+ * 克隆域「面向渲染层」文本的唯一出口：统一脱敏。
+ *
+ * why：克隆进度与失败信息会把 git 的原始 stderr / 远程地址原样带回渲染层，
+ * 一旦 URL 内嵌令牌或远端回显令牌，就会进入界面与日志。脱敏只改写要展示的文本，
+ * 不影响真正用于执行命令的参数。导出供单测锁定「所有克隆出口都经过此函数」。
+ */
+export function redactCloneOutput(text: string): string {
+  return redactSecrets(text);
+}
+
+/**
+ * 拒绝 URL 中内嵌的凭据（`scheme://user:pass@host`）。
+ *
+ * why：内嵌凭据的 URL 会被 git 写入 `.git/config` 的 remote 行，并随错误输出、
+ * 操作日志与截图外泄；正确做法是使用凭据存储/令牌选择器。
+ * 解析失败时不在本函数报错——格式白名单由调用方负责，保持其原有错误语义。
+ */
+export function assertNoCredentialInUrl(url: string, label: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  if (parsed.username.length > 0 || parsed.password.length > 0) {
+    throw new Error(
+      `${label}不能包含内嵌的账号或令牌，请改用账号凭据或令牌选择器，不要把 token 写进地址`,
+    );
+  }
 }
 
 function assertCloneUrl(url: string): void {
@@ -721,6 +836,8 @@ function assertCloneUrl(url: string): void {
   if (url.startsWith("-")) {
     throw new Error("克隆地址不能以 - 开头");
   }
+  // 克隆成功后 git 会把该 URL 写进 .git/config 的 remote，必须先拦住内嵌凭据
+  assertNoCredentialInUrl(url, "克隆地址");
 }
 
 function assertCloneTarget(targetPath: string): void {

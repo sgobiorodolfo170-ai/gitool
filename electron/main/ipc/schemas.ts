@@ -17,7 +17,6 @@ import type {
   InitRepositoryInput,
   MoveProjectInput,
   OpenEditorInput,
-  OperationRecord,
   Project,
   RemoteRepositorySearchInput,
   RemoteRepositoryWriteInput,
@@ -27,7 +26,6 @@ import type {
   SetRemoteUrlInput,
   SwitchBranchInput,
   TaskProfile,
-  TaskRun,
 } from "../../../shared/types";
 
 /**
@@ -125,21 +123,6 @@ export const taskProfileSchema = z.object({
   createdAt: requiredString("创建时间"),
 }) satisfies z.ZodType<TaskProfile>;
 
-export const taskRunSchema = z.object({
-  id: requiredString("运行 ID"),
-  profileId: looseString(),
-  projectId: looseString(),
-  name: looseString(),
-  command: looseString(),
-  startedAt: requiredString("开始时间"),
-  finishedAt: z.string().optional().catch(undefined),
-  status: z.enum(["running", "succeeded", "failed", "stopped", "timedout"], {
-    message: "任务状态无效",
-  }),
-  exitCode: z.number().optional().catch(undefined),
-  output: looseString(),
-}) satisfies z.ZodType<TaskRun>;
-
 export const backupCreateInputSchema = z.object({
   projectId: requiredString("项目 ID"),
   projectName: requiredString("项目名称"),
@@ -151,18 +134,6 @@ export const backupRestoreInputSchema = z.object({
   archivePath: requiredString("备份文件"),
   targetDirectory: requiredString("恢复目录"),
 }) satisfies z.ZodType<BackupRestoreInput>;
-
-export const operationRecordSchema = z.object({
-  id: requiredString("记录 ID"),
-  operation: requiredString("操作类型"),
-  projectId: looseString(),
-  projectPath: looseString(),
-  detail: looseString(),
-  // 审计字段不能美化：非法结果静默改成 ok 会让操作日志失真
-  // （区别于 status/favorite 等派生展示值，那些用 .catch() 兜底是合理的）
-  result: z.enum(["ok", "failed"], { message: "操作结果只能是 ok 或 failed" }),
-  createdAt: requiredString("记录时间"),
-}) satisfies z.ZodType<OperationRecord>;
 
 /** AI API Key：密钥类入参必须有长度上限，防止把任意大文本塞进凭据管理器。 */
 export const aiSecretSchema = requiredString("AI API Key").refine(
