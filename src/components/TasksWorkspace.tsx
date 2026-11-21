@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ListTodo } from "lucide-react";
 import type { DetectedCommand, Project, TaskProfile, TaskRun } from "../types";
+import { createTaskProfile } from "../../shared/entities";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { TaskForm, type TaskDraft } from "./tasks/TaskForm";
@@ -157,7 +158,7 @@ export function TasksWorkspace({
     if (!bridge || !draft.projectId || !draft.command) return;
     const now = new Date().toISOString();
     const taskName = editing ? draft.name : generateTaskName(draft.projectId);
-    const profile: TaskProfile = {
+    const profile: TaskProfile = createTaskProfile({
       id: editing?.id ?? `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       projectId: draft.projectId,
       projectPath: projects.find((project) => project.id === draft.projectId)?.path ?? "",
@@ -168,7 +169,7 @@ export function TasksWorkspace({
       workingDirectory: projects.find((project) => project.id === draft.projectId)?.path ?? "",
       timeoutSeconds: draft.timeoutSeconds,
       createdAt: editing?.createdAt ?? now,
-    };
+    });
     try {
       await bridge.saveTaskProfile(profile);
       onNotice("任务已保存");

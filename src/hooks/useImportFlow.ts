@@ -1,5 +1,17 @@
 import { useCallback, useState } from "react";
 import type { GitSnapshot, Project, RepositoryDiscoveryItem } from "../../shared/types";
+import {
+  IMPORTED_SUMMARY,
+  INITIALIZED_LABEL,
+  INITIALIZED_SUMMARY,
+  JUST_NOW_LABEL,
+  NO_COMMIT_LABEL,
+  PENDING_ANALYSIS_LABEL,
+  PENDING_SCAN_LABEL,
+  SCANNED_SUMMARY,
+  UNSCANNED_COMMIT_LABEL,
+  createProject,
+} from "../../shared/entities";
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { projectFromSnapshot } from "../lib/projectMatch";
 import { LAST_IMPORT_DIRECTORY_KEY } from "../lib/storageKeys";
@@ -64,24 +76,18 @@ export function useImportFlow(params: ImportFlowParams): ImportFlowApi {
         diskSizeBytes = await bridge.getDiskSize(path).catch(() => 0);
       }
 
-      const newProject: Project = {
+      const newProject: Project = createProject({
         id: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
         name: projectName,
         path,
-        provider: "local",
-        branch: "main",
-        status: "clean",
-        language: "待分析",
-        languageColor: "#8b97a8",
-        summary: "刚导入的本地项目，等待结构分析。",
-        updatedAt: "刚刚",
-        commit: "未扫描",
-        favorite: false,
+        commit: UNSCANNED_COMMIT_LABEL,
         tags: ["new"],
-        files: 0,
-        syncLabel: "待扫描",
+        syncLabel: PENDING_SCAN_LABEL,
+        language: PENDING_ANALYSIS_LABEL,
+        summary: IMPORTED_SUMMARY,
+        updatedAt: JUST_NOW_LABEL,
         diskSizeBytes,
-      };
+      });
       if (importedSnapshot) {
         Object.assign(newProject, projectFromSnapshot(newProject, importedSnapshot));
       }
@@ -129,24 +135,18 @@ export function useImportFlow(params: ImportFlowParams): ImportFlowApi {
       await bridge.initRepository({ path: targetPath });
       const inspected = await bridge.inspectProject(targetPath);
       const diskSizeBytes = await bridge.getDiskSize(targetPath).catch(() => 0);
-      const newProject: Project = {
+      const newProject: Project = createProject({
         id: `${projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
         name: inspected.name,
         path: targetPath,
-        provider: "local",
-        branch: "main",
-        status: "clean",
-        commit: "无提交",
-        favorite: false,
+        commit: NO_COMMIT_LABEL,
         tags: ["new"],
-        files: 0,
-        syncLabel: "已初始化",
-        language: "待分析",
-        languageColor: "#8b97a8",
-        summary: "刚初始化的新 Git 仓库。",
-        updatedAt: "刚刚",
+        syncLabel: INITIALIZED_LABEL,
+        language: PENDING_ANALYSIS_LABEL,
+        summary: INITIALIZED_SUMMARY,
+        updatedAt: JUST_NOW_LABEL,
         diskSizeBytes,
-      };
+      });
       addProjects([newProject]);
       onImported(newProject.id);
       onNotice("新 Git 仓库初始化完成");
@@ -173,24 +173,25 @@ export function useImportFlow(params: ImportFlowParams): ImportFlowApi {
           const inspected = await bridge.inspectProject(item.path);
           const snapshot = inspected.snapshot;
           const diskSizeBytes = await bridge.getDiskSize(item.path).catch(() => 0);
-          newProjects.push({
-            id: `${item.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            name: inspected.name,
-            path: item.path,
-            provider: "local",
-            branch: snapshot?.branch ?? "main",
-            status: snapshot?.status ?? "clean",
-            commit: snapshot?.commit ?? "未扫描",
-            favorite: false,
-            tags: ["new"],
-            files: snapshot?.files ?? 0,
-            syncLabel: snapshot?.sync_label ?? "待扫描",
-            language: "待分析",
-            languageColor: "#8b97a8",
-            summary: "批量扫描导入的本地项目。",
-            updatedAt: snapshot?.updated_at ?? "刚刚",
-            diskSizeBytes,
-          });
+          newProjects.push(
+            createProject({
+              id: `${item.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              name: inspected.name,
+              path: item.path,
+              // 快照缺字段时退回「待扫描」侧默认值（main / clean / 未扫描 / 刚刚），
+              // 与改造前 `snapshot?.x ?? 字面量` 逐字段一致。
+              branch: snapshot?.branch,
+              status: snapshot?.status,
+              commit: snapshot?.commit ?? UNSCANNED_COMMIT_LABEL,
+              tags: ["new"],
+              files: snapshot?.files,
+              syncLabel: snapshot?.sync_label ?? PENDING_SCAN_LABEL,
+              language: PENDING_ANALYSIS_LABEL,
+              summary: SCANNED_SUMMARY,
+              updatedAt: snapshot?.updated_at ?? JUST_NOW_LABEL,
+              diskSizeBytes,
+            }),
+          );
           existingPaths.add(item.path.toLowerCase());
           imported += 1;
         }

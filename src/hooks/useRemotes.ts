@@ -1,5 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Project, RemoteRepository } from "../../shared/types";
+import {
+  CLONED_LABEL,
+  CLONED_SUMMARY,
+  DEFAULT_PROJECT_BRANCH,
+  JUST_NOW_LABEL,
+  PENDING_ANALYSIS_LABEL,
+  REMOTE_FAVORITE_SUMMARY,
+  REMOTE_WATCH_SUMMARY,
+  UNCLONED_LABEL,
+  UNSCANNED_COMMIT_LABEL,
+  WATCHED_LABEL,
+  createProject,
+} from "../../shared/entities";
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { remoteProjectMatch } from "../lib/projectMatch";
 import { LAST_IMPORT_DIRECTORY_KEY } from "../lib/storageKeys";
@@ -170,25 +183,23 @@ export function useRemotes(params: RemotesParams): RemotesApi {
         }
       } else {
         const now = new Date().toISOString();
-        const favoriteProject: Project = {
+        // 默认值（status clean / files 0 / languageColor / diskSizeBytes）由工厂补全，
+        // 这里只保留与收藏占位语义相关的字段；逐字段与原字面量等价。
+        const favoriteProject: Project = createProject({
           id: `fav:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
           name: repository.name,
           path: "",
           provider: repository.provider,
-          branch: repository.defaultBranch || "main",
-          status: "clean",
-          commit: "未克隆",
+          branch: repository.defaultBranch || DEFAULT_PROJECT_BRANCH,
+          commit: UNCLONED_LABEL,
           favorite: true,
           tags: ["remote", "favorite"],
-          files: 0,
-          syncLabel: "未克隆",
-          language: "未克隆",
-          languageColor: "#8b97a8",
-          summary: repository.description || "远程收藏项目，尚未克隆到本地。",
+          syncLabel: UNCLONED_LABEL,
+          language: UNCLONED_LABEL,
+          summary: repository.description || REMOTE_FAVORITE_SUMMARY,
           updatedAt: now,
-          diskSizeBytes: 0,
           webUrl: repository.webUrl,
-        };
+        });
         updateProjects((prev) => [favoriteProject, ...prev]);
         rollback = () =>
           updateProjects((prev) => prev.filter((project) => project.id !== favoriteProject.id));
@@ -242,25 +253,20 @@ export function useRemotes(params: RemotesParams): RemotesApi {
         }
       } else {
         const now = new Date().toISOString();
-        const watchedProject: Project = {
+        const watchedProject: Project = createProject({
           id: `watch:${repository.provider}:${repository.fullName.replace(/[^a-zA-Z0-9_.-]+/g, "-")}`,
           name: repository.name,
           path: "",
           provider: repository.provider,
-          branch: repository.defaultBranch || "main",
-          status: "clean",
-          commit: "未克隆",
-          favorite: false,
+          branch: repository.defaultBranch || DEFAULT_PROJECT_BRANCH,
+          commit: UNCLONED_LABEL,
           tags: ["remote", "watching"],
-          files: 0,
-          syncLabel: "已关注",
-          language: "未克隆",
-          languageColor: "#8b97a8",
-          summary: repository.description || "远程关注项目，尚未克隆到本地。",
+          syncLabel: WATCHED_LABEL,
+          language: UNCLONED_LABEL,
+          summary: repository.description || REMOTE_WATCH_SUMMARY,
           updatedAt: now,
-          diskSizeBytes: 0,
           webUrl: repository.webUrl,
-        };
+        });
         updateProjects((prev) => [watchedProject, ...prev]);
         rollback = () =>
           updateProjects((prev) => prev.filter((project) => project.id !== watchedProject.id));
@@ -312,25 +318,25 @@ export function useRemotes(params: RemotesParams): RemotesApi {
         const diskSizeBytes = await bridge.getDiskSize(targetPath).catch(() => 0);
         window.localStorage.setItem(LAST_IMPORT_DIRECTORY_KEY, parentDirectory);
 
-        const newProject: Project = {
+        const newProject: Project = createProject({
           id: `${repository.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`,
           name: inspected.name,
           path: targetPath,
           provider: repository.provider,
           branch: snapshot?.branch ?? repository.defaultBranch,
-          status: snapshot?.status ?? "clean",
-          commit: snapshot?.commit ?? "未扫描",
-          favorite: false,
+          // 快照缺字段时退回「未克隆」侧的默认值（clean / 未扫描 / 已克隆 / 刚刚），
+          // 与改造前逐字段字面量一致。
+          status: snapshot?.status,
+          commit: snapshot?.commit ?? UNSCANNED_COMMIT_LABEL,
           tags: ["cloned"],
-          files: snapshot?.files ?? 0,
-          syncLabel: snapshot?.sync_label ?? "已克隆",
-          language: "待分析",
-          languageColor: "#8b97a8",
-          summary: repository.description || "从远程平台克隆的项目。",
-          updatedAt: snapshot?.updated_at ?? "刚刚",
+          files: snapshot?.files,
+          syncLabel: snapshot?.sync_label ?? CLONED_LABEL,
+          language: PENDING_ANALYSIS_LABEL,
+          summary: repository.description || CLONED_SUMMARY,
+          updatedAt: snapshot?.updated_at ?? JUST_NOW_LABEL,
           diskSizeBytes,
           webUrl: repository.webUrl,
-        };
+        });
 
         // 如果之前收藏过这个远程仓库，克隆后用真实项目替换掉那条占位记录
         const favoriteStub = getProjects().find(

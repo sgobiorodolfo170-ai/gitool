@@ -61,3 +61,4 @@
 | v0.8.3 | 2026-11-21 | storage 表所有权收口：accounts 级联清缓存与 workspaces 项目计数改走 owner 模块 API（A-32）|
 | v0.8.4 | 2026-11-21 | 拆分 git.ts（1136 行）为 git/ 12 个模块 + 31 个参数拼装纯函数与 42 条参数断言（A-23）|
 | v0.8.5 | 2026-11-21 | ipc 编排下沉（operations.ts + projects.findByPath + path 索引）、任务生命周期单点、src/lib 零依赖测试 49 例、bridge null 归一（A-21/A-22/A-24 第一阶段）|
+| v0.8.6 | 2026-11-21 | 实体工厂单点化（P0）+ schema 业务字段不再静默兜底、路径策略与 32 通道白名单、projects:save 登记门与增量校验（A-15/A-11）|

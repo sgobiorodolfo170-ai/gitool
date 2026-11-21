@@ -27,6 +27,11 @@ import type {
   SwitchBranchInput,
   TaskProfile,
 } from "../../../shared/types";
+import {
+  DEFAULT_LANGUAGE_COLOR,
+  DEFAULT_TASK_ARGS,
+  DEFAULT_TASK_TIMEOUT_SECONDS,
+} from "../../../shared/entities";
 
 /**
  * IPC 入参 schema。
@@ -37,6 +42,13 @@ import type {
  *
  * 之所以大量用 `.catch()` 而不是 `.default()`：`.default()` 只在值为 `undefined` 时生效，
  * 类型错误仍会抛；而原实现是「类型不对就给默认值」。要保行为一致必须用 `.catch()`。
+ *
+ * ⚠ 例外（P-02 / A-15）：**实体 schema（projectSchema / taskProfileSchema）已收窄**。
+ * 这两个 schema 守的是「落库写入」边界，若对业务字段（id/name/path/provider/status/
+ * favorite/tags/taskType…）继续 `.catch()`，字段漂移会被静默改写成默认值（脏工作区
+ * 落库成 clean、语言色/超时被替换），结果是「看似成功」的错误数据且没有任何告警。
+ * 现在业务字段非法即报错；只对**可再生的派生展示字段**（快照/磁盘扫描会重算的
+ * files / diskSizeBytes / branch / commit / languageColor 等）保留兜底，用于容错旧数据。
  */
 
 /** 必填字符串：非空且不是纯空白，返回原值（不 trim，与原 requireString 一致）。 */
@@ -117,9 +129,13 @@ export const taskProfileSchema = z.object({
   taskType: z.enum(["build", "run", "package", "deploy"], { message: "任务类型无效" }),
   name: requiredString("任务名称"),
   command: requiredString("命令"),
-  args: looseString(),
+  // 参数会原样拼进子进程命令行：缺省就是「无附加参数」，类型漂移必须报错，
+  // 不能像展示字段那样静默替换成空串。
+  args: z.string().default(DEFAULT_TASK_ARGS),
   workingDirectory: requiredString("任务工作目录"),
-  timeoutSeconds: z.number().catch(0),
+  // 0 = 不限制超时（services/tasks.ts 只在 >0 时注册定时器）。只对「缺省」兜底，
+  // 类型错误若静默变 0，有界任务会变成无界。
+  timeoutSeconds: z.number().default(DEFAULT_TASK_TIMEOUT_SECONDS),
   createdAt: requiredString("创建时间"),
 }) satisfies z.ZodType<TaskProfile>;
 
@@ -136,10 +152,9 @@ export const backupRestoreInputSchema = z.object({
 }) satisfies z.ZodType<BackupRestoreInput>;
 
 /** AI API Key：密钥类入参必须有长度上限，防止把任意大文本塞进凭据管理器。 */
-export const aiSecretSchema = requiredString("AI API Key").refine(
-  (value) => value.length <= 4096,
-  { message: "AI API Key 过长（最多 4096 字符）" },
-) satisfies z.ZodType<string>;
+export const aiSecretSchema = requiredString("AI API Key").refine((value) => value.length <= 4096, {
+  message: "AI API Key 过长（最多 4096 字符）",
+}) satisfies z.ZodType<string>;
 
 /** 同步类 Git 操作。刻意不含 revert——撤销提交走独立通道，需要 commit hash。 */
 export const gitOperationSchema = z.enum(["fetch", "pull", "push", "sync"], {
@@ -151,17 +166,23 @@ export const projectSchema = z.object({
   name: requiredString("项目名称"),
   path: requiredString("项目路径"),
   provider: z.enum(["local", "github", "gitee", "gitlab"], { message: "项目的平台无效" }),
+  // 以下字符串/数字是快照与结构分析会重算的派生展示字段：旧数据缺失或类型不符时
+  // 退回默认值只是容错展示，不影响项目身份，下一次扫描会被真实值覆盖。
   branch: looseString(),
-  // 非法状态退回 clean：项目状态是派生值，不值得为它拒绝整条记录
-  status: z.enum(["clean", "dirty", "ahead", "behind", "conflicted"]).catch("clean"),
+  // 状态不是可再生展示字段：静默退回 clean 会把「有冲突/有改动」写成「干净」，
+  // 用户据此判断可否安全操作，属于数据损坏（P-02），因此非法值直接报错。
+  status: z.enum(["clean", "dirty", "ahead", "behind", "conflicted"], { message: "项目状态无效" }),
   commit: looseString(),
-  favorite: z.boolean().catch(false),
-  tags: z.array(z.string()).catch([]),
+  // 收藏与标签是用户数据（watching/favorite 驱动 UI 判定）：缺省给默认值，
+  // 但类型/内容非法必须报错，不能整组清空。
+  favorite: z.boolean().default(false),
+  tags: z.array(z.string()).default([]),
+  // 远程名是可选元数据，坏值退化为「未配置远程」不影响项目身份（保留容错）。
   remote: z.string().optional().catch(undefined),
   files: z.number().catch(0),
   syncLabel: looseString(),
   language: looseString(),
-  languageColor: looseString("#8b97a8"),
+  languageColor: looseString(DEFAULT_LANGUAGE_COLOR),
   summary: looseString(),
   updatedAt: looseString(),
   diskSizeBytes: z.number().catch(0),

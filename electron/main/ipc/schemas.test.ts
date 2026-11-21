@@ -94,9 +94,9 @@ describe("gitOperationSchema", () => {
 });
 
 describe("projectSchema", () => {
-  const base = { id: "p1", name: "demo", path: "C:\\a", provider: "local" };
+  const base = { id: "p1", name: "demo", path: "C:\\a", provider: "local", status: "clean" };
 
-  it("最小字段即可通过，其余用默认值补齐", () => {
+  it("身份与状态字段齐备即可通过，派生展示字段用默认值补齐", () => {
     const parsed = projectSchema.parse(base);
     expect(parsed.branch).toBe("");
     expect(parsed.status).toBe("clean");
@@ -106,12 +106,14 @@ describe("projectSchema", () => {
     expect(parsed.diskSizeBytes).toBe(0);
   });
 
-  it("非法状态退回 clean 而不是拒绝整条记录", () => {
-    expect(projectSchema.parse({ ...base, status: "weird" }).status).toBe("clean");
+  it("非法状态直接报错，不再静默改写为 clean（P-02 / A-15 收窄）", () => {
+    // 旧行为是 .catch("clean")：脏工作区/冲突会被落库成 clean，导致用户误判可安全操作。
+    expect(() => projectSchema.parse({ ...base, status: "weird" })).toThrow("项目状态无效");
   });
 
-  it("tags 里的非字符串项被整体兜底为空数组", () => {
-    expect(projectSchema.parse({ ...base, tags: [1, 2] }).tags).toEqual([]);
+  it("tags 里的非字符串项直接报错，不再整组清空", () => {
+    // 标签里的 watching/favorite 驱动 UI 判定，静默清空等于丢用户数据。
+    expect(() => projectSchema.parse({ ...base, tags: [1, 2] })).toThrow();
   });
 
   it("alias / webUrl 的空白串归一为 undefined", () => {
