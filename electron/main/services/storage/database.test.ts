@@ -67,6 +67,16 @@ describe("数据库连接注入", () => {
     };
     expect(row).toEqual({ id: "default", name: "个人工作区" });
   });
+
+  it("建索引：projects(path) 命中 idx_projects_path，路径反查不再全表扫描", () => {
+    initDatabase(dataDir);
+    // PRAGMA index_list 的行里索引名在 name 列（sqlite 不保证唯一列名形态，
+    // 这里只取 name 做包含断言，不绑定顺序与其它列）
+    const rows = openDatabase().prepare("PRAGMA index_list('projects')").all() as unknown as Array<{
+      name: string;
+    }>;
+    expect(rows.map((row) => row.name)).toContain("idx_projects_path");
+  });
 });
 
 describe("老库迁移（path UNIQUE 约束重建）", () => {

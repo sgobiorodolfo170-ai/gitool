@@ -3,7 +3,11 @@ import { existsSync, statSync } from "node:fs";
 import type { TaskRun } from "../../../shared/types";
 import { quoteWindowsArg, splitCommandLine } from "./commandLine";
 import { killProcessTree, registerProcessStopper } from "./processCleanup";
-import { getTaskProfile, updateTaskRun } from "./storage/tasks";
+import { errorMessage } from "./serviceUtils";
+import { getTaskProfile, insertTaskRun, updateTaskRun } from "./storage/tasks";
+
+/** 子进程输出保留上限：只留最近 256KB，避免长跑任务把主进程内存吃满。 */
+const MAX_OUTPUT_LENGTH = 256 * 1024;
 
 const runningTasks = new Map<string, { process: ReturnType<typeof spawn>; output: () => string }>();
 
@@ -29,6 +33,13 @@ export async function runTask(profileId: string): Promise<TaskRun> {
     output: "",
   };
 
+  // why 先落库再 spawn（A-22 单点生命周期）：旧实现由 IPC 在 runTask 返回后才 insert，
+  // 而 spawn 已经在 runTask 内启动——进程若瞬间结束，close 回调的 UPDATE 会打到
+  // 不存在的行（更新丢失），库里那条记录永远停在 running。把 insert 提前到 spawn 之前，
+  // 之后所有终态回调更新的都是确定存在的行。insert 失败直接上抛：让用户看到
+  // 「任务未启动」比留下一条永不完成的 running 记录更可信。
+  insertTaskRun(run);
+
   const parsedArgs = splitCommandLine(profile.args);
   // Windows 下走 shell:true：Node 只把 command 与 args 空格拼接后交给 cmd.exe，
   // 不会替参数加引号。必须在此手工转义，否则含空格的参数会被重新拆开、
@@ -36,11 +47,23 @@ export async function runTask(profileId: string): Promise<TaskRun> {
   const args = process.platform === "win32" ? parsedArgs.map(quoteWindowsArg) : parsedArgs;
   let output = "";
   // Windows 上 npm/pnpm/yarn 等是 .cmd 脚本，必须通过 shell 执行
-  const child = spawn(profile.command, args, {
-    cwd: profile.workingDirectory,
-    windowsHide: true,
-    shell: process.platform === "win32",
-  });
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(profile.command, args, {
+      cwd: profile.workingDirectory,
+      windowsHide: true,
+      shell: process.platform === "win32",
+    });
+  } catch (error) {
+    // spawn 同步抛错（参数非法、cwd 在检查后被删等）：running 行已落库，必须立刻定稿，
+    // 否则界面会留一条永不结束的 running 记录（A-22）。
+    const summary = errorMessage(error);
+    run.status = "failed";
+    run.finishedAt = new Date().toISOString();
+    run.output = `[启动失败] ${summary}`;
+    persistRun(run);
+    throw new Error(`任务启动失败：${summary}`);
+  }
   runningTasks.set(run.id, { process: child, output: () => output });
   // 应用退出时的统一回收：标记 stopRequested 让 close 事件把状态记为
   // stopped（而非 failed），再杀整棵进程树。自然结束由 close 注销。
@@ -51,8 +74,8 @@ export async function runTask(profileId: string): Promise<TaskRun> {
 
   const appendOutput = (chunk: Buffer | string): void => {
     output += chunk.toString();
-    if (output.length > 256 * 1024) {
-      output = output.slice(-256 * 1024);
+    if (output.length > MAX_OUTPUT_LENGTH) {
+      output = output.slice(-MAX_OUTPUT_LENGTH);
     }
   };
 
@@ -113,11 +136,36 @@ export async function runTask(profileId: string): Promise<TaskRun> {
   return run;
 }
 
+/**
+ * 运行记录定稿落库（close / error / timeout / 启动失败四条终态路径共用）。
+ *
+ * why 不再静默吞错（A-22）：旧实现 `catch {}` 让一次 UPDATE 失败彻底消失，
+ * 库里那条记录永远停在 running——用户既看不到失败原因，也无法判断任务是否还在跑。
+ * 现在的策略是「降级写 failed」：
+ * 1. 正常 UPDATE；失败则
+ * 2. 用同一行再写一次 status=failed + 错误摘要（output 末尾追加 `[记录写入失败] …`），
+ *    保证记录离开 running 且原因可查。降级语义是「本次记录写入失败」，不是任务结果；
+ * 3. 降级仍失败时只能记日志——persistRun 运行在子进程事件回调里，再抛会变成
+ *    主进程未捕获异常（可能直接崩掉应用），日志是唯一安全的最后出口。
+ *
+ * why 不向 IPC 调用方上抛：终态回调发生时 tasks:run 早已返回，异常没有接收者；
+ * 而任务本身的执行结果已由 run.status 表达，记录写入失败不该改写它。
+ */
 function persistRun(run: TaskRun): void {
   try {
     updateTaskRun(run);
-  } catch {
-    // 持久化失败不影响主流程
+  } catch (error) {
+    const summary = errorMessage(error);
+    try {
+      updateTaskRun({
+        ...run,
+        status: "failed",
+        finishedAt: run.finishedAt ?? new Date().toISOString(),
+        output: `${run.output}\n[记录写入失败] ${summary}`.slice(-MAX_OUTPUT_LENGTH),
+      });
+    } catch (fallbackError) {
+      console.error(`[tasks] 运行记录写入失败且降级写入失败：${summary}`, fallbackError);
+    }
   }
 }
 

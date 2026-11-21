@@ -26,6 +26,32 @@ export function loadProjects(workspaceId: string): Project[] {
 }
 
 /**
+ * 按绝对路径反查项目（跨工作区），未命中返回 null。
+ *
+ * why 单条 SQL（2026-11-21 架构评审 A-21）：操作日志写入时每次都要按路径归组到项目，
+ * 旧实现在 IPC 层遍历全部工作区逐区 loadProjects()，是 1+N 次全表读——工作区越多、
+ * 日志写入越慢。这里用 `WHERE path = ?` 一次命中，调用方不再关心工作区维度。
+ *
+ * why ORDER BY + LIMIT 1：正常数据下同一路径只属于一个项目，但历史迁移可能留下重复行；
+ * 固定按 updatedAt 倒序取最新一条，保证结果确定，不依赖 SQLite 的默认行序。
+ *
+ * why 索引：`projects(path)` 已有 `idx_projects_path`（database.ts `ensureIndexes` 建索引，
+ * 幂等，老库启动时自动补齐），本查询是索引单点查询（SQLite `SEARCH … USING INDEX`），
+ * 不再是全表扫描。
+ */
+export function findByPath(projectPath: string): Project | null {
+  const connection = openDatabase();
+  const row = connection
+    .prepare(
+      `SELECT id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
+              files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl
+       FROM projects WHERE path = ? ORDER BY updatedAt DESC LIMIT 1`,
+    )
+    .get(projectPath) as unknown as SqlRow | undefined;
+  return row ? rowToProject(row) : null;
+}
+
+/**
  * 统计某工作区下的项目数（表所有权：projects 表只归本域所有）。
  *
  * 为什么单独导出：workspaces 域的删除守卫要判断「该工作区下是否还有项目」，

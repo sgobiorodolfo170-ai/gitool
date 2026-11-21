@@ -1,18 +1,12 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
-import type {
-  CloneRepositoryResult,
-  CommitResult,
-  GitOperationResult,
-  UpdateProgress,
-} from "../../shared/types";
+import type { UpdateProgress } from "../../shared/types";
 import { analyzeProject } from "./services/analysis";
 import { deleteAiApiKey, generateAiSummary, hasStoredApiKey, saveAiApiKey } from "./services/ai";
 import { createBackup, restoreBackup } from "./services/backups";
 import { detectProjectCommands } from "./services/commandDetection";
 import { openInEditor, openInTerminal } from "./services/openers";
+import { recordClone, recordCommit, recordGitOperation } from "./services/operations";
 import {
-  cloneRepository,
-  commitChanges,
   compareVersions,
   createBranch,
   createTag,
@@ -31,7 +25,6 @@ import {
   moveProject,
   readProjectReadme,
   revertCommit,
-  runGitOperation,
   scanDirectoryForRepositories,
   setRemoteUrl,
   stageFiles,
@@ -53,7 +46,8 @@ import {
   updateRemoteRepository,
 } from "./services/providers";
 import { deleteAccount, loadAccounts, upsertAccount } from "./services/storage/accounts";
-import { loadProjects, saveProjects } from "./services/storage/projects";
+// why 别名：ipc 只剩「按工作区列项目」一处正当用法，路径反查已下沉 services/operations.ts（A-21）
+import { loadProjects as loadWorkspaceProjects, saveProjects } from "./services/storage/projects";
 import {
   createWorkspace,
   deleteWorkspace,
@@ -64,19 +58,16 @@ import { listBackups } from "./services/storage/backups";
 import {
   clearOperationRecords,
   exportOperationRecords,
-  insertOperationRecord,
   listOperationRecords,
 } from "./services/storage/operations";
 import { loadSettings, saveSettings } from "./services/storage/settings";
 import {
   deleteTaskProfile,
-  insertTaskRun,
   listTaskProfiles,
   listTaskRuns,
   saveTaskProfile,
 } from "./services/storage/tasks";
 import { getRunningTaskOutput, runTask, stopTask } from "./services/tasks";
-import { redactSecrets } from "./services/serviceUtils";
 import {
   checkForUpdates,
   downloadUpdate,
@@ -120,11 +111,9 @@ let updateDownloadInFlight = false;
 
 export function registerIpcHandlers(): void {
   ipcMain.handle("system:environment", () => getEnvironmentStatus());
-  // system:refreshEnvironment 与 system:environment 调用同一函数，但语义独立：
-  // 前者用于「一键安装完成后刷新」等显式触发场景，后者用于首启拉取。
+  // 与 system:environment 同函数但语义独立：用于「安装完成后刷新」等显式触发（首启拉取走前者）
   ipcMain.handle("system:refreshEnvironment", () => getEnvironmentStatus());
-  // 一键安装 Git：下载官方安装包 → UAC 提权静默安装 → 写入 gitPath → 返回最新体检。
-  // 进度通过 setup:installProgress 事件单向推送到渲染层。
+  // 一键安装 Git：下载 → UAC 静默安装 → 写 gitPath → 返回体检；进度走 setup:installProgress 事件
   ipcMain.handle("system:installGit", async () => installGit());
 
   ipcMain.handle("system:selectDirectory", async (event, defaultPath: unknown) => {
@@ -160,27 +149,27 @@ export function registerIpcHandlers(): void {
     const editorInput = parseOrThrow(openEditorInputSchema, input, "编辑器参数");
     return openInEditor(editorInput.path, editorInput.editor, editorInput.newWindow);
   });
-  ipcMain.handle("shell:openTerminal", (_event, projectPath: unknown) =>
-    openInTerminal(requireString(projectPath, "项目路径")),
+  ipcMain.handle("shell:openTerminal", (_event, p: unknown) =>
+    openInTerminal(requireString(p, "项目路径")),
   );
 
-  ipcMain.handle("projects:inspect", (_event, projectPath: unknown) =>
-    inspectLocalProject(requireString(projectPath, "项目路径")),
+  ipcMain.handle("projects:inspect", (_event, p: unknown) =>
+    inspectLocalProject(requireString(p, "项目路径")),
   );
   ipcMain.handle("projects:snapshot", (_event, projectPath: unknown) =>
     getProjectSnapshot(requireString(projectPath, "项目路径")),
   );
-  ipcMain.handle("projects:analyze", (_event, projectPath: unknown) =>
-    analyzeProject(requireString(projectPath, "项目路径")),
+  ipcMain.handle("projects:analyze", (_event, p: unknown) =>
+    analyzeProject(requireString(p, "项目路径")),
   );
   ipcMain.handle("projects:detectCommands", (_event, projectPath: unknown) =>
     detectProjectCommands(requireString(projectPath, "项目路径")),
   );
-  ipcMain.handle("projects:diskSize", (_event, projectPath: unknown) =>
-    getDiskSize(requireString(projectPath, "项目路径")),
+  ipcMain.handle("projects:diskSize", (_event, p: unknown) =>
+    getDiskSize(requireString(p, "项目路径")),
   );
-  ipcMain.handle("projects:readme", (_event, projectPath: unknown) =>
-    readProjectReadme(requireString(projectPath, "项目路径")),
+  ipcMain.handle("projects:readme", (_event, p: unknown) =>
+    readProjectReadme(requireString(p, "项目路径")),
   );
   ipcMain.handle("projects:init", (_event, input: unknown) =>
     initRepository(parseOrThrow(initRepositoryInputSchema, input, "初始化仓库参数")),
@@ -194,27 +183,30 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("projects:setRemoteUrl", (_event, input: unknown) =>
     setRemoteUrl(parseOrThrow(setRemoteUrlInputSchema, input, "远程地址参数")),
   );
-  ipcMain.handle("git:tags", (_event, projectPath: unknown) =>
-    listTags(requireString(projectPath, "项目路径")),
-  );
+  ipcMain.handle("git:tags", (_event, p: unknown) => listTags(requireString(p, "项目路径")));
   ipcMain.handle("git:createTag", (_event, input: unknown) =>
     createTag(parseOrThrow(createTagInputSchema, input, "创建标签参数")),
   );
   ipcMain.handle("git:deleteTag", (_event, projectPath: unknown, name: unknown) =>
     deleteTag(requireString(projectPath, "项目路径"), requireString(name, "标签名")),
   );
-  ipcMain.handle("git:listVersions", (_event, projectPath: unknown) =>
-    listVersions(requireString(projectPath, "项目路径")),
+  ipcMain.handle("git:listVersions", (_event, p: unknown) =>
+    listVersions(requireString(p, "项目路径")),
   );
   ipcMain.handle("git:compareVersions", (_event, input: unknown) =>
     compareVersions(parseOrThrow(compareRequestSchema, input, "版本对比参数")),
   );
-  ipcMain.handle("projects:gitOperation", (_event, projectPath: unknown, operation: unknown) =>
-    recordGitOperation(projectPath, operation),
+  ipcMain.handle("projects:gitOperation", (_event, p: unknown, o: unknown) =>
+    recordGitOperation(
+      requireString(p, "项目路径"),
+      parseOrThrow(gitOperationSchema, o, "Git 操作"),
+    ),
   );
-  ipcMain.handle("projects:clone", (_event, input: unknown) => recordClone(input));
-  ipcMain.handle("git:changedFiles", (_event, projectPath: unknown) =>
-    listChangedFiles(requireString(projectPath, "项目路径")),
+  ipcMain.handle("projects:clone", (_event, input: unknown) =>
+    recordClone(parseOrThrow(cloneRepositoryInputSchema, input, "克隆参数")),
+  );
+  ipcMain.handle("git:changedFiles", (_event, p: unknown) =>
+    listChangedFiles(requireString(p, "项目路径")),
   );
   ipcMain.handle("git:stageFiles", (_event, projectPath: unknown, files: unknown) =>
     stageFiles(requireString(projectPath, "项目路径"), requireStringArray(files)),
@@ -222,9 +214,11 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("git:unstageFiles", (_event, projectPath: unknown, files: unknown) =>
     unstageFiles(requireString(projectPath, "项目路径"), requireStringArray(files)),
   );
-  ipcMain.handle("git:commit", (_event, input: unknown) => recordCommit(input));
-  ipcMain.handle("git:branches", (_event, projectPath: unknown) =>
-    listBranches(requireString(projectPath, "项目路径")),
+  ipcMain.handle("git:commit", (_event, i: unknown) =>
+    recordCommit(parseOrThrow(commitRequestSchema, i, "提交参数")),
+  );
+  ipcMain.handle("git:branches", (_event, p: unknown) =>
+    listBranches(requireString(p, "项目路径")),
   );
   ipcMain.handle("git:createBranch", (_event, input: unknown) =>
     createBranch(parseOrThrow(createBranchInputSchema, input, "创建分支参数")),
@@ -235,18 +229,18 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("git:deleteBranch", (_event, input: unknown) =>
     deleteBranch(parseOrThrow(deleteBranchInputSchema, input, "删除分支参数")),
   );
-  ipcMain.handle("git:history", (_event, projectPath: unknown) =>
-    listCommitHistory(requireString(projectPath, "项目路径")),
+  ipcMain.handle("git:history", (_event, p: unknown) =>
+    listCommitHistory(requireString(p, "项目路径")),
   );
   ipcMain.handle("git:revert", (_event, input: unknown) =>
     revertCommit(parseOrThrow(revertCommitInputSchema, input, "回退提交参数")),
   );
-  ipcMain.handle("projects:load", (_event, workspaceId: unknown) =>
-    loadProjects(requireString(workspaceId, "工作区 ID")),
+  ipcMain.handle("projects:load", (_event, id: unknown) =>
+    loadWorkspaceProjects(requireString(id, "工作区 ID")),
   );
-  ipcMain.handle("projects:save", (_event, workspaceId: unknown, projects: unknown) =>
+  ipcMain.handle("projects:save", (_event, id: unknown, projects: unknown) =>
     saveProjects(
-      requireString(workspaceId, "工作区 ID"),
+      requireString(id, "工作区 ID"),
       parseOrThrow(projectsSchema, projects, "项目数据"),
     ),
   );
@@ -269,11 +263,11 @@ export function registerIpcHandlers(): void {
     const { username } = await resolveTokenUser(provider, trimmed);
     return upsertAccount(provider, username, trimmed);
   });
-  ipcMain.handle("accounts:test", (_event, accountId: unknown) =>
-    testAccount(requireString(accountId, "账号 ID")),
+  ipcMain.handle("accounts:test", (_event, id: unknown) =>
+    testAccount(requireString(id, "账号 ID")),
   );
-  ipcMain.handle("accounts:delete", (_event, accountId: unknown) =>
-    deleteAccount(requireString(accountId, "账号 ID")),
+  ipcMain.handle("accounts:delete", (_event, id: unknown) =>
+    deleteAccount(requireString(id, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:load", (_event, accountId: unknown) =>
     loadRemoteRepositories(requireString(accountId, "账号 ID")),
@@ -290,11 +284,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("remoteRepositories:update", (_event, input: unknown) =>
     updateRemoteRepository(parseOrThrow(remoteRepositoryWriteInputSchema, input, "远程仓库参数")),
   );
-  ipcMain.handle("remoteRepositories:delete", (_event, accountId: unknown, repositoryId: unknown) =>
-    deleteRemoteRepository(
-      requireString(accountId, "账号 ID"),
-      requireString(repositoryId, "仓库 ID"),
-    ),
+  ipcMain.handle("remoteRepositories:delete", (_event, a: unknown, r: unknown) =>
+    deleteRemoteRepository(requireString(a, "账号 ID"), requireString(r, "仓库 ID")),
   );
   ipcMain.handle("remoteRepositories:search", (_event, input: unknown) => {
     const { provider, query, accountId } = parseOrThrow(
@@ -320,14 +311,10 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("tasks:deleteProfile", (_event, id: unknown) =>
     deleteTaskProfile(requireString(id, "任务 ID")),
   );
-  ipcMain.handle("tasks:run", async (_event, profileId: unknown) => {
-    const run = await runTask(requireString(profileId, "任务 ID"));
-    insertTaskRun(run);
-    return run;
-  });
-  ipcMain.handle("tasks:stop", (_event, runId: unknown) =>
-    stopTask(requireString(runId, "运行 ID")),
-  );
+  // running 记录的 insert 已移入 runTask（A-22）：旧实现在 runTask 返回后才落库，
+  // 子进程若瞬间结束，close 回调的 UPDATE 会打到不存在的行（记录永远停在 running）。
+  ipcMain.handle("tasks:run", (_event, id: unknown) => runTask(requireString(id, "任务 ID")));
+  ipcMain.handle("tasks:stop", (_event, id: unknown) => stopTask(requireString(id, "运行 ID")));
   ipcMain.handle("tasks:listRuns", () => listTaskRuns());
   ipcMain.handle("tasks:getRunningOutput", (_event, runId: unknown) =>
     getRunningTaskOutput(requireString(runId, "运行 ID")),
@@ -401,70 +388,6 @@ export function registerIpcHandlers(): void {
     // 不返回这个 Promise，错误只会在主进程内部变成一条日志，渲染层收不到任何反馈
     return installUpdate(installerPath);
   });
-}
-
-async function recordGitOperation(
-  projectPath: unknown,
-  operation: unknown,
-): Promise<GitOperationResult> {
-  const path = requireString(projectPath, "项目路径");
-  const op = parseOrThrow(gitOperationSchema, operation, "Git 操作");
-  const result = await runGitOperation(path, op);
-  recordOperation(op, path, result.output, result.success ? "ok" : "failed");
-  return result;
-}
-
-async function recordClone(input: unknown): Promise<CloneRepositoryResult> {
-  const validated = parseOrThrow(cloneRepositoryInputSchema, input, "克隆参数");
-  const result = await cloneRepository(validated);
-  recordOperation("clone", validated.targetPath, result.output, result.success ? "ok" : "failed");
-  return result;
-}
-
-async function recordCommit(input: unknown): Promise<CommitResult> {
-  const validated = parseOrThrow(commitRequestSchema, input, "提交参数");
-  const result = await commitChanges(validated);
-  recordOperation("commit", validated.path, result.output, result.success ? "ok" : "failed");
-  return result;
-}
-
-function recordOperation(
-  operation: string,
-  path: string,
-  detail: string,
-  result: "ok" | "failed",
-): void {
-  try {
-    insertOperationRecord({
-      id: `op-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      operation,
-      // 按路径反查项目 ID（尽力而为）：操作日志在界面按项目归组展示，
-      // 恒为空串会让归组永远失效（2026-11-07 审查 P2-21）
-      projectId: resolveProjectIdByPath(path),
-      projectPath: path,
-      // 脱敏必须在截断之前：令牌被切到只剩一小段时可能不再满足前缀+长串的形态，
-      // 先整体替换成 *** 再截 500 字，才不会在库/界面里留下半截凭据（审查 A-03）
-      detail: redactSecrets(detail).slice(0, 500),
-      result,
-      createdAt: new Date().toISOString(),
-    });
-  } catch {
-    // 记录失败不影响主流程
-  }
-}
-
-function resolveProjectIdByPath(path: string): string {
-  try {
-    for (const workspace of listWorkspaces()) {
-      const match = loadProjects(workspace.id).find((project) => project.path === path);
-      if (match) {
-        return match.id;
-      }
-    }
-  } catch {
-    // 反查失败不影响操作记录本身
-  }
-  return "";
 }
 
 function requireString(value: unknown, label: string): string {

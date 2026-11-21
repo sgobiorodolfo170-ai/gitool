@@ -192,8 +192,13 @@ function defaultDataDirectory(): string {
 }
 
 function ensureIndexes(connection: DatabaseSync): void {
+  // why idx_projects_path：每次 Git 操作（commit/pull/clone…）落审计记录时都要按绝对路径
+  // 反查项目归组（operations.resolveProjectIdByPath → projects.findByPath）；无索引时
+  // projects 表每次都要全表扫描。按 path 建索引后该反查是索引单点查询。
+  // CREATE INDEX IF NOT EXISTS 幂等：新库直接建，老库下次启动补齐，无需数据迁移。
   connection.exec(`
     CREATE INDEX IF NOT EXISTS idx_projects_workspace ON projects(workspaceId);
+    CREATE INDEX IF NOT EXISTS idx_projects_path ON projects(path);
     CREATE INDEX IF NOT EXISTS idx_operation_records_createdAt ON operation_records(createdAt DESC);
     CREATE INDEX IF NOT EXISTS idx_task_runs_startedAt ON task_runs(startedAt DESC);
   `);
