@@ -3,7 +3,11 @@ import { Archive, HardDrive, RefreshCw } from "lucide-react";
 import type { BackupRecord, Project } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { workspaceDescription } from "../lib/navigation";
 import { confirmDialog } from "./ConfirmProvider";
+import { EmptyState } from "./EmptyState";
+import { PageHeader } from "./PageHeader";
+import { Skeleton } from "./Skeleton";
 
 import { formatBytes } from "../lib/format";
 
@@ -26,12 +30,16 @@ export function BackupsWorkspace({
   // 备份列表加载：挂载自动加载一次 + 刷新按钮/备份成功后手动回读。
   // 原实现无 try/catch，listBackups reject 会变成 unhandled rejection 静默失败，
   // 现经 useAsyncData 的 onError 出口提示。
-  const { load } = useAsyncData<BackupRecord[]>({
+  const { load, status, hasLoaded } = useAsyncData<BackupRecord[]>({
     loader: () => (bridge ? bridge.listBackups() : Promise.resolve([])),
     onLoaded: setBackups,
     onError: (error) =>
       onNotice(error instanceof Error ? error.message : "加载备份记录失败", { kind: "error" }),
   });
+
+  // 首屏三态（阶段 D5）：手动刷新失败时保留旧列表，只经 onNotice 提示。
+  const showSkeleton = !hasLoaded && status !== "error";
+  const loadFailed = status === "error" && !hasLoaded;
 
   const createBackup = async () => {
     if (!bridge || !selectedProjectId) return;
@@ -85,19 +93,12 @@ export function BackupsWorkspace({
 
   return (
     <div className="module-page">
-      <div className="module-hero">
-        <div className="module-icon">
-          <Archive size={21} />
-        </div>
-        <div>
-          <div className="eyebrow">
-            <span className="eyebrow-line" />
-            RECOVERY
-          </div>
-          <h1>备份中心</h1>
-          <p>将项目打包为 ZIP（含 .git），可在新目录完整恢复。</p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="数据备份"
+        title="备份中心"
+        description={workspaceDescription("backups")}
+        icon={<Archive size={21} />}
+      />
       <div className="remote-toolbar">
         <label className="account-select">
           <span>选择要备份的项目</span>
@@ -132,7 +133,21 @@ export function BackupsWorkspace({
             <RefreshCw size={16} />
           </button>
         </div>
-        {backups.length ? (
+        {showSkeleton ? (
+          <Skeleton rows={3} />
+        ) : loadFailed ? (
+          <EmptyState
+            variant="error"
+            icon={<Archive size={21} />}
+            title="无法加载备份记录"
+            description="备份列表读取失败，可重试或稍后刷新。"
+            action={
+              <button className="button secondary compact" onClick={() => void load()}>
+                重试
+              </button>
+            }
+          />
+        ) : backups.length ? (
           <div className="remote-list">
             {backups.map((backup) => (
               <div className="remote-row" key={backup.id}>
@@ -168,11 +183,11 @@ export function BackupsWorkspace({
             ))}
           </div>
         ) : (
-          <div className="accounts-empty">
-            <Archive size={22} />
-            <strong>还没有备份</strong>
-            <span>选择项目并点击「备份到目录」。</span>
-          </div>
+          <EmptyState
+            icon={<Archive size={21} />}
+            title="还没有备份"
+            description="选择项目并点击「备份到目录」。"
+          />
         )}
       </section>
     </div>

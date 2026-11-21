@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildNavGroups, workspaceLabel } from "./navigation";
+import { buildNavGroups, workspaceDescription, workspaceLabel } from "./navigation";
 
 describe("buildNavGroups", () => {
   it("返回两组导航，顺序固定", () => {
@@ -40,7 +40,7 @@ describe("workspaceLabel", () => {
   it("返回中文标签", () => {
     expect(workspaceLabel("overview")).toBe("总览");
     expect(workspaceLabel("projects")).toBe("我的项目");
-    expect(workspaceLabel("logs")).toBe("设置与记录");
+    expect(workspaceLabel("logs")).toBe("操作记录");
   });
 
   it("每个视图都有标签，不返回 undefined", () => {
@@ -54,6 +54,22 @@ describe("workspaceLabel", () => {
       "settings",
     ] as const) {
       expect(workspaceLabel(view)).toBeTruthy();
+    }
+  });
+});
+
+describe("workspaceDescription", () => {
+  it("每个视图都有非空描述（页面头副标题的唯一来源）", () => {
+    for (const view of [
+      "overview",
+      "projects",
+      "remotes",
+      "tasks",
+      "backups",
+      "logs",
+      "settings",
+    ] as const) {
+      expect(workspaceDescription(view).trim()).not.toBe("");
     }
   });
 });

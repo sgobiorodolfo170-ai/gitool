@@ -6,6 +6,7 @@ import { providerIcons } from "./providerIcons";
 import type { GitOperation, Project } from "../types";
 
 import { formatBytes, isDormant } from "../lib/format";
+import { EmptyState } from "./EmptyState";
 
 export function MetricCard({
   label,
@@ -13,15 +14,18 @@ export function MetricCard({
   detail,
   icon,
   tone,
+  onClick,
 }: {
   label: string;
   value: string;
   detail: string;
   icon: React.ReactNode;
   tone: string;
+  /** 有跳转目标时渲染为按钮（阶段 D6）；无目标时保持静态卡片。 */
+  onClick?: () => void;
 }) {
-  return (
-    <div className="metric-card">
+  const body = (
+    <>
       <div className={`metric-icon ${tone}`}>{icon}</div>
       <div className="metric-content">
         <span>{label}</span>
@@ -29,8 +33,19 @@ export function MetricCard({
         <small>{detail}</small>
       </div>
       <ArrowUpRight size={15} className="metric-arrow" />
-    </div>
+    </>
   );
+
+  // 卡片右上角本来就有箭头，静态卡片会让箭头成为「虚假交互暗示」；
+  // 有 onClick 时用真实按钮承载键盘与读屏语义。
+  if (onClick) {
+    return (
+      <button type="button" className="metric-card metric-card-action" onClick={onClick}>
+        {body}
+      </button>
+    );
+  }
+  return <div className="metric-card">{body}</div>;
 }
 
 export function FilterButton({
@@ -121,7 +136,7 @@ export function ProjectRow({
         </div>
       </div>
       <button
-        className="icon-button danger"
+        className="icon-button danger project-row-delete"
         onClick={(event) => {
           event.stopPropagation();
           onDelete();
@@ -144,19 +159,46 @@ export function ProjectRow({
   );
 }
 
-export function EmptyProjects({ onImport }: { onImport: () => void }) {
+/**
+ * 项目列表空态（阶段 D5）：区分「确实没有项目」与「当前筛选没有结果」。
+ *
+ * 旧实现把两者都写成「没有匹配的项目」，0 项目时也在引导用户换搜索词。
+ */
+export function EmptyProjects({
+  hasProjects,
+  onImport,
+  onResetFilters,
+}: {
+  hasProjects: boolean;
+  onImport: () => void;
+  onResetFilters: () => void;
+}) {
+  if (!hasProjects) {
+    return (
+      <EmptyState
+        icon={<FolderGit2 size={21} />}
+        title="还没有项目"
+        description="导入一个本地仓库，或从远程仓库克隆。"
+        action={
+          <button className="button secondary compact" onClick={onImport}>
+            <Plus size={15} />
+            导入项目
+          </button>
+        }
+      />
+    );
+  }
   return (
-    <div className="empty-projects">
-      <div className="empty-icon">
-        <FolderGit2 size={21} />
-      </div>
-      <strong>没有匹配的项目</strong>
-      <span>换一个搜索词，或导入一个本地仓库。</span>
-      <button className="button secondary compact" onClick={onImport}>
-        <Plus size={15} />
-        导入项目
-      </button>
-    </div>
+    <EmptyState
+      variant="no-match"
+      title="没有匹配的项目"
+      description="调整筛选条件，或换一个搜索词。"
+      action={
+        <button className="button secondary compact" onClick={onResetFilters}>
+          清除筛选
+        </button>
+      }
+    />
   );
 }
 

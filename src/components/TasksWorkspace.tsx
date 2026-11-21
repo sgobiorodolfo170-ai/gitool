@@ -4,7 +4,11 @@ import type { DetectedCommand, Project, TaskProfile, TaskRun } from "../types";
 import { createTaskProfile } from "../../shared/entities";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { workspaceDescription } from "../lib/navigation";
 import { confirmDialog } from "./ConfirmProvider";
+import { EmptyState } from "./EmptyState";
+import { PageHeader } from "./PageHeader";
+import { Skeleton } from "./Skeleton";
 import { TaskForm, type TaskDraft } from "./tasks/TaskForm";
 import { TaskProfilesList } from "./tasks/TaskProfilesList";
 import { TaskRunsList } from "./tasks/TaskRunsList";
@@ -53,7 +57,10 @@ export function TasksWorkspace({
   // 任务数据加载：挂载自动加载一次 + 4s 轮询 + 写操作（保存/删除/停止）后回读。
   // 原实现 listTaskProfiles/listTaskRuns 无 try/catch（轮询里 reject 会反复静默失败），
   // 现经 onError 提示；轮询结果经 useAsyncData 的序号守卫过滤，慢响应不再互踩。
-  const { load } = useAsyncData<{ profiles: TaskProfile[]; runs: TaskRun[] }>({
+  const { load, status, hasLoaded } = useAsyncData<{
+    profiles: TaskProfile[];
+    runs: TaskRun[];
+  }>({
     loader: async () => {
       if (!bridge) return { profiles: [], runs: [] };
       const [loadedProfiles, loadedRuns] = await Promise.all([
@@ -70,6 +77,11 @@ export function TasksWorkspace({
       onNotice(error instanceof Error ? error.message : "加载任务数据失败", { kind: "error" }),
     pollMs: 4000,
   });
+
+  // 首屏三态（阶段 D5）：idle/loading 且从未成功加载过 → 骨架；
+  // 首载失败 → 错误态；轮询失败不清空已有内容（只经 onNotice 提示）。
+  const showSkeleton = !hasLoaded && status !== "error";
+  const loadFailed = status === "error" && !hasLoaded;
 
   const detectCommandsForProject = async (projectId: string): Promise<DetectedCommand[]> => {
     if (!bridge || !projectId) {
@@ -250,19 +262,12 @@ export function TasksWorkspace({
 
   return (
     <div className="module-page">
-      <div className="module-hero">
-        <div className="module-icon">
-          <ListTodo size={21} />
-        </div>
-        <div>
-          <div className="eyebrow">
-            <span className="eyebrow-line" />
-            TASK RUNNER
-          </div>
-          <h1>任务中心</h1>
-          <p>配置构建、运行和打包命令，一键执行并查看实时日志。</p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="任务运行"
+        title="任务中心"
+        description={workspaceDescription("tasks")}
+        icon={<ListTodo size={21} />}
+      />
       <div className="settings-tabs">
         <button
           className={`settings-tab ${activeTab === "create" ? "active" : ""}`}
@@ -284,42 +289,60 @@ export function TasksWorkspace({
         </button>
       </div>
 
-      {activeTab === "create" && (
-        <TaskForm
-          projects={projects}
-          draft={draft}
-          setDraft={setDraft}
-          editing={editing}
-          detectedCommands={detectedCommands}
-          onProjectChange={handleProjectChange}
-          commandCustom={commandCustom}
-          setCommandCustom={setCommandCustom}
-          argsCustom={argsCustom}
-          setArgsCustom={setArgsCustom}
-          save={save}
-          generateTaskName={generateTaskName}
+      {showSkeleton ? (
+        <Skeleton rows={3} />
+      ) : loadFailed ? (
+        <EmptyState
+          variant="error"
+          icon={<ListTodo size={21} />}
+          title="无法加载任务数据"
+          description="任务配置与运行记录读取失败，可重试。"
+          action={
+            <button className="button secondary compact" onClick={() => void load()}>
+              重试
+            </button>
+          }
         />
-      )}
+      ) : (
+        <>
+          {activeTab === "create" && (
+            <TaskForm
+              projects={projects}
+              draft={draft}
+              setDraft={setDraft}
+              editing={editing}
+              detectedCommands={detectedCommands}
+              onProjectChange={handleProjectChange}
+              commandCustom={commandCustom}
+              setCommandCustom={setCommandCustom}
+              argsCustom={argsCustom}
+              setArgsCustom={setArgsCustom}
+              save={save}
+              generateTaskName={generateTaskName}
+            />
+          )}
 
-      {activeTab === "profiles" && (
-        <TaskProfilesList
-          profiles={profiles}
-          projects={projects}
-          runningId={runningId}
-          onStart={(profile) => void startTask(profile)}
-          onEdit={(profile) => void edit(profile)}
-          onDelete={(profile) => void deleteProfile(profile)}
-          onReload={() => void load()}
-        />
-      )}
+          {activeTab === "profiles" && (
+            <TaskProfilesList
+              profiles={profiles}
+              projects={projects}
+              runningId={runningId}
+              onStart={(profile) => void startTask(profile)}
+              onEdit={(profile) => void edit(profile)}
+              onDelete={(profile) => void deleteProfile(profile)}
+              onReload={() => void load()}
+            />
+          )}
 
-      {activeTab === "runs" && (
-        <TaskRunsList
-          runs={runs}
-          stoppingId={stoppingId}
-          onStop={(runId) => void stopRun(runId)}
-          onReload={() => void load()}
-        />
+          {activeTab === "runs" && (
+            <TaskRunsList
+              runs={runs}
+              stoppingId={stoppingId}
+              onStop={(runId) => void stopRun(runId)}
+              onReload={() => void load()}
+            />
+          )}
+        </>
       )}
     </div>
   );

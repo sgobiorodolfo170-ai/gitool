@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowDownToLine,
   ArrowUpRight,
+  CircleAlert,
   Cloud,
   FolderGit2,
   Plus,
@@ -16,7 +17,12 @@ import { useSplitWidth } from "../hooks/useSplitWidth";
 import type { GitOperationsApi } from "../hooks/useGitOperations";
 import type { ImportFlowApi } from "../hooks/useImportFlow";
 import type { ProjectsApi } from "../hooks/useProjects";
+import { workspaceDescription } from "../lib/navigation";
 import { EmptyProjects, FilterButton, ProjectRow } from "./common";
+import { EmptyState } from "./EmptyState";
+import { PageHeader } from "./PageHeader";
+import { Skeleton } from "./Skeleton";
+import { FOCUS_SEARCH_EVENT } from "../lib/uiEvents";
 
 import { ProjectDetail } from "./ProjectDetail";
 
@@ -87,7 +93,7 @@ export function ProjectsWorkspace({
     operationOutput,
     analysis,
   } = gitDomain;
-  const { isRefreshing, refreshProjects } = projectsApi;
+  const { isRefreshing, isLoading, loadError, refreshProjects } = projectsApi;
 
   const attentionCount = projects.filter(
     (project) => project.status !== "clean" || project.tags.includes("watching"),
@@ -128,6 +134,14 @@ export function ProjectsWorkspace({
   }, [search, setSearch]);
 
   useEffect(() => {
+    // 顶栏「Ctrl K」按钮与全局快捷键共用同一入口：App 派发事件，
+    // 本页只在挂载时监听——没挂载就没有搜索框，事件自然无人消费。
+    const focusSearch = () => searchRef.current?.focus();
+    window.addEventListener(FOCUS_SEARCH_EVENT, focusSearch);
+    return () => window.removeEventListener(FOCUS_SEARCH_EVENT, focusSearch);
+  }, []);
+
+  useEffect(() => {
     setSelectedBulkIds([]);
   }, [filter]);
 
@@ -153,38 +167,36 @@ export function ProjectsWorkspace({
 
   return (
     <div className="workspace-page">
-      <div className="page-heading">
-        <div>
-          <div className="eyebrow">
-            <span className="eyebrow-line" />
-            项目目录
-          </div>
-          <h1>我的项目</h1>
-          <p>集中查看本地项目、远程关联与工作区状态。</p>
-        </div>
-        <div className="heading-actions">
-          <button
-            className="button secondary"
-            onClick={() => void refreshProjects()}
-            disabled={isRefreshing}
-          >
-            <RefreshCw size={15} className={isRefreshing ? "spin" : ""} />
-            {isRefreshing ? "刷新中..." : "刷新状态"}
-          </button>
-          <button className="button secondary" onClick={() => void scanDirectoryForImport()}>
-            <FolderGit2 size={15} />
-            批量导入
-          </button>
-          <button className="button secondary" onClick={() => void initNewRepository()}>
-            <Plus size={15} />
-            初始化仓库
-          </button>
-          <button className="button primary" onClick={() => void importProject()}>
-            <Plus size={16} />
-            {isImporting ? "导入中..." : "导入项目"}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="项目目录"
+        title="我的项目"
+        description={workspaceDescription("projects")}
+        icon={<FolderGit2 size={21} />}
+        actions={
+          <>
+            <button
+              className="button secondary"
+              onClick={() => void refreshProjects()}
+              disabled={isRefreshing}
+            >
+              <RefreshCw size={15} className={isRefreshing ? "spin" : ""} />
+              {isRefreshing ? "刷新中..." : "刷新状态"}
+            </button>
+            <button className="button secondary" onClick={() => void scanDirectoryForImport()}>
+              <FolderGit2 size={15} />
+              批量导入
+            </button>
+            <button className="button secondary" onClick={() => void initNewRepository()}>
+              <Plus size={15} />
+              初始化仓库
+            </button>
+            <button className="button primary" onClick={() => void importProject()}>
+              <Plus size={16} />
+              {isImporting ? "导入中..." : "导入项目"}
+            </button>
+          </>
+        }
+      />
 
       <div className="section-toolbar">
         <div className="filter-tabs">
@@ -258,7 +270,24 @@ export function ProjectsWorkspace({
             </div>
           </div>
           <div className="project-list">
-            {filteredProjects.length ? (
+            {isLoading ? (
+              <Skeleton rows={6} />
+            ) : loadError ? (
+              <EmptyState
+                variant="error"
+                icon={<CircleAlert size={21} />}
+                title="无法读取项目列表"
+                description="本地数据读取失败，可重试或刷新状态。"
+                action={
+                  <button
+                    className="button secondary compact"
+                    onClick={() => void refreshProjects()}
+                  >
+                    重试
+                  </button>
+                }
+              />
+            ) : filteredProjects.length ? (
               filteredProjects.map((project) => (
                 <ProjectRow
                   key={project.id}
@@ -272,7 +301,15 @@ export function ProjectsWorkspace({
                 />
               ))
             ) : (
-              <EmptyProjects onImport={() => void importProject()} />
+              <EmptyProjects
+                hasProjects={projects.length > 0}
+                onImport={() => void importProject()}
+                onResetFilters={() => {
+                  setFilter("all");
+                  setSearch("");
+                  setTagFilter("");
+                }}
+              />
             )}
           </div>
         </div>

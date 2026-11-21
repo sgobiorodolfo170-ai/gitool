@@ -10,7 +10,11 @@ import type {
 } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { workspaceDescription } from "../lib/navigation";
 import { confirmDialog } from "./ConfirmProvider";
+import { EmptyState } from "./EmptyState";
+import { PageHeader } from "./PageHeader";
+import { Skeleton } from "./Skeleton";
 import { AccountsWorkspace } from "./settings/AccountsWorkspace";
 import { AppSettingsTab } from "./settings/AppSettingsTab";
 import { AiSettingsTab } from "./settings/AiSettingsTab";
@@ -82,7 +86,10 @@ export function SettingsWorkspace({
   // 设置加载：一次拉取设置表单与 AI Key 状态两个值；无刷新入口，仅挂载自动加载。
   // 原实现 loadSettings 无 try/catch，reject 会静默失败（表单停在空默认值且无提示），
   // 现经 onError 提示；hasAiApiKey 自带 catch(() => false) 的兜底语义原样保留。
-  useAsyncData<{ settings: AppSettings; hasAiKey: boolean }>({
+  const { load, status, hasLoaded } = useAsyncData<{
+    settings: AppSettings;
+    hasAiKey: boolean;
+  }>({
     loader: async () => {
       if (!bridge) return { settings: INITIAL_SETTINGS, hasAiKey: false };
       return {
@@ -97,6 +104,10 @@ export function SettingsWorkspace({
     onError: (error) =>
       onNotice(error instanceof Error ? error.message : "加载设置失败", { kind: "error" }),
   });
+
+  // 首屏三态（阶段 D5）：加载未完成时显示面板骨架，失败时可重试。
+  const showSkeleton = !hasLoaded && status !== "error";
+  const loadFailed = status === "error" && !hasLoaded;
 
   const save = async () => {
     if (!bridge) return;
@@ -138,19 +149,12 @@ export function SettingsWorkspace({
 
   return (
     <div className="module-page">
-      <div className="module-hero">
-        <div className="module-icon">
-          <Settings2 size={21} />
-        </div>
-        <div>
-          <div className="eyebrow">
-            <span className="eyebrow-line" />
-            SYSTEM
-          </div>
-          <h1>设置</h1>
-          <p>配置 Git 路径、默认目录与应用环境信息。</p>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="应用配置"
+        title="设置"
+        description={workspaceDescription("settings")}
+        icon={<Settings2 size={21} />}
+      />
       <div className="settings-tabs">
         <button
           className={`settings-tab ${activeTab === "app" ? "active" : ""}`}
@@ -178,49 +182,67 @@ export function SettingsWorkspace({
         </button>
       </div>
 
-      {activeTab === "accounts" && (
-        <AccountsWorkspace
-          accounts={accounts}
-          accountBusyId={accountBusyId}
-          onAdd={onAdd}
-          onTest={onTest}
-          onDelete={onDelete}
+      {showSkeleton ? (
+        <Skeleton variant="panel" rows={2} />
+      ) : loadFailed ? (
+        <EmptyState
+          variant="error"
+          icon={<Settings2 size={21} />}
+          title="无法加载设置"
+          description="设置数据读取失败，可重试或稍后刷新。"
+          action={
+            <button className="button secondary compact" onClick={() => void load()}>
+              重试
+            </button>
+          }
         />
-      )}
+      ) : (
+        <>
+          {activeTab === "accounts" && (
+            <AccountsWorkspace
+              accounts={accounts}
+              accountBusyId={accountBusyId}
+              onAdd={onAdd}
+              onTest={onTest}
+              onDelete={onDelete}
+            />
+          )}
 
-      {activeTab === "app" && (
-        <AppSettingsTab
-          settings={settings}
-          setSettings={setSettings}
-          accounts={accounts}
-          busy={busy}
-          save={save}
-        />
-      )}
+          {activeTab === "app" && (
+            <AppSettingsTab
+              settings={settings}
+              setSettings={setSettings}
+              accounts={accounts}
+              busy={busy}
+              save={save}
+            />
+          )}
 
-      {activeTab === "ai" && (
-        <AiSettingsTab
-          settings={settings}
-          setSettings={setSettings}
-          aiKeyInput={aiKeyInput}
-          setAiKeyInput={setAiKeyInput}
-          hasAiKey={hasAiKey}
-          busy={busy}
-          save={save}
-          removeAiKey={removeAiKey}
-        />
-      )}
+          {activeTab === "ai" && (
+            <AiSettingsTab
+              settings={settings}
+              setSettings={setSettings}
+              aiKeyInput={aiKeyInput}
+              setAiKeyInput={setAiKeyInput}
+              hasAiKey={hasAiKey}
+              busy={busy}
+              save={save}
+              removeAiKey={removeAiKey}
+            />
+          )}
 
-      {activeTab === "env" && (
-        <EnvironmentTab
-          environment={environment}
-          onRefreshEnvironment={onRefreshEnvironment}
-          onInstallGit={onInstallGit}
-          installingGit={installingGit}
-          installProgress={installProgress}
-          fontScale={fontScale}
-          onFontScaleChange={onFontScaleChange}
-        />
+          {activeTab === "env" && (
+            <EnvironmentTab
+              environment={environment}
+              onRefreshEnvironment={onRefreshEnvironment}
+              onInstallGit={onInstallGit}
+              installingGit={installingGit}
+              installProgress={installProgress}
+              fontScale={fontScale}
+              onFontScaleChange={onFontScaleChange}
+            />
+          )}
+        </>
       )}
     </div>
   );

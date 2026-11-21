@@ -30,6 +30,7 @@ export function ProjectsPage({
   importDomain,
   onNotice,
   registerClearDetail,
+  initialFilter,
 }: {
   projectsApi: ProjectsApi;
   importDomain: ImportDomain;
@@ -39,9 +40,11 @@ export function ProjectsPage({
   ) => void;
   /** 把本页的清除详情函数登记给 App（删除项目后 useProjects 要清右侧详情）。 */
   registerClearDetail: (clear: () => void) => void;
+  /** 进入本页时的初始筛选（指标卡跳转用；阶段 D6）。 */
+  initialFilter: ProjectFilter;
 }) {
   // —— 筛选域（自 useProjects 逐字迁入，仅本页消费）——
-  const [filter, setFilter] = useState<ProjectFilter>("all");
+  const [filter, setFilter] = useState<ProjectFilter>(initialFilter);
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("");
 

@@ -3,7 +3,11 @@ import { Clock3, HardDrive, RefreshCw, Search, Trash2 } from "lucide-react";
 import type { OperationRecord } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { workspaceDescription } from "../lib/navigation";
 import { confirmDialog } from "./ConfirmProvider";
+import { EmptyState } from "./EmptyState";
+import { PageHeader } from "./PageHeader";
+import { Skeleton } from "./Skeleton";
 
 export function LogsWorkspace({
   onNotice,
@@ -23,12 +27,17 @@ export function LogsWorkspace({
 
   // 操作记录加载：挂载自动加载一次 + 刷新按钮/清空后手动回读。
   // 原实现无 try/catch，listOperationRecords reject 会静默失败，现经 onError 提示。
-  const { load } = useAsyncData<OperationRecord[]>({
+  const { load, status, hasLoaded } = useAsyncData<OperationRecord[]>({
     loader: () => (bridge ? bridge.listOperationRecords() : Promise.resolve([])),
     onLoaded: setRecords,
     onError: (error) =>
       onNotice(error instanceof Error ? error.message : "加载操作记录失败", { kind: "error" }),
   });
+
+  // 首屏三态（阶段 D5）：清空/导出后的回读失败保留旧列表，只经 onNotice 提示。
+  const showSkeleton = !hasLoaded && status !== "error";
+  const loadFailed = status === "error" && !hasLoaded;
+  const filtering = Boolean(filterKeyword.trim()) || filterResult !== "all" || filterType !== "all";
 
   const operationTypes = ["fetch", "pull", "push", "sync", "clone", "commit"];
   const filtered = records.filter((record) => {
@@ -80,33 +89,28 @@ export function LogsWorkspace({
 
   return (
     <div className="module-page">
-      <div className="module-hero">
-        <div className="module-icon">
-          <Clock3 size={21} />
-        </div>
-        <div>
-          <div className="eyebrow">
-            <span className="eyebrow-line" />
-            SYSTEM
-          </div>
-          <h1>操作记录</h1>
-          <p>查看应用执行过的 Git 操作、任务与结果。</p>
-        </div>
-        <div className="heading-actions">
-          <button
-            className="button secondary"
-            onClick={exportRecords}
-            disabled={busy || records.length === 0}
-          >
-            <HardDrive size={15} />
-            {busy ? "导出中..." : "导出 CSV"}
-          </button>
-          <button className="button secondary" onClick={clear}>
-            <Trash2 size={15} />
-            清空记录
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="系统记录"
+        title="操作记录"
+        description={workspaceDescription("logs")}
+        icon={<Clock3 size={21} />}
+        actions={
+          <>
+            <button
+              className="button secondary"
+              onClick={exportRecords}
+              disabled={busy || records.length === 0}
+            >
+              <HardDrive size={15} />
+              {busy ? "导出中..." : "导出 CSV"}
+            </button>
+            <button className="button secondary" onClick={clear}>
+              <Trash2 size={15} />
+              清空记录
+            </button>
+          </>
+        }
+      />
       <div className="remote-toolbar logs-toolbar">
         <label className="account-select">
           <span>结果</span>
@@ -149,7 +153,21 @@ export function LogsWorkspace({
             <RefreshCw size={16} />
           </button>
         </div>
-        {filtered.length ? (
+        {showSkeleton ? (
+          <Skeleton rows={4} />
+        ) : loadFailed ? (
+          <EmptyState
+            variant="error"
+            icon={<Clock3 size={21} />}
+            title="无法加载操作记录"
+            description="记录列表读取失败，可重试或稍后刷新。"
+            action={
+              <button className="button secondary compact" onClick={() => void load()}>
+                重试
+              </button>
+            }
+          />
+        ) : filtered.length ? (
           <div className="remote-list">
             {filtered.map((record) => {
               const meta = resultMeta[record.result];
@@ -171,11 +189,26 @@ export function LogsWorkspace({
             })}
           </div>
         ) : (
-          <div className="accounts-empty">
-            <Clock3 size={22} />
-            <strong>{records.length ? "没有匹配的记录" : "还没有操作记录"}</strong>
-            <span>{records.length ? "调整筛选条件试试。" : "Git 操作会自动记录到这里。"}</span>
-          </div>
+          <EmptyState
+            variant={filtering ? "no-match" : "no-data"}
+            icon={<Clock3 size={21} />}
+            title={filtering ? "没有匹配的记录" : "还没有操作记录"}
+            description={filtering ? "调整筛选条件试试。" : "Git 操作会自动记录到这里。"}
+            action={
+              filtering ? (
+                <button
+                  className="button secondary compact"
+                  onClick={() => {
+                    setFilterResult("all");
+                    setFilterType("all");
+                    setFilterKeyword("");
+                  }}
+                >
+                  清除筛选
+                </button>
+              ) : undefined
+            }
+          />
         )}
       </section>
     </div>

@@ -30,6 +30,7 @@ type Harness = {
     loader: ReturnType<typeof vi.fn>;
     onLoaded: ReturnType<typeof vi.fn>;
     onError: ReturnType<typeof vi.fn>;
+    onStatus: ReturnType<typeof vi.fn>;
   };
 };
 
@@ -39,6 +40,7 @@ function createHarness<T>(): Harness {
     loader: vi.fn<() => Promise<T>>(),
     onLoaded: vi.fn(),
     onError: vi.fn(),
+    onStatus: vi.fn(),
   };
   const core = createAsyncDataCore<T>(() => state as unknown as AsyncDataSnapshot<T>);
   return { core, state };
@@ -160,6 +162,60 @@ describe("createAsyncDataCore", () => {
 
     expect(staleOnLoaded).not.toHaveBeenCalled();
     expect(freshOnLoaded).toHaveBeenCalledWith(7);
+  });
+
+  describe("状态流转（阶段 D4）", () => {
+    it("开始加载发 loading，成功后发 ready", async () => {
+      const { core, state } = createHarness<number>();
+      const pending = deferred<number>();
+      state.loader.mockImplementation(() => pending.promise);
+
+      const running = core.load();
+      expect(state.onStatus.mock.calls).toEqual([["loading"]]);
+
+      pending.resolve(1);
+      await running;
+      expect(state.onStatus.mock.calls).toEqual([["loading"], ["ready"]]);
+    });
+
+    it("加载失败发 error，不会发 ready", async () => {
+      const { core, state } = createHarness<number>();
+      state.loader.mockRejectedValue(new Error("boom"));
+
+      await core.load();
+
+      expect(state.onStatus.mock.calls).toEqual([["loading"], ["error"]]);
+    });
+
+    it("过期请求的交付不覆盖新请求的状态", async () => {
+      const { core, state } = createHarness<string>();
+      const first = deferred<string>();
+      const second = deferred<string>();
+      state.loader.mockImplementationOnce(() => first.promise);
+      state.loader.mockImplementationOnce(() => second.promise);
+
+      const pendingFirst = core.load();
+      const pendingSecond = core.load();
+      second.resolve("new");
+      await pendingSecond;
+      first.resolve("old");
+      await pendingFirst;
+
+      expect(state.onStatus.mock.calls).toEqual([["loading"], ["loading"], ["ready"]]);
+    });
+
+    it("宿主卸载后不再发状态", async () => {
+      const { core, state } = createHarness<string>();
+      const pending = deferred<string>();
+      state.loader.mockImplementation(() => pending.promise);
+
+      const running = core.load();
+      state.enabled = false;
+      pending.resolve("late");
+      await running;
+
+      expect(state.onStatus.mock.calls).toEqual([["loading"]]);
+    });
   });
 
   describe("轮询", () => {

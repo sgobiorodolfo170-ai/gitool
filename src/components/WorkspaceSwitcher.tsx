@@ -24,6 +24,9 @@ export function WorkspaceSwitcher({
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const active = workspaces.find((item) => item.id === activeId);
+  // 头像取工作区名称首字符（阶段 D8）：原实现硬编码「L」，是无效的身份占位。
+  // 用 Array.from 按码点取首字，避免 emoji/代理对只显示半个字符。
+  const initial = Array.from((active?.name ?? "工作区").trim())[0]?.toUpperCase() ?? "W";
 
   useEffect(() => {
     const onMouseDown = (event: MouseEvent) => {
@@ -72,7 +75,9 @@ export function WorkspaceSwitcher({
 
   return (
     <div className="workspace-switcher" ref={ref} onClick={() => setOpen((current) => !current)}>
-      <div className="workspace-avatar">L</div>
+      <div className="workspace-avatar" aria-hidden="true">
+        {initial}
+      </div>
       <div className="workspace-copy">
         <span>{active?.name ?? "工作区"}</span>
         <small>本地模式</small>

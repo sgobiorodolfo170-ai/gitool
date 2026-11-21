@@ -58,10 +58,32 @@ const VIEW_LABELS: Record<AppView, string> = {
   remotes: "远程仓库",
   tasks: "任务中心",
   backups: "备份中心",
-  logs: "设置与记录",
+  // 与侧栏一致：早期版本写成「设置与记录」，容易和设置页混淆
+  logs: "操作记录",
   settings: "设置",
+};
+
+/**
+ * 页面描述（阶段 D2）：页面头的副标题在这里集中维护。
+ *
+ * 为什么集中：7 个页面头的 eyebrow/标题/描述曾经各写各的，
+ * 「操作记录」页的描述甚至与侧栏命名不一致。把静态文案收进导航元数据，
+ * 页面只引用 key，文案调整不必再全仓搜索。
+ */
+const VIEW_DESCRIPTIONS: Record<AppView, string> = {
+  overview: "这里是你今天的开发现场。",
+  projects: "集中查看本地项目、远程关联与工作区状态。",
+  remotes: "从 GitHub、Gitee 和 GitLab 读取当前账号可访问的仓库。",
+  tasks: "配置构建、运行和打包命令，一键执行并查看实时日志。",
+  backups: "将项目打包为 ZIP（含 .git），可在新目录完整恢复。",
+  logs: "查看应用执行过的 Git 操作、任务与结果。",
+  settings: "配置 Git 路径、默认目录与应用环境信息。",
 };
 
 export function workspaceLabel(workspace: AppView): string {
   return VIEW_LABELS[workspace];
+}
+
+export function workspaceDescription(workspace: AppView): string {
+  return VIEW_DESCRIPTIONS[workspace];
 }

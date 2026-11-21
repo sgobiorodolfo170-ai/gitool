@@ -18,6 +18,10 @@ import {
 } from "lucide-react";
 import type { Account, Project, RemoteRepository } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
+import { workspaceDescription } from "../lib/navigation";
+import { EmptyState } from "./EmptyState";
+import { PageHeader } from "./PageHeader";
+import { Skeleton } from "./Skeleton";
 
 export function RemoteRepositoriesWorkspace({
   accounts,
@@ -203,38 +207,32 @@ export function RemoteRepositoriesWorkspace({
 
   return (
     <div className="module-page remote-page">
-      <div className="module-hero">
-        <div className="module-icon">
-          <Cloud size={21} />
-        </div>
-        <div>
-          <div className="eyebrow">
-            <span className="eyebrow-line" />
-            REMOTE HUB
-          </div>
-          <h1>远程仓库</h1>
-          <p>
-            从 GitHub、Gitee 和 GitLab 读取当前账号可访问的仓库。
-            {syncTime ? (
-              <> 上次同步：{new Date(syncTime).toLocaleString("zh-CN", { hour12: false })}</>
-            ) : null}
-          </p>
-        </div>
-        <div className="heading-actions">
-          <button
-            className="button secondary"
-            onClick={onRefresh}
-            disabled={isLoading || !selectedAccountId}
-          >
-            <RefreshCw size={15} className={isLoading ? "spin" : ""} />
-            {isLoading ? "同步中..." : "同步仓库"}
-          </button>
-          <button className="button primary" onClick={openCreate} disabled={!selectedAccountId}>
-            <Plus size={16} />
-            创建仓库
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="云端同步"
+        title="远程仓库"
+        description={`${workspaceDescription("remotes")}${
+          syncTime
+            ? ` 上次同步：${new Date(syncTime).toLocaleString("zh-CN", { hour12: false })}`
+            : ""
+        }`}
+        icon={<Cloud size={21} />}
+        actions={
+          <>
+            <button
+              className="button secondary"
+              onClick={onRefresh}
+              disabled={isLoading || !selectedAccountId}
+            >
+              <RefreshCw size={15} className={isLoading ? "spin" : ""} />
+              {isLoading ? "同步中..." : "同步仓库"}
+            </button>
+            <button className="button primary" onClick={openCreate} disabled={!selectedAccountId}>
+              <Plus size={16} />
+              创建仓库
+            </button>
+          </>
+        }
+      />
       <div className="remote-toolbar">
         <label className="account-select">
           <span>远程账号</span>
@@ -269,7 +267,9 @@ export function RemoteRepositoriesWorkspace({
             <span className="provider-chip">{remoteProviderLabels[activeAccount.provider]}</span>
           )}
         </div>
-        {filtered.length ? (
+        {isLoading && repositories.length === 0 ? (
+          <Skeleton rows={6} />
+        ) : filtered.length ? (
           <div className="remote-list">
             {filtered.map((repository) => (
               <div className="remote-row" key={`${repository.accountId}-${repository.id}`}>
@@ -313,12 +313,11 @@ export function RemoteRepositoriesWorkspace({
                     <Star size={16} fill={isStarred(repository) ? "currentColor" : "none"} />
                   </button>
                   <button
-                    className={`icon-button ${isWatched(repository) ? "active" : ""}`}
+                    className={`icon-button ${isWatched(repository) ? "active watched" : ""}`}
                     onClick={() => handleToggleWatch(repository)}
                     disabled={interactingRepo === repository.fullName}
                     aria-label={isWatched(repository) ? "取消关注" : "关注仓库"}
                     title={isWatched(repository) ? "已关注" : "关注"}
-                    style={isWatched(repository) ? { color: "#e85d75" } : undefined}
                   >
                     <Heart size={16} fill={isWatched(repository) ? "currentColor" : "none"} />
                   </button>
@@ -362,16 +361,37 @@ export function RemoteRepositoriesWorkspace({
               </div>
             ))}
           </div>
+        ) : search.trim() ? (
+          <EmptyState
+            variant="no-match"
+            icon={<Search size={21} />}
+            title="没有匹配的仓库"
+            description="调整搜索词，或清空搜索查看全部。"
+            action={
+              <button className="button secondary compact" onClick={() => onSearchChange("")}>
+                清空搜索
+              </button>
+            }
+          />
         ) : (
-          <div className="accounts-empty">
-            <Cloud size={22} />
-            <strong>{accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}</strong>
-            <span>
-              {accounts.length
-                ? "选择账号后点击同步仓库。"
-                : "账号令牌将由 Windows 凭据管理器保护。"}
-            </span>
-          </div>
+          <EmptyState
+            icon={<Cloud size={21} />}
+            title={accounts.length ? "尚未同步远程仓库" : "请先添加远程账号"}
+            description={
+              accounts.length ? "选择账号后点击同步仓库。" : "账号令牌将由 Windows 凭据管理器保护。"
+            }
+            action={
+              accounts.length ? (
+                <button
+                  className="button secondary compact"
+                  onClick={onRefresh}
+                  disabled={isLoading || !selectedAccountId}
+                >
+                  同步仓库
+                </button>
+              ) : undefined
+            }
+          />
         )}
       </section>
       {formState && (

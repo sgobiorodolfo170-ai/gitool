@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * useAsyncData：封装「加载 + 轮询 + 卸载取消 + 错误兜底」的数据加载编排。
@@ -18,6 +18,16 @@ import { useCallback, useEffect, useRef } from "react";
  * useAsyncData 只做 ref 转发与 effect 接线（最新闭包 ref 范式，同 runsRef）。
  */
 
+/**
+ * 加载状态（阶段 D4）。
+ *
+ * 为什么需要四态：页面要区分「首屏还没回来」（骨架）与「确实没有数据」
+ * （空态），也要区分「加载失败」（错误态 + 重试）。只有 onLoaded/onError
+ * 两个回调时，空数组与「尚未加载」在渲染层无法区分，早期总览/项目页会
+ * 在首帧闪一下「没有匹配」。
+ */
+export type AsyncDataStatus = "idle" | "loading" | "ready" | "error";
+
 /** 核心每次开始加载 / 交付结果前读取的最新快照。 */
 export type AsyncDataSnapshot<T> = {
   /** false 表示宿主已卸载：丢弃结果、回调不触发（避免对已卸载组件 setState）。 */
@@ -26,6 +36,8 @@ export type AsyncDataSnapshot<T> = {
   onLoaded: (data: T) => void;
   /** 加载失败兜底出口：由调用方接到用户可见的提示通道（如 showNotice）。 */
   onError: (error: unknown) => void;
+  /** 状态流转出口（可选）：每次开始加载发 loading，最新一次交付发 ready/error。 */
+  onStatus?: (status: AsyncDataStatus) => void;
 };
 
 /**
@@ -63,20 +75,32 @@ export function createAsyncDataCore<T>(read: () => AsyncDataSnapshot<T>): AsyncD
 
   const load = (): Promise<void> => {
     const current = ++seq;
+    // 每次发起都回到 loading（含轮询与手动刷新）；卸载后不再通知状态。
+    const started = read();
+    if (started.enabled) started.onStatus?.("loading");
     let pending: Promise<T>;
     try {
       pending = Promise.resolve(read().loader());
     } catch (error) {
       // loader 同步抛错与异步失败同一出口，保证 load() 的返回值永不 reject
-      if (read().enabled && current === seq) read().onError(error);
+      if (read().enabled && current === seq) {
+        read().onStatus?.("error");
+        read().onError(error);
+      }
       return Promise.resolve();
     }
     return pending.then(
       (data) => {
-        if (read().enabled && current === seq) read().onLoaded(data);
+        if (read().enabled && current === seq) {
+          read().onStatus?.("ready");
+          read().onLoaded(data);
+        }
       },
       (error) => {
-        if (read().enabled && current === seq) read().onError(error);
+        if (read().enabled && current === seq) {
+          read().onStatus?.("error");
+          read().onError(error);
+        }
       },
     );
   };
@@ -108,6 +132,16 @@ export type UseAsyncDataOptions<T> = {
 export type UseAsyncDataHandle = {
   /** 手动触发一次加载（刷新按钮 / 写操作后回读）。永不 reject。 */
   load: () => Promise<void>;
+  /** 最近一次加载的状态；首帧为 idle，挂载 effect 后进入 loading。 */
+  status: AsyncDataStatus;
+  /**
+   * 是否至少成功交付过一次数据。
+   *
+   * 轮询场景专用：status 在每次轮询都会回 loading，若页面只看 status，
+   * 已有内容的列表会每 4 秒闪一次骨架。骨架条件应为
+   * `status === "loading" && !hasLoaded`。
+   */
+  hasLoaded: boolean;
 };
 
 const EMPTY_DEPS: readonly unknown[] = [];
@@ -115,10 +149,31 @@ const EMPTY_DEPS: readonly unknown[] = [];
 export function useAsyncData<T>(options: UseAsyncDataOptions<T>): UseAsyncDataHandle {
   const { loader, onLoaded, onError, pollMs, reloadDeps } = options;
 
+  const [status, setStatus] = useState<AsyncDataStatus>("idle");
+  const [hasLoaded, setHasLoaded] = useState(false);
+
   // 三个回调按「取最新闭包」语义保存（同 TasksWorkspace 的 runsRef 范式）：
   // 调用方通常传内联箭头函数，逐帧变化，不能进 effect 依赖。
-  const latestRef = useRef({ loader, onLoaded, onError });
-  latestRef.current = { loader, onLoaded, onError };
+  // onLoaded 在这里包一层：先置 hasLoaded 再交给调用方，页面无需各自维护
+  // 「是否已完成首载」的本地状态。
+  const latestRef = useRef({
+    loader,
+    onStatus: setStatus,
+    onLoaded: (data: T) => {
+      setHasLoaded(true);
+      onLoaded(data);
+    },
+    onError,
+  });
+  latestRef.current = {
+    loader,
+    onStatus: setStatus,
+    onLoaded: (data: T) => {
+      setHasLoaded(true);
+      onLoaded(data);
+    },
+    onError,
+  };
 
   // 卸载取消用 enabledRef 而非一次性 dispose：StrictMode 的模拟卸载/重挂载
   // 会复用同一组件实例（ref 不重建），必须可重入——cleanup 置 false 丢弃在途
@@ -161,5 +216,5 @@ export function useAsyncData<T>(options: UseAsyncDataOptions<T>): UseAsyncDataHa
     };
   }, [pollMs, load]);
 
-  return { load };
+  return { load, status, hasLoaded };
 }

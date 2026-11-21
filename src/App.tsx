@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, ArrowDownToLine, Check, Command, GitBranch, Loader2 } from "lucide-react";
-import type { AppSettings, AppView, RemoteProvider } from "./types";
+import type { AppSettings, AppView, ProjectFilter, RemoteProvider } from "./types";
 import { isDesktopRuntime, requireDesktopBridge } from "./lib/bridge";
+import { requestSearchFocus } from "./lib/uiEvents";
 
 import { buildNavGroups, workspaceLabel } from "./lib/navigation";
 import {
@@ -36,6 +37,9 @@ import { applyFontScale, FONT_SCALE_DEFAULT, loadFontScale, saveFontScale } from
 
 function App() {
   const [workspace, setWorkspace] = useState<AppView>("overview");
+  // 「我的项目」的进入筛选：指标卡跳转时写入，ProjectsPage 挂载时读取。
+  // 侧栏进入时重置为 all，避免上一次卡片筛选残留（阶段 D6）。
+  const [projectFilter, setProjectFilter] = useState<ProjectFilter>("all");
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [fontScale, setFontScale] = useState(FONT_SCALE_DEFAULT);
@@ -119,11 +123,14 @@ function App() {
     projects,
     selectedProject,
     isRefreshing,
+    isLoading: projectsLoading,
+    loadError: projectsLoadError,
     setSelectedId,
     applyProjects,
     updateProjects,
     getProjects,
     refreshProjects,
+    markLoadFailed,
   } = projectsApi;
 
   const resetView = useCallback(() => {
@@ -247,7 +254,11 @@ function App() {
           setSelectedAccountId(storedAccounts[0]?.id ?? "");
         })
         .catch(() => {
-          if (!cancelled) showNotice("无法读取本地工作区数据", { kind: "error" });
+          if (!cancelled) {
+            // 首屏读取失败：项目区切到错误态（可重试），而不是停在骨架/空态
+            markLoadFailed();
+            showNotice("无法读取本地工作区数据", { kind: "error" });
+          }
         });
     } else {
       const loadedWorkspaces = listWorkspacesLocal();
@@ -353,7 +364,11 @@ function App() {
                     <button
                       className={`nav-item ${workspace === item.id ? "active" : ""}`}
                       key={item.id}
-                      onClick={() => setWorkspace(item.id)}
+                      onClick={() => {
+                        // 侧栏进入时回到默认筛选，避免上次指标卡跳转的筛选残留
+                        setProjectFilter("all");
+                        setWorkspace(item.id);
+                      }}
                     >
                       <Icon size={17} />
                       <span>{item.label}</span>
@@ -406,15 +421,20 @@ function App() {
             </div>
             <div className="topbar-actions">
               {/* Ctrl+K 的处理器只在「我的项目」页（ProjectsWorkspace），提示仅在彼处展示；
+                现在是真实按钮：点击与快捷键同样聚焦项目搜索框（阶段 D7）。
                 早期版本的铃铛按钮无任何行为且红点恒亮，属装饰性误导，已移除 */}
               {workspace === "projects" && (
-                <div className="command-hint">
+                <button
+                  type="button"
+                  className="command-hint"
+                  onClick={requestSearchFocus}
+                  aria-label="聚焦项目搜索（Ctrl K）"
+                >
                   <Command size={13} />
                   <span>快速查找</span>
                   <kbd>Ctrl K</kbd>
-                </div>
+                </button>
               )}
-              <div className="top-avatar">L</div>
             </div>
           </header>
 
@@ -453,6 +473,8 @@ function App() {
               <OverviewWorkspace
                 projects={projects}
                 selectedProject={selectedProject}
+                isLoading={projectsLoading}
+                loadError={projectsLoadError}
                 isImporting={isImporting}
                 isRefreshing={isRefreshing}
                 cloningRepositoryId={cloningRepositoryId}
@@ -462,10 +484,18 @@ function App() {
                 onImport={importProject}
                 onClone={cloneRemoteRepository}
                 onToggleRemoteFavorite={toggleRemoteFavorite}
+                onOpenProjects={(filter) => {
+                  setProjectFilter(filter);
+                  setSelectedId("");
+                  clearDetail();
+                  setWorkspace("projects");
+                }}
+                onOpenRemotes={() => setWorkspace("remotes")}
               />
             ) : workspace === "projects" ? (
               <ProjectsPage
                 projectsApi={projectsApi}
+                initialFilter={projectFilter}
                 importDomain={{
                   isImporting,
                   importProject,

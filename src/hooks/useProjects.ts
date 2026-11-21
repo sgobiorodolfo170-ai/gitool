@@ -26,6 +26,10 @@ export type ProjectsApi = {
   selectedProject: Project | undefined;
   selectedId: string;
   isRefreshing: boolean;
+  /** 首个快照是否已经落盘（阶段 D4）：false 时列表应显示骨架而非「没有匹配」。 */
+  isLoading: boolean;
+  /** 首屏数据读取失败（阶段 D5）：用于渲染错误态并提供重试。 */
+  loadError: boolean;
   setSelectedId: (id: string) => void;
   /** 直接替换整个列表（切换工作区、首次加载时用）。 */
   applyProjects: (next: Project[]) => void;
@@ -33,6 +37,8 @@ export type ProjectsApi = {
   updateProjects: (updater: (prev: Project[]) => Project[]) => void;
   /** 读取最新列表（ref 同步值，不受渲染时序影响）。 */
   getProjects: () => Project[];
+  /** 首屏读取失败时由 App 调用，把列表切到错误态（可经刷新重试）。 */
+  markLoadFailed: () => void;
   toggleFavorite: (projectId: string) => void;
   deleteProjectFromList: (projectId: string) => Promise<void>;
   refreshProjects: () => Promise<void>;
@@ -67,10 +73,18 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
 
   const [selectedId, setSelectedId] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // 首屏加载态：applyProjects 是「项目快照已就绪」的唯一入口（初始加载、
+  // 切换工作区、刷新、导入都经它），所以由它切到 ready。
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
 
   const applyProjects = useCallback((next: Project[]) => {
     projectsRef.current = next;
     setProjects(next);
+    setLoadState("ready");
+  }, []);
+
+  const markLoadFailed = useCallback(() => {
+    setLoadState("error");
   }, []);
 
   const persistProjects = useCallback(
@@ -218,10 +232,13 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
     selectedProject,
     selectedId,
     isRefreshing,
+    isLoading: loadState === "loading",
+    loadError: loadState === "error",
     setSelectedId,
     applyProjects,
     updateProjects,
     getProjects: () => projectsRef.current,
+    markLoadFailed,
     toggleFavorite,
     deleteProjectFromList,
     refreshProjects,

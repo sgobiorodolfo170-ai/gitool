@@ -121,15 +121,12 @@ export function TaskForm({
           </select>
         </label>
         {incompatibleCommands.length > 0 && (
-          <div
-            className="conflict-wizard"
-            style={{ background: "#fef9e7", borderColor: "#f0d78a" }}
-          >
-            <div className="conflict-heading" style={{ color: "#9a6b1f" }}>
+          <div className="conflict-wizard warning">
+            <div className="conflict-heading">
               <CircleAlert size={14} />
               <strong>检测到 {incompatibleCommands.length} 个当前系统不支持的命令</strong>
             </div>
-            <p style={{ color: "#8a6d2f" }}>
+            <p>
               以下命令不支持 Windows 系统，仅支持：
               {incompatibleCommands[0].osSupport.join("、")}
               。可在其他系统上执行，或使用自定义命令手动配置。
