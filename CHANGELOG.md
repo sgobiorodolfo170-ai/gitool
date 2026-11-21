@@ -58,3 +58,4 @@
 | v0.8.0 | 2026-11-12 | 关闭/托盘双行为与退出资源回收：① 新增 processCleanup 子进程登记表（killProcessTree 自 tasks.ts 抽出共用），运行中任务与 git clone 在 spawn 后登记，before-quit 统一 taskkill /T /F 回收整棵进程树并销毁托盘图标——修复退出后 npm/vite 进程树与克隆进程残留后台的问题，退出击杀的任务按 stopped 落库而非 failed；② 关闭行为由新设置 closeToTray 区分（默认 false = 关闭窗口即彻底退出），设置页「关闭主窗口时」勾选「最小化到系统托盘」后仅隐藏窗口、后台任务继续运行，close 事件实时读库、改设置即时生效；③ 托盘菜单新增「隐藏到托盘」显式入口；openers/updater 的 detached 进程属刻意常驻（终端/安装器），不纳入回收。新增 11+4 个单测，覆盖率门禁 4 项达标（96.3/89.6/95.0/96.4） |
 | v0.8.1 | 2026-11-21 | 安全止血：更新链 digest 校验与去除 cmd 拼接、凭据脱敏与 clone 凭据不落盘、清理 2 个死通道（A-01~A-05） |
 | v0.8.2 | 2026-11-21 | 非 clone 域 Git 输出脱敏：runGitProcess 统一出口 + 敏感 key=value 形态（F-03） |
+| v0.8.3 | 2026-11-21 | storage 表所有权收口：accounts 级联清缓存与 workspaces 项目计数改走 owner 模块 API（A-32）|

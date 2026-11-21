@@ -1,16 +1,28 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Account } from "../../../../shared/types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Account, RemoteRepository } from "../../../../shared/types";
 import { closeDatabase, initDatabase } from "./database";
-import { getAccount, loadAccounts, updateAccount } from "./accounts";
+import { deleteAccount, getAccount, loadAccounts, updateAccount } from "./accounts";
+import { loadRemoteRepositoryCache, saveRemoteRepositoryCache } from "./remoteRepositoryCache";
+
+// deleteAccount 会经凭据层删除 Windows 凭据管理器条目（@napi-rs/keyring）。
+// 单测不允许产生真机副作用，故把 credentials 模块整体替换为内存假实现；
+// vi.mock 会被提升到 import 之前，accounts.ts 拿到的是这里的桩函数。
+vi.mock("../credentials", () => ({
+  deleteCredential: vi.fn(),
+  readCredential: vi.fn(() => ""),
+  saveCredential: vi.fn(),
+  probeKeyring: vi.fn(() => true),
+}));
 
 /**
- * accounts 域的纯库部分（load/get/update）。
+ * accounts 域的库层测试（load/get/update/delete）。
  *
- * ⚠ 刻意不测 upsertAccount/deleteAccount：它们会写/删 Windows 凭据管理器
- * （@napi-rs/keyring），单测不允许产生真机副作用。凭据层可注入后再补齐。
+ * ⚠ upsertAccount/deleteAccount 会写/删 Windows 凭据管理器，测试里以 vi.mock 的
+ * 内存假实现替代（见文件顶部），从而可在无真机副作用的前提下覆盖 deleteAccount
+ * 的级联删缓存语义；真实凭据读写仍待凭据层可注入后补齐。
  */
 
 function account(overrides: Partial<Account> = {}): Account {
@@ -28,6 +40,32 @@ function account(overrides: Partial<Account> = {}): Account {
     updatedAt: "2026-11-01T00:00:00.000Z",
     ...overrides,
   };
+}
+
+function repository(overrides: Partial<RemoteRepository> = {}): RemoteRepository {
+  return {
+    id: "repo-1",
+    accountId: "github-1",
+    provider: "github",
+    owner: "demo",
+    name: "demo",
+    fullName: "demo/demo",
+    description: "演示仓库",
+    visibility: "public",
+    defaultBranch: "main",
+    httpsUrl: "https://example.com/demo/demo.git",
+    archived: false,
+    updatedAt: "2026-11-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** 直接数缓存表行数：load 返回 null 也可能只是 payload 坏了，计数才能证明行被物理删除。 */
+function countCacheRows(accountId: string): number {
+  const row = initDatabase(dataDir)
+    .prepare("SELECT COUNT(*) AS total FROM remote_repository_cache WHERE accountId = ?")
+    .get(accountId) as { total: number };
+  return Number(row.total);
 }
 
 function insertDirectly(item: Account): void {
@@ -102,5 +140,31 @@ describe("accounts 域（远程账号·纯库部分）", () => {
 
     updateAccount("github-1", { status: "active", updatedAt: "2026-11-08T00:00:00.000Z" });
     expect(getAccount("github-1").updatedAt).toBe("2026-11-08T00:00:00.000Z");
+  });
+
+  it("删除账号后其仓库缓存被清空，且只影响该账号", () => {
+    insertDirectly(account({ id: "github-1", credentialRef: "account-github-1" }));
+    insertDirectly(
+      account({
+        id: "gitee-1",
+        provider: "gitee",
+        credentialRef: "account-gitee-1",
+        updatedAt: "2026-11-02T00:00:00.000Z",
+      }),
+    );
+    saveRemoteRepositoryCache("github-1", "github", [repository()]);
+    saveRemoteRepositoryCache("gitee-1", "gitee", [
+      repository({ id: "repo-2", accountId: "gitee-1", provider: "gitee" }),
+    ]);
+
+    deleteAccount("github-1");
+
+    // 被删账号：缓存行数归 0，读接口回到 null，账号本身也不再存在
+    expect(countCacheRows("github-1")).toBe(0);
+    expect(loadRemoteRepositoryCache("github-1")).toBeNull();
+    expect(() => getAccount("github-1")).toThrow("账号不存在");
+    // 其他账号的缓存必须原样保留（级联删除按 accountId 精确命中）
+    expect(countCacheRows("gitee-1")).toBe(1);
+    expect(loadRemoteRepositoryCache("gitee-1")?.[0]?.id).toBe("repo-2");
   });
 });

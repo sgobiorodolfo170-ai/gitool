@@ -25,6 +25,21 @@ export function loadProjects(workspaceId: string): Project[] {
   return rows.map(rowToProject);
 }
 
+/**
+ * 统计某工作区下的项目数（表所有权：projects 表只归本域所有）。
+ *
+ * 为什么单独导出：workspaces 域的删除守卫要判断「该工作区下是否还有项目」，
+ * 但计数逻辑与表结构属于本域；由本域提供计数接口，守卫侧只需调用，不再直写
+ * projects 表的 SQL（一张表只有一个 owner 模块，DDL 变更不必跨域同步）。
+ */
+export function countByWorkspace(workspaceId: string): number {
+  const connection = openDatabase();
+  const row = connection
+    .prepare("SELECT COUNT(*) AS total FROM projects WHERE workspaceId = ?")
+    .get(workspaceId) as SqlRow | undefined;
+  return row ? Number(row.total) : 0;
+}
+
 export function saveProjects(workspaceId: string, projects: Project[]): void {
   const connection = openDatabase();
   connection.exec("BEGIN");

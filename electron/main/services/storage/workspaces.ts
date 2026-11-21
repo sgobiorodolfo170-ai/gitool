@@ -4,13 +4,15 @@ import type {
   WorkspaceEntity,
 } from "../../../../shared/types";
 import { openDatabase, rowToWorkspace, type SqlRow } from "./database";
+import { countByWorkspace } from "./projects";
 
 /**
  * 工作区数据域：列表、创建、重命名、删除。
  *
  * 删除守卫两条（行为约定，勿破坏）：
  * 1. 至少保留一个工作区——UI 依赖「永远有当前工作区」这一不变量；
- * 2. 工作区下还有项目时禁止删除——项目归属 workspaceId，删除会让项目失联。
+ * 2. 工作区下还有项目时禁止删除——项目归属 workspaceId，删除会让项目失联
+ *    （项目计数由 projects 域提供，本域不直写 projects 表）。
  */
 
 export function listWorkspaces(): WorkspaceEntity[] {
@@ -71,13 +73,9 @@ export function deleteWorkspace(id: string): void {
   if (!existing) {
     throw new Error("工作区不存在");
   }
-  const projectCount = Number(
-    (
-      connection
-        .prepare("SELECT COUNT(*) AS total FROM projects WHERE workspaceId = ?")
-        .get(id) as SqlRow
-    ).total,
-  );
+  // 项目计数走 projects 域接口（表所有权：projects 表只归该域所有），
+  // 本域不再直写这条 SQL；守卫失败文案保持「该工作区还有 N 个项目」不变。
+  const projectCount = countByWorkspace(id);
   if (projectCount > 0) {
     throw new Error(`该工作区还有 ${projectCount} 个项目，请先清空或移动项目后再删除`);
   }

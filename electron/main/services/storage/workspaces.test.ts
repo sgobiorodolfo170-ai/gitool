@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeDatabase, initDatabase } from "./database";
-import { saveProjects } from "./projects";
+import { loadProjects, saveProjects } from "./projects";
 import { createWorkspace, deleteWorkspace, listWorkspaces, renameWorkspace } from "./workspaces";
 import type { Project } from "../../../../shared/types";
 
@@ -71,6 +71,26 @@ describe("workspaces 域（工作区）", () => {
     const target = createWorkspace({ name: "待删除" });
     saveProjects(target.id, [demoProject("p-1")]);
     expect(() => deleteWorkspace(target.id)).toThrow("该工作区还有 1 个项目");
+  });
+
+  it("仍有项目时拒绝删除：只按目标工作区计数，清空后可删（真实 sqlite + 临时目录）", () => {
+    const target = createWorkspace({ name: "待删除" });
+    const other = createWorkspace({ name: "保留" });
+    saveProjects(target.id, [demoProject("p-1"), demoProject("p-2")]);
+    saveProjects(other.id, [demoProject("p-3")]);
+
+    // 只数目标工作区的项目（other 的 1 个项目不计入），守卫文案逐字不变
+    expect(() => deleteWorkspace(target.id)).toThrow(
+      "该工作区还有 2 个项目，请先清空或移动项目后再删除",
+    );
+    expect(listWorkspaces().some((item) => item.id === target.id)).toBe(true);
+
+    // 清空目标工作区后守卫放行，删除成功；其他工作区的工作区与项目均不受影响
+    saveProjects(target.id, []);
+    deleteWorkspace(target.id);
+    expect(listWorkspaces().some((item) => item.id === target.id)).toBe(false);
+    expect(listWorkspaces().some((item) => item.id === other.id)).toBe(true);
+    expect(loadProjects(other.id).map((item) => item.id)).toEqual(["p-3"]);
   });
 
   it("无项目的空工作区可以删除", () => {

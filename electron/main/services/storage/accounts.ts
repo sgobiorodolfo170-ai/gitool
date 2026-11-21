@@ -2,6 +2,7 @@ import type { Account, RemoteProvider } from "../../../../shared/types";
 import { deleteCredential, readCredential, saveCredential } from "../credentials";
 import { errorMessage } from "../serviceUtils";
 import { openDatabase, rowToAccount, type SqlRow } from "./database";
+import { deleteByAccount } from "./remoteRepositoryCache";
 
 /**
  * 远程账号数据域：列表、查询、新增（PAT 入库 + 凭据管理器）、更新、删除。
@@ -150,10 +151,10 @@ export function deleteAccount(accountId: string): void {
   deleteCredential(account.credentialRef);
   const connection = openDatabase();
   connection.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
-  // 同步清掉该账号的仓库缓存，否则删号后仍残留一份完整仓库列表。
-  // 这条级联属账号删除语义的一部分，故内联在此而不从 remoteRepositoryCache
-  // 域导入（域间禁止横向依赖）；remote_repository_cache 表结构变更时需同步这里。
-  connection.prepare("DELETE FROM remote_repository_cache WHERE accountId = ?").run(accountId);
+  // 删号必须同步清掉该账号的仓库缓存，否则删号后仍残留一份完整仓库列表。
+  // 缓存表归 remoteRepositoryCache 域所有，本域只调用其接口而不直写 SQL
+  // （表所有权：一张表只有一个 owner 模块，缓存表结构变更无需跨域同步）。
+  deleteByAccount(accountId);
 }
 
 function isRemoteProvider(value: string): value is RemoteProvider {
