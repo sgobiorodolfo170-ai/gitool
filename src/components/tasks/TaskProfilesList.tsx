@@ -79,10 +79,7 @@ export function TaskProfilesList({
                 >
                   {runningId === profile.id ? "启动中..." : "运行"}
                 </button>
-                <button
-                  className="button secondary compact-button"
-                  onClick={() => onEdit(profile)}
-                >
+                <button className="button secondary compact-button" onClick={() => onEdit(profile)}>
                   编辑
                 </button>
                 <button

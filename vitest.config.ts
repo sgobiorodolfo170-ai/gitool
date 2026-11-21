@@ -10,9 +10,19 @@ import { defineConfig } from "vitest/config";
  */
 export default defineConfig({
   test: {
-    include: ["src/**/*.test.ts", "electron/**/*.test.ts", "shared/**/*.test.ts"],
+    include: [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "electron/**/*.test.ts",
+      "shared/**/*.test.ts",
+    ],
     exclude: ["node_modules/**", "dist/**", "dist-electron/**", "release/**"],
+    // 默认纯 Node：storage/git/纯函数测试不碰 DOM。
+    // 组件测试在文件顶部写 `// @vitest-environment jsdom` 单独切换，
+    // 这样不必把整个套件搬进 jsdom（Node 下 SQLite/子进程测试会变慢）。
     environment: "node",
+    // 所有套件都会加载：Node 下只注册 jest-dom 匹配器，不访问 DOM。
+    setupFiles: ["./src/test/setup.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
@@ -46,6 +56,11 @@ export default defineConfig({
         "src/lib/markdown.ts",
         "src/lib/navigation.ts",
         "src/lib/projectMatch.ts",
+        // 阶段 A 新增的 UI 纯逻辑（组件测试不计入白名单，避免用 jsdom
+        // 测试拉低门槛；这三个文件是零依赖状态机，必须保持高水位）。
+        "src/lib/notice.ts",
+        "src/lib/theme.ts",
+        "src/lib/a11y/focusTrap.ts",
       ],
       thresholds: {
         statements: 95,

@@ -33,9 +33,9 @@ describe("csvEscape", () => {
     // 关键回归（2026-11-07 审查 P2-10）：detail 来自 git 输出/用户操作，
     // 以 = + - @ 开头时 Excel 会当公式执行（如 =HYPERLINK 外发数据）。
     expect(csvEscape("=cmd|'/c calc'")).toBe("\"'=cmd|'/c calc'\"");
-    expect(csvEscape("+1")).toBe("\"'+1\"");
-    expect(csvEscape("-1")).toBe("\"'-1\"");
-    expect(csvEscape("@x")).toBe("\"'@x\"");
+    expect(csvEscape("+1")).toBe('"\'+1"');
+    expect(csvEscape("-1")).toBe('"\'-1"');
+    expect(csvEscape("@x")).toBe('"\'@x"');
     expect(csvEscape("正常文本")).toBe('"正常文本"');
   });
 });

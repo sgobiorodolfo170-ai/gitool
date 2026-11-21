@@ -1,8 +1,4 @@
-import {
-  ArrowDownToLine,
-  Loader2,
-  RefreshCw,
-} from "lucide-react";
+import { ArrowDownToLine, Loader2, RefreshCw } from "lucide-react";
 import type { EnvironmentStatus, InstallGitResult, InstallProgress } from "../../types";
 import {
   FONT_SCALE_DEFAULT,

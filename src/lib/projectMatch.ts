@@ -18,7 +18,11 @@ const WEB_KEY_PREFIX = "web:";
  * 键前缀防止 name 键与 web 键互撞；键只存在于运行时 Set（useMemo），
  * 不落盘，改格式无迁移负担。
  */
-export function remoteMatchKeys(source: { provider: string; name: string; webUrl?: string }): string[] {
+export function remoteMatchKeys(source: {
+  provider: string;
+  name: string;
+  webUrl?: string;
+}): string[] {
   const keys = [`${NAME_KEY_PREFIX}${source.provider}:${source.name}`];
   if (source.webUrl) keys.push(`${WEB_KEY_PREFIX}${source.webUrl}`);
   return keys;

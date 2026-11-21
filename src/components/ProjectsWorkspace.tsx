@@ -163,7 +163,11 @@ export function ProjectsWorkspace({
           <p>集中查看本地项目、远程关联与工作区状态。</p>
         </div>
         <div className="heading-actions">
-          <button className="button secondary" onClick={() => void refreshProjects()} disabled={isRefreshing}>
+          <button
+            className="button secondary"
+            onClick={() => void refreshProjects()}
+            disabled={isRefreshing}
+          >
             <RefreshCw size={15} className={isRefreshing ? "spin" : ""} />
             {isRefreshing ? "刷新中..." : "刷新状态"}
           </button>

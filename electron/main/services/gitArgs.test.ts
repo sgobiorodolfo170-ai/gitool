@@ -110,13 +110,7 @@ describe("clone 参数", () => {
   ];
 
   it.each(cloneCases)("$name", ({ url, targetPath }) => {
-    expect(buildCloneArgs(url, targetPath)).toEqual([
-      "clone",
-      "--progress",
-      "--",
-      url,
-      targetPath,
-    ]);
+    expect(buildCloneArgs(url, targetPath)).toEqual(["clone", "--progress", "--", url, targetPath]);
   });
 
   it("--progress 在 -- 之前，URL 与目标路径是仅有的位置参数", () => {
@@ -218,7 +212,9 @@ describe("stage / unstage 参数与分批", () => {
     const chunks = chunkFilesForGitArgs(files);
     // 展平后与原始列表完全一致：分批只切分，不做过滤/排序/去重
     expect(chunks.flat()).toEqual(files);
-    expect(buildStageArgs(chunks[0]).slice(2)).toEqual(files.slice(0, 200).map((p) => `:(literal)${p}`));
+    expect(buildStageArgs(chunks[0]).slice(2)).toEqual(
+      files.slice(0, 200).map((p) => `:(literal)${p}`),
+    );
     expect(buildStageArgs(chunks[1])).toEqual(["add", "--", ":(literal)src/f200.ts"]);
   });
 });
@@ -253,7 +249,11 @@ describe("tag 参数", () => {
 
 describe("branch 参数", () => {
   it("创建分支：checkout -b <name>", () => {
-    expect(buildCreateBranchArgs("feature/中文-分支")).toEqual(["checkout", "-b", "feature/中文-分支"]);
+    expect(buildCreateBranchArgs("feature/中文-分支")).toEqual([
+      "checkout",
+      "-b",
+      "feature/中文-分支",
+    ]);
   });
 
   it("切换分支：checkout <name>（不带 -b）", () => {
@@ -342,11 +342,7 @@ describe("快照 / 历史 / 无副作用的查询参数", () => {
 
   it("log 格式串：字段顺序固定、记录分隔符在末尾", () => {
     const args = buildCommitHistoryArgs(50);
-    expect(args).toEqual([
-      "log",
-      "-n 50",
-      "--format=%H\x1f%an\x1f%ae\x1f%aI\x1f%s\x1f%b\x1e",
-    ]);
+    expect(args).toEqual(["log", "-n 50", "--format=%H\x1f%an\x1f%ae\x1f%aI\x1f%s\x1f%b\x1e"]);
     const format = args[2];
     // 6 个字段 = 5 个字段分隔符 \x1f；少一个解析端就会少解一列
     expect(format.split("\x1f")).toHaveLength(6);

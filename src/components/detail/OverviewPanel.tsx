@@ -66,9 +66,7 @@ export function OverviewPanel({
     void bridge
       .openInTerminal(project.path)
       .then(() => setActionMessage("已在项目目录打开终端"))
-      .catch((error) =>
-        setActionMessage(error instanceof Error ? error.message : "打开终端失败"),
-      );
+      .catch((error) => setActionMessage(error instanceof Error ? error.message : "打开终端失败"));
   };
 
   const copyPath = async () => {
@@ -84,9 +82,7 @@ export function OverviewPanel({
     void bridge
       .openPath(project.path)
       .then(() => setActionMessage("已在资源管理器中打开"))
-      .catch((error) =>
-        setActionMessage(error instanceof Error ? error.message : "打开失败"),
-      );
+      .catch((error) => setActionMessage(error instanceof Error ? error.message : "打开失败"));
   };
 
   const generateSummary = async () => {
@@ -178,9 +174,7 @@ export function OverviewPanel({
             <button
               className="tag-remove"
               aria-label={`删除标签 ${tag}`}
-              onClick={() =>
-                onUpdateProject({ tags: project.tags.filter((item) => item !== tag) })
-              }
+              onClick={() => onUpdateProject({ tags: project.tags.filter((item) => item !== tag) })}
             >
               <X size={9} />
             </button>

@@ -1,0 +1,87 @@
+/*
+ * 设计 token（阶段 A 建立，阶段 C 起逐步替换硬编码值）。
+ *
+ * 约束：
+ * 1. 本文件只允许定义变量，不允许出现具体选择器规则——否则“token 层”
+ *    会和页面样式纠缠，后续无法只改一处换主题。
+ * 2. 现有 `styles.css` 的 `:root` 仍持有旧变量（--bg-* / --text-* 等）。
+ *    阶段 A 不迁移、不覆盖，保证视觉零变化；阶段 C 再把旧变量搬进来并
+ *    校准对比度。因此这里不重复定义同名变量，避免“看起来改了、实际被
+ *    后加载的旧值覆盖”的假象。
+ * 3. 所有字号都乘 `--font-scale`，与现有设置页的字号缩放保持同一机制。
+ */
+
+:root {
+  /* ---- 字号阶梯（8 档；最小 10px，仅用于元信息） ---- */
+  --fs-2xs: calc(10px * var(--font-scale));
+  --fs-xs: calc(11px * var(--font-scale));
+  --fs-sm: calc(12px * var(--font-scale));
+  --fs-base: calc(13px * var(--font-scale));
+  --fs-md: calc(15px * var(--font-scale));
+  --fs-lg: calc(19px * var(--font-scale));
+  --fs-xl: calc(24px * var(--font-scale));
+  --fs-display: calc(29px * var(--font-scale));
+
+  /* ---- 间距（4px 栅格） ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 48px;
+
+  /* ---- 圆角（3 档 + 胶囊） ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* ---- 字体栈（C6 起统一使用；DM Mono 未随包分发，不再引用） ---- */
+  --font-sans:
+    "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "Consolas", "Courier New", monospace;
+
+  /* ---- 动效 ---- */
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* ---- 阴影（比旧值更克制：卡片几乎无阴影，浮层才有） ---- */
+  --shadow-card: 0 1px 2px rgba(24, 38, 44, 0.04);
+  --shadow-overlay: 0 18px 48px rgba(24, 38, 44, 0.24);
+  --shadow-toast: 0 12px 28px rgba(24, 38, 44, 0.16);
+
+  /* ---- 层级（集中管理，避免 20/40/50/60 散落） ---- */
+  --z-bulk-bar: 20;
+  --z-float: 40;
+  --z-modal: 50;
+  --z-overlay: 60;
+
+  /* ---- 状态色（C5 用对比度脚本校准后启用；当前仅定义，不改变现有类） ---- */
+  --status-clean-fg: #256b59;
+  --status-clean-bg: #e6f5ee;
+  --status-ahead-fg: #3d5f7d;
+  --status-ahead-bg: #e7f0f7;
+  --status-behind-fg: #7a5a1e;
+  --status-behind-bg: #faf1d7;
+  --status-dirty-fg: #8f4a38;
+  --status-dirty-bg: #fae8e1;
+  --status-conflict-fg: #8a3547;
+  --status-conflict-bg: #f8dfe4;
+
+  /* ---- 反馈色（Toast / 表单错误共用） ---- */
+  --feedback-success-fg: #256b4f;
+  --feedback-success-bg: #e8f7f1;
+  --feedback-success-border: #bde0d4;
+  --feedback-error-fg: #8a3547;
+  --feedback-error-bg: #fdf1f3;
+  --feedback-error-border: #f0cfd6;
+  --feedback-warning-fg: #7a5a1e;
+  --feedback-warning-bg: #fdf6e3;
+  --feedback-warning-border: #f0dfb8;
+  --feedback-info-fg: #3d5f7d;
+  --feedback-info-bg: #eef4fa;
+  --feedback-info-border: #d5e3f0;
+}

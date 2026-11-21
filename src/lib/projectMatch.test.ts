@@ -168,11 +168,7 @@ describe("remoteProjectMatch", () => {
   it("remoteProjectMatch 与 UI 键集合命中在组合矩阵下等价（语义单一事实源的守护）", () => {
     const providers = ["github", "gitee"] as const;
     const names = ["demo", "other"];
-    const webUrls = [
-      undefined,
-      "https://github.com/me/demo",
-      "https://github.com/other/demo",
-    ];
+    const webUrls = [undefined, "https://github.com/me/demo", "https://github.com/other/demo"];
     let combinations = 0;
     for (const provider of providers) {
       for (const projectName of names) {

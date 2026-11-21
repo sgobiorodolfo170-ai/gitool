@@ -88,10 +88,7 @@ export function TaskForm({
       <div className="form-body">
         <label>
           关联项目
-          <select
-            value={draft.projectId}
-            onChange={(event) => onProjectChange(event.target.value)}
-          >
+          <select value={draft.projectId} onChange={(event) => onProjectChange(event.target.value)}>
             <option value="">选择项目</option>
             {projects.map((project) => (
               <option value={project.id} key={project.id}>
@@ -172,10 +169,7 @@ export function TaskForm({
             </select>
           )}
           {(commandCustom || commandOptions.length === 0) && (
-            <div
-              className="secret-input"
-              style={{ marginTop: commandOptions.length > 0 ? 6 : 0 }}
-            >
+            <div className="secret-input" style={{ marginTop: commandOptions.length > 0 ? 6 : 0 }}>
               <input
                 value={draft.command}
                 onChange={(event) => setDraft({ ...draft, command: event.target.value })}

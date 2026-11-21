@@ -119,7 +119,10 @@ export function GitActionsPanel({
         <button className={tab === "changes" ? "active" : ""} onClick={() => selectTab("changes")}>
           变更 {changedCount > 0 ? `(${changedCount})` : ""}
         </button>
-        <button className={tab === "branches" ? "active" : ""} onClick={() => selectTab("branches")}>
+        <button
+          className={tab === "branches" ? "active" : ""}
+          onClick={() => selectTab("branches")}
+        >
           分支
         </button>
         <button className={tab === "history" ? "active" : ""} onClick={() => selectTab("history")}>

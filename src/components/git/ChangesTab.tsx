@@ -237,9 +237,7 @@ export function ChangesTab({
         className="button primary wide"
         onClick={commit}
         disabled={
-          isBusy ||
-          !commitMessage.trim() ||
-          changedFiles.filter((file) => file.staged).length === 0
+          isBusy || !commitMessage.trim() || changedFiles.filter((file) => file.staged).length === 0
         }
       >
         {busy ? "提交中..." : "提交暂存的变更"}
@@ -248,11 +246,7 @@ export function ChangesTab({
         <div className="diff-viewer">
           <div className="diff-heading">
             <span>差异 · {diffFor}</span>
-            <button
-              className="bare-button"
-              onClick={() => setDiffFor(null)}
-              aria-label="关闭差异"
-            >
+            <button className="bare-button" onClick={() => setDiffFor(null)} aria-label="关闭差异">
               <X size={13} />
             </button>
           </div>

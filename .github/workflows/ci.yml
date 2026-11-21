@@ -29,5 +29,11 @@ jobs:
       - name: 单元测试（含覆盖率门槛）
         run: npm run test:coverage
 
+      - name: UI 约束（stylelint + 守卫）
+        run: npm run lint:css && npm run lint:ui
+
+      - name: 格式检查
+        run: npm run format:check
+
       - name: 构建产物
         run: npm run build
