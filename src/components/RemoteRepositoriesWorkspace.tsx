@@ -36,6 +36,7 @@ export function RemoteRepositoriesWorkspace({
   onMutate,
   onToggleFavorite,
   onToggleWatch,
+  onNotice,
 }: {
   accounts: Account[];
   repositories: RemoteRepository[];
@@ -63,6 +64,10 @@ export function RemoteRepositoriesWorkspace({
   ) => Promise<boolean>;
   onToggleFavorite: (repository: RemoteRepository) => void | Promise<void>;
   onToggleWatch: (repository: RemoteRepository) => void | Promise<void>;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
 }) {
   const filtered = repositories.filter((repository) =>
     `${repository.fullName} ${repository.description}`
@@ -127,19 +132,19 @@ export function RemoteRepositoriesWorkspace({
   const openRepositoryPage = async (repository: RemoteRepository) => {
     const bridge = getDesktopBridge();
     if (!bridge) {
-      window.alert("浏览器预览无法打开外部链接");
+      onNotice("浏览器预览无法打开外部链接", { kind: "warning" });
       return;
     }
     try {
       await bridge.openExternal(repository.httpsUrl.replace(/\.git$/, ""));
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "打开仓库页面失败");
+      onNotice(error instanceof Error ? error.message : "打开仓库页面失败", { kind: "error" });
     }
   };
 
   const openCreate = () => {
     if (!selectedAccountId) {
-      window.alert("请先选择一个远程账号");
+      onNotice("请先选择一个远程账号", { kind: "warning" });
       return;
     }
     setFormState({ mode: "create", name: "", description: "", visibility: "public", init: false });

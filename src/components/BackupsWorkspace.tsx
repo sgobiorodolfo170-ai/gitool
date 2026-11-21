@@ -3,6 +3,7 @@ import { Archive, HardDrive, RefreshCw } from "lucide-react";
 import type { BackupRecord, Project } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { confirmDialog } from "./ConfirmProvider";
 
 import { formatBytes } from "../lib/format";
 
@@ -12,7 +13,10 @@ export function BackupsWorkspace({
 }: {
   projects: Project[];
   /** 提示统一走 App 的全局 useNotice：本地 toast 与全局双轨已收敛（4s/3s 自动消失）。 */
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
 }) {
   const bridge = getDesktopBridge();
   const [backups, setBackups] = useState<BackupRecord[]>([]);
@@ -25,7 +29,8 @@ export function BackupsWorkspace({
   const { load } = useAsyncData<BackupRecord[]>({
     loader: () => (bridge ? bridge.listBackups() : Promise.resolve([])),
     onLoaded: setBackups,
-    onError: (error) => onNotice(error instanceof Error ? error.message : "加载备份记录失败"),
+    onError: (error) =>
+      onNotice(error instanceof Error ? error.message : "加载备份记录失败", { kind: "error" }),
   });
 
   const createBackup = async () => {
@@ -47,10 +52,11 @@ export function BackupsWorkspace({
       });
       onNotice(
         record.status === "ok" ? `备份完成：${record.archivePath}` : `备份失败：${record.error}`,
+        { kind: record.status === "ok" ? "success" : "error" },
       );
       await load();
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "备份失败");
+      onNotice(error instanceof Error ? error.message : "备份失败", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -58,7 +64,12 @@ export function BackupsWorkspace({
 
   const restoreBackup = async (backup: BackupRecord) => {
     if (!bridge) return;
-    if (!window.confirm("恢复会解压到您选择的空目录。确定继续吗？")) return;
+    const confirmed = await confirmDialog({
+      title: "恢复备份？",
+      description: "备份会解压到您选择的空目录。",
+      confirmLabel: "继续",
+    });
+    if (!confirmed) return;
     setBusy(true);
     try {
       const targetDirectory = await bridge.selectDirectory();
@@ -66,7 +77,7 @@ export function BackupsWorkspace({
       await bridge.restoreBackup({ archivePath: backup.archivePath, targetDirectory });
       onNotice("恢复完成，可到「我的项目」导入该目录");
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "恢复失败");
+      onNotice(error instanceof Error ? error.message : "恢复失败", { kind: "error" });
     } finally {
       setBusy(false);
     }

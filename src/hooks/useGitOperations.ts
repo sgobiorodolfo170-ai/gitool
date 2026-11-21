@@ -26,7 +26,10 @@ export type GitOperationsParams = {
   selectedProject: Project | undefined;
   getProjects: () => Project[];
   updateProjects: (updater: (prev: Project[]) => Project[]) => void;
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
   setOperationOutput: (value: string | null) => void;
   setAnalysis: (value: ProjectAnalysis | null) => void;
 };
@@ -91,10 +94,11 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
           result.success
             ? `${operationLabels[operation]}完成`
             : `${operationLabels[operation]}失败`,
+          { kind: result.success ? "success" : "error" },
         );
       } catch (error) {
         setOperationOutput(error instanceof Error ? error.message : "Git 操作失败，请查看日志");
-        onNotice(`${operationLabels[operation]}失败`);
+        onNotice(`${operationLabels[operation]}失败`, { kind: "error" });
       } finally {
         gitBusyRef.current = false;
         setActiveOperation(null);
@@ -145,6 +149,7 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
         );
         onNotice(
           `批量${operationLabels[operation]}完成：成功 ${successCount}，失败 ${failureCount}`,
+          { kind: failureCount > 0 ? "warning" : "success" },
         );
       } finally {
         gitBusyRef.current = false;
@@ -166,7 +171,7 @@ export function useGitOperations(params: GitOperationsParams): GitOperationsApi 
       setAnalysis(await requireDesktopBridge().analyzeProject(selectedProject.path));
       onNotice("项目结构分析完成");
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "项目结构分析失败");
+      onNotice(error instanceof Error ? error.message : "项目结构分析失败", { kind: "error" });
     } finally {
       setIsAnalyzing(false);
     }

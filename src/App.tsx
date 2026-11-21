@@ -11,6 +11,8 @@ import {
 } from "./lib/storageKeys";
 
 import { OverviewWorkspace } from "./components/OverviewWorkspace";
+import { NoticeViewport } from "./components/NoticeViewport";
+import { ConfirmProvider, confirmDialog } from "./components/ConfirmProvider";
 
 import { ProjectsPage } from "./components/ProjectsPage";
 import { WorkspaceSwitcher } from "./components/WorkspaceSwitcher";
@@ -39,18 +41,8 @@ function App() {
   const [fontScale, setFontScale] = useState(FONT_SCALE_DEFAULT);
 
   // 三个独立领域 hook：提示、环境体检、应用更新。
-  // 保留原有变量名做别名，避免一次性改动上百处引用；后续可逐步换成 hook 的原始命名。
-  const { notice, showNotice, clearNotice } = useNotice();
-  const setNotice = useCallback(
-    (message: string | null) => {
-      if (message === null) {
-        clearNotice();
-      } else {
-        showNotice(message);
-      }
-    },
-    [clearNotice, showNotice],
-  );
+  // 提示改为类型化队列（成功/失败/警告/信息），渲染交给 NoticeViewport。
+  const { notices, showNotice, dismiss } = useNotice();
 
   const {
     environment,
@@ -213,7 +205,13 @@ function App() {
   };
 
   const deleteAccount = async (accountId: string) => {
-    if (!window.confirm("删除账号后，Gitool 将同时删除对应的本地凭据引用。继续吗？")) return;
+    const confirmed = await confirmDialog({
+      title: "删除账号？",
+      description: "删除后，Gitool 将同时删除对应的本地凭据引用。",
+      confirmLabel: "删除账号",
+      danger: true,
+    });
+    if (!confirmed) return;
     const removed = await removeAccount(accountId);
     if (!removed) return;
     forgetAccount(
@@ -249,7 +247,7 @@ function App() {
           setSelectedAccountId(storedAccounts[0]?.id ?? "");
         })
         .catch(() => {
-          if (!cancelled) setNotice("无法读取本地工作区数据");
+          if (!cancelled) showNotice("无法读取本地工作区数据", { kind: "error" });
         });
     } else {
       const loadedWorkspaces = listWorkspacesLocal();
@@ -312,341 +310,346 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-lockup">
-          <div className="brand-mark">
-            <GitBranch size={18} strokeWidth={2.5} />
-          </div>
-          <div>
-            <strong>Gitool</strong>
-            <span>Developer workspace</span>
-          </div>
-        </div>
-
-        <WorkspaceSwitcher
-          workspaces={workspaces}
-          activeId={activeWorkspaceId}
-          onSwitch={switchWorkspace}
-          onCreate={createWorkspace}
-          onRename={renameWorkspace}
-          onDelete={(workspace) => {
-            if (window.confirm(`删除工作区「${workspace.name}」？若其中有项目将无法删除。`)) {
-              void deleteWorkspace(workspace.id);
-            }
-          }}
-        />
-
-        <nav className="sidebar-nav" aria-label="主导航">
-          {buildNavGroups({
-            projects: projects.length,
-            remotes: remoteRepositories.length,
-          }).map((group) => (
-            <div className="nav-group" key={group.label}>
-              <span className="nav-group-label">{group.label}</span>
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    className={`nav-item ${workspace === item.id ? "active" : ""}`}
-                    key={item.id}
-                    onClick={() => setWorkspace(item.id)}
-                  >
-                    <Icon size={17} />
-                    <span>{item.label}</span>
-                    {item.count && <em>{item.count}</em>}
-                  </button>
-                );
-              })}
+    <ConfirmProvider>
+      <div className="app-shell">
+        <aside className="sidebar">
+          <div className="brand-lockup">
+            <div className="brand-mark">
+              <GitBranch size={18} strokeWidth={2.5} />
             </div>
-          ))}
-        </nav>
-
-        <div className="sidebar-version">
-          <button
-            className="sidebar-version-label"
-            onClick={() => void handleCheckUpdate()}
-            disabled={isCheckingUpdate}
-            title="检查更新"
-          >
-            v{__APP_VERSION__}
-            {isCheckingUpdate && <span className="sidebar-version-checking">检查中…</span>}
-          </button>
-          {updateAvailable && !isDownloading && !downloadedPath && (
-            <button className="sidebar-update-btn" onClick={() => void handleUpdate()}>
-              → v{updateAvailable.version} 更新
-            </button>
-          )}
-          {isDownloading && updateProgress && (
-            <span className="sidebar-update-progress">
-              <span
-                className="sidebar-update-progress-bar"
-                style={{ width: `${updateProgress.percent}%` }}
-              />
-              <span className="sidebar-update-progress-text">{updateProgress.percent}%</span>
-            </span>
-          )}
-          {downloadedPath && (
-            <button className="sidebar-update-btn install" onClick={handleInstallUpdate}>
-              重启安装
-            </button>
-          )}
-        </div>
-      </aside>
-
-      <main className="main-area">
-        <header className="topbar">
-          <div className="breadcrumb">
-            <span>Gitool</span>
-            <span className="breadcrumb-slash">/</span>
-            <strong>{workspaceLabel(workspace)}</strong>
+            <div>
+              <strong>Gitool</strong>
+              <span>Developer workspace</span>
+            </div>
           </div>
-          <div className="topbar-actions">
-            {/* Ctrl+K 的处理器只在「我的项目」页（ProjectsWorkspace），提示仅在彼处展示；
-                早期版本的铃铛按钮无任何行为且红点恒亮，属装饰性误导，已移除 */}
-            {workspace === "projects" && (
-              <div className="command-hint">
-                <Command size={13} />
-                <span>快速查找</span>
-                <kbd>Ctrl K</kbd>
+
+          <WorkspaceSwitcher
+            workspaces={workspaces}
+            activeId={activeWorkspaceId}
+            onSwitch={switchWorkspace}
+            onCreate={createWorkspace}
+            onRename={renameWorkspace}
+            onDelete={async (workspace) => {
+              const confirmed = await confirmDialog({
+                title: `删除工作区「${workspace.name}」？`,
+                description: "若其中有项目将无法删除。",
+                confirmLabel: "删除工作区",
+                danger: true,
+              });
+              if (confirmed) await deleteWorkspace(workspace.id);
+            }}
+          />
+
+          <nav className="sidebar-nav" aria-label="主导航">
+            {buildNavGroups({
+              projects: projects.length,
+              remotes: remoteRepositories.length,
+            }).map((group) => (
+              <div className="nav-group" key={group.label}>
+                <span className="nav-group-label">{group.label}</span>
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      className={`nav-item ${workspace === item.id ? "active" : ""}`}
+                      key={item.id}
+                      onClick={() => setWorkspace(item.id)}
+                    >
+                      <Icon size={17} />
+                      <span>{item.label}</span>
+                      {item.count && <em>{item.count}</em>}
+                    </button>
+                  );
+                })}
               </div>
-            )}
-            <div className="top-avatar">L</div>
-          </div>
-        </header>
+            ))}
+          </nav>
 
-        {environment && !environment.git_available && (
-          <div className="env-banner">
-            <AlertTriangle size={14} />
-            <span>未检测到 Git，仓库克隆、提交、拉取等功能不可用。</span>
+          <div className="sidebar-version">
             <button
-              className="button primary compact-button"
-              onClick={() => void installGit()}
-              disabled={installingGit}
+              className="sidebar-version-label"
+              onClick={() => void handleCheckUpdate()}
+              disabled={isCheckingUpdate}
+              title="检查更新"
             >
-              {installingGit ? (
-                <>
-                  <Loader2 size={13} className="spin" />
-                  安装中
-                </>
-              ) : (
-                <>
-                  <ArrowDownToLine size={13} />
-                  一键安装
-                </>
+              v{__APP_VERSION__}
+              {isCheckingUpdate && <span className="sidebar-version-checking">检查中…</span>}
+            </button>
+            {updateAvailable && !isDownloading && !downloadedPath && (
+              <button className="sidebar-update-btn" onClick={() => void handleUpdate()}>
+                → v{updateAvailable.version} 更新
+              </button>
+            )}
+            {isDownloading && updateProgress && (
+              <span className="sidebar-update-progress">
+                <span
+                  className="sidebar-update-progress-bar"
+                  style={{ width: `${updateProgress.percent}%` }}
+                />
+                <span className="sidebar-update-progress-text">{updateProgress.percent}%</span>
+              </span>
+            )}
+            {downloadedPath && (
+              <button className="sidebar-update-btn install" onClick={handleInstallUpdate}>
+                重启安装
+              </button>
+            )}
+          </div>
+        </aside>
+
+        <main className="main-area">
+          <header className="topbar">
+            <div className="breadcrumb">
+              <span>Gitool</span>
+              <span className="breadcrumb-slash">/</span>
+              <strong>{workspaceLabel(workspace)}</strong>
+            </div>
+            <div className="topbar-actions">
+              {/* Ctrl+K 的处理器只在「我的项目」页（ProjectsWorkspace），提示仅在彼处展示；
+                早期版本的铃铛按钮无任何行为且红点恒亮，属装饰性误导，已移除 */}
+              {workspace === "projects" && (
+                <div className="command-hint">
+                  <Command size={13} />
+                  <span>快速查找</span>
+                  <kbd>Ctrl K</kbd>
+                </div>
               )}
-            </button>
-            <button
-              className="button secondary compact-button"
-              onClick={() => setWorkspace("settings")}
-            >
-              查看详情
-            </button>
+              <div className="top-avatar">L</div>
+            </div>
+          </header>
+
+          {environment && !environment.git_available && (
+            <div className="env-banner">
+              <AlertTriangle size={14} />
+              <span>未检测到 Git，仓库克隆、提交、拉取等功能不可用。</span>
+              <button
+                className="button primary compact-button"
+                onClick={() => void installGit()}
+                disabled={installingGit}
+              >
+                {installingGit ? (
+                  <>
+                    <Loader2 size={13} className="spin" />
+                    安装中
+                  </>
+                ) : (
+                  <>
+                    <ArrowDownToLine size={13} />
+                    一键安装
+                  </>
+                )}
+              </button>
+              <button
+                className="button secondary compact-button"
+                onClick={() => setWorkspace("settings")}
+              >
+                查看详情
+              </button>
+            </div>
+          )}
+
+          <div className="content-scroll">
+            {workspace === "overview" ? (
+              <OverviewWorkspace
+                projects={projects}
+                selectedProject={selectedProject}
+                isImporting={isImporting}
+                isRefreshing={isRefreshing}
+                cloningRepositoryId={cloningRepositoryId}
+                defaultAccountId={appSettings?.defaultSearchAccountId ?? ""}
+                onSelect={openProjectDetail}
+                onRefresh={refreshProjects}
+                onImport={importProject}
+                onClone={cloneRemoteRepository}
+                onToggleRemoteFavorite={toggleRemoteFavorite}
+              />
+            ) : workspace === "projects" ? (
+              <ProjectsPage
+                projectsApi={projectsApi}
+                importDomain={{
+                  isImporting,
+                  importProject,
+                  initNewRepository,
+                  scanDirectoryForImport,
+                }}
+                onNotice={showNotice}
+                registerClearDetail={registerClearDetail}
+              />
+            ) : workspace === "remotes" ? (
+              <RemoteRepositoriesWorkspace
+                accounts={accounts}
+                repositories={remoteRepositories}
+                projects={projects}
+                selectedAccountId={selectedAccountId}
+                syncTime={remoteSyncTime}
+                search={remoteSearch}
+                isLoading={isLoadingRemotes}
+                cloningRepositoryId={cloningRepositoryId}
+                cloneProgress={cloneProgress}
+                onAccountChange={(accountId) => {
+                  setSelectedAccountId(accountId);
+                  setRemoteRepositories([]);
+                  void loadRemoteRepositories(accountId, { silent: true });
+                }}
+                onSearchChange={setRemoteSearch}
+                onRefresh={() => loadRemoteRepositories()}
+                onClone={cloneRemoteRepository}
+                onMutate={mutateRemoteRepository}
+                onToggleFavorite={toggleRemoteFavorite}
+                onToggleWatch={toggleRemoteWatch}
+                onNotice={showNotice}
+              />
+            ) : workspace === "tasks" ? (
+              <TasksWorkspace projects={projects} onNotice={showNotice} />
+            ) : workspace === "backups" ? (
+              <BackupsWorkspace projects={projects} onNotice={showNotice} />
+            ) : workspace === "logs" ? (
+              <LogsWorkspace onNotice={showNotice} />
+            ) : workspace === "settings" ? (
+              <SettingsWorkspace
+                onNotice={showNotice}
+                environment={environment}
+                accounts={accounts}
+                accountBusyId={accountBusyId}
+                onAdd={addAccount}
+                onTest={testAccount}
+                onDelete={deleteAccount}
+                onSettingsChange={(next) => setAppSettings(next)}
+                onRefreshEnvironment={refreshEnvironment}
+                onInstallGit={installGit}
+                installingGit={installingGit}
+                installProgress={installProgress}
+                fontScale={fontScale}
+                onFontScaleChange={changeFontScale}
+              />
+            ) : null}
+          </div>
+        </main>
+
+        <NoticeViewport notices={notices} onDismiss={dismiss} />
+
+        {/* 浮动进度块：仅当安装进行中/刚结束、且模态未打开时显示。避免与模态内的进度条重复。 */}
+        {installProgress && !showSetupModal && (
+          <div
+            className={`setup-progress-float ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}
+          >
+            <div className="setup-progress-header">
+              {installProgress.phase === "done" ? (
+                <Check size={13} />
+              ) : installProgress.phase === "failed" ? (
+                <AlertTriangle size={13} />
+              ) : (
+                <Loader2 size={13} className="spin" />
+              )}
+              <span>
+                {installProgress.phase === "downloading"
+                  ? "下载 Git 安装包"
+                  : installProgress.phase === "installing"
+                    ? "正在安装（如见 UAC 提示请允许）"
+                    : installProgress.phase === "verifying"
+                      ? "验证安装"
+                      : installProgress.phase === "done"
+                        ? "安装完成"
+                        : "安装未完成"}
+              </span>
+            </div>
+            <div className="setup-progress-bar">
+              <div
+                className="setup-progress-fill"
+                style={{ width: `${installProgress.percent}%` }}
+              />
+            </div>
+            <span className="setup-progress-text">{installProgress.message}</span>
           </div>
         )}
 
-        <div className="content-scroll">
-          {workspace === "overview" ? (
-            <OverviewWorkspace
-              projects={projects}
-              selectedProject={selectedProject}
-              isImporting={isImporting}
-              isRefreshing={isRefreshing}
-              cloningRepositoryId={cloningRepositoryId}
-              defaultAccountId={appSettings?.defaultSearchAccountId ?? ""}
-              onSelect={openProjectDetail}
-              onRefresh={refreshProjects}
-              onImport={importProject}
-              onClone={cloneRemoteRepository}
-              onToggleRemoteFavorite={toggleRemoteFavorite}
-            />
-          ) : workspace === "projects" ? (
-            <ProjectsPage
-              projectsApi={projectsApi}
-              importDomain={{
-                isImporting,
-                importProject,
-                initNewRepository,
-                scanDirectoryForImport,
-              }}
-              onNotice={showNotice}
-              registerClearDetail={registerClearDetail}
-            />
-          ) : workspace === "remotes" ? (
-            <RemoteRepositoriesWorkspace
-              accounts={accounts}
-              repositories={remoteRepositories}
-              projects={projects}
-              selectedAccountId={selectedAccountId}
-              syncTime={remoteSyncTime}
-              search={remoteSearch}
-              isLoading={isLoadingRemotes}
-              cloningRepositoryId={cloningRepositoryId}
-              cloneProgress={cloneProgress}
-              onAccountChange={(accountId) => {
-                setSelectedAccountId(accountId);
-                setRemoteRepositories([]);
-                void loadRemoteRepositories(accountId, { silent: true });
-              }}
-              onSearchChange={setRemoteSearch}
-              onRefresh={() => loadRemoteRepositories()}
-              onClone={cloneRemoteRepository}
-              onMutate={mutateRemoteRepository}
-              onToggleFavorite={toggleRemoteFavorite}
-              onToggleWatch={toggleRemoteWatch}
-            />
-          ) : workspace === "tasks" ? (
-            <TasksWorkspace projects={projects} onNotice={showNotice} />
-          ) : workspace === "backups" ? (
-            <BackupsWorkspace projects={projects} onNotice={showNotice} />
-          ) : workspace === "logs" ? (
-            <LogsWorkspace onNotice={showNotice} />
-          ) : workspace === "settings" ? (
-            <SettingsWorkspace
-              onNotice={showNotice}
-              environment={environment}
-              accounts={accounts}
-              accountBusyId={accountBusyId}
-              onAdd={addAccount}
-              onTest={testAccount}
-              onDelete={deleteAccount}
-              onSettingsChange={(next) => setAppSettings(next)}
-              onRefreshEnvironment={refreshEnvironment}
-              onInstallGit={installGit}
-              installingGit={installingGit}
-              installProgress={installProgress}
-              fontScale={fontScale}
-              onFontScaleChange={changeFontScale}
-            />
-          ) : null}
-        </div>
-      </main>
-
-      {notice && (
-        <div className="toast">
-          <Check size={16} />
-          {notice}
-        </div>
-      )}
-
-      {/* 浮动进度块：仅当安装进行中/刚结束、且模态未打开时显示。避免与模态内的进度条重复。 */}
-      {installProgress && !showSetupModal && (
-        <div
-          className={`setup-progress-float ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}
-        >
-          <div className="setup-progress-header">
-            {installProgress.phase === "done" ? (
-              <Check size={13} />
-            ) : installProgress.phase === "failed" ? (
-              <AlertTriangle size={13} />
-            ) : (
-              <Loader2 size={13} className="spin" />
-            )}
-            <span>
-              {installProgress.phase === "downloading"
-                ? "下载 Git 安装包"
-                : installProgress.phase === "installing"
-                  ? "正在安装（如见 UAC 提示请允许）"
-                  : installProgress.phase === "verifying"
-                    ? "验证安装"
-                    : installProgress.phase === "done"
-                      ? "安装完成"
-                      : "安装未完成"}
-            </span>
-          </div>
-          <div className="setup-progress-bar">
-            <div className="setup-progress-fill" style={{ width: `${installProgress.percent}%` }} />
-          </div>
-          <span className="setup-progress-text">{installProgress.message}</span>
-        </div>
-      )}
-
-      {showSetupModal && environment && !environment.git_available && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal-panel setup-modal">
-            <div className="modal-heading">
-              <div>
-                <h2>需要安装 Git 才能使用核心功能</h2>
-                <span>未检测到系统 Git，应用可为你一键下载并安装</span>
-              </div>
-              <AlertTriangle size={18} />
-            </div>
-            <div className="form-body">
-              <p className="setup-intro">
-                Gitool 的克隆、提交、分支、拉取、推送等操作依赖 Git 命令行工具，当前系统未检测到
-                Git。 点击下方按钮将自动从官方（git-for-windows）下载 64
-                位安装包，并以管理员权限静默安装， 完成后无需重启即可使用。
-              </p>
-              {installProgress && (
-                <div
-                  className={`setup-progress ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}
-                >
-                  <div className="setup-progress-bar">
-                    <div
-                      className="setup-progress-fill"
-                      style={{ width: `${installProgress.percent}%` }}
-                    />
-                  </div>
-                  <span className="setup-progress-text">{installProgress.message}</span>
+        {showSetupModal && environment && !environment.git_available && (
+          <div className="modal-backdrop" role="dialog" aria-modal="true">
+            <div className="modal-panel setup-modal">
+              <div className="modal-heading">
+                <div>
+                  <h2>需要安装 Git 才能使用核心功能</h2>
+                  <span>未检测到系统 Git，应用可为你一键下载并安装</span>
                 </div>
-              )}
-              {installProgress?.phase === "failed" && (
-                <p className="form-error">
-                  安装未完成。可关闭后重试，或在「设置 → 环境信息」手动指定已存在的 git.exe 路径。
+                <AlertTriangle size={18} />
+              </div>
+              <div className="form-body">
+                <p className="setup-intro">
+                  Gitool 的克隆、提交、分支、拉取、推送等操作依赖 Git 命令行工具，当前系统未检测到
+                  Git。 点击下方按钮将自动从官方（git-for-windows）下载 64
+                  位安装包，并以管理员权限静默安装， 完成后无需重启即可使用。
                 </p>
-              )}
-              <div className="setup-actions">
-                <button
-                  className="button primary"
-                  onClick={() => void installGit()}
-                  disabled={
-                    installingGit ||
-                    installProgress?.phase === "downloading" ||
-                    installProgress?.phase === "installing" ||
-                    installProgress?.phase === "verifying"
-                  }
-                >
-                  {installingGit ||
-                  (installProgress &&
-                    installProgress.phase !== "done" &&
-                    installProgress.phase !== "failed") ? (
-                    <>
-                      <Loader2 size={14} className="spin" />
-                      正在安装...
-                    </>
-                  ) : (
-                    <>
-                      <ArrowDownToLine size={14} />
-                      一键安装 Git
-                    </>
-                  )}
-                </button>
-                <button
-                  className="button secondary"
-                  onClick={() => setShowSetupModal(false)}
-                  disabled={installingGit}
-                >
-                  稍后再说
-                </button>
-                <label className="checkbox-row setup-dismiss">
-                  <input
-                    type="checkbox"
-                    onChange={(event) => {
-                      if (event.target.checked) {
-                        window.localStorage.setItem(SETUP_DISMISS_KEY, "1");
-                      } else {
-                        window.localStorage.removeItem(SETUP_DISMISS_KEY);
-                      }
-                    }}
-                  />
-                  不再提醒（环境信息页仍可手动安装）
-                </label>
+                {installProgress && (
+                  <div
+                    className={`setup-progress ${installProgress.phase === "failed" ? "failed" : installProgress.phase === "done" ? "done" : ""}`}
+                  >
+                    <div className="setup-progress-bar">
+                      <div
+                        className="setup-progress-fill"
+                        style={{ width: `${installProgress.percent}%` }}
+                      />
+                    </div>
+                    <span className="setup-progress-text">{installProgress.message}</span>
+                  </div>
+                )}
+                {installProgress?.phase === "failed" && (
+                  <p className="form-error">
+                    安装未完成。可关闭后重试，或在「设置 → 环境信息」手动指定已存在的 git.exe 路径。
+                  </p>
+                )}
+                <div className="setup-actions">
+                  <button
+                    className="button primary"
+                    onClick={() => void installGit()}
+                    disabled={
+                      installingGit ||
+                      installProgress?.phase === "downloading" ||
+                      installProgress?.phase === "installing" ||
+                      installProgress?.phase === "verifying"
+                    }
+                  >
+                    {installingGit ||
+                    (installProgress &&
+                      installProgress.phase !== "done" &&
+                      installProgress.phase !== "failed") ? (
+                      <>
+                        <Loader2 size={14} className="spin" />
+                        正在安装...
+                      </>
+                    ) : (
+                      <>
+                        <ArrowDownToLine size={14} />
+                        一键安装 Git
+                      </>
+                    )}
+                  </button>
+                  <button
+                    className="button secondary"
+                    onClick={() => setShowSetupModal(false)}
+                    disabled={installingGit}
+                  >
+                    稍后再说
+                  </button>
+                  <label className="checkbox-row setup-dismiss">
+                    <input
+                      type="checkbox"
+                      onChange={(event) => {
+                        if (event.target.checked) {
+                          window.localStorage.setItem(SETUP_DISMISS_KEY, "1");
+                        } else {
+                          window.localStorage.removeItem(SETUP_DISMISS_KEY);
+                        }
+                      }}
+                    />
+                    不再提醒（环境信息页仍可手动安装）
+                  </label>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </ConfirmProvider>
   );
 }
 

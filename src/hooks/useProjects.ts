@@ -4,6 +4,7 @@ import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { mapWithConcurrency } from "../lib/concurrency";
 import { projectFromSnapshot } from "../lib/projectMatch";
 import { saveProjects } from "../lib/projects";
+import { confirmDialog } from "../components/ConfirmProvider";
 
 /**
  * 项目列表：加载、持久化、收藏、刷新、移动。
@@ -33,14 +34,17 @@ export type ProjectsApi = {
   /** 读取最新列表（ref 同步值，不受渲染时序影响）。 */
   getProjects: () => Project[];
   toggleFavorite: (projectId: string) => void;
-  deleteProjectFromList: (projectId: string) => void;
+  deleteProjectFromList: (projectId: string) => Promise<void>;
   refreshProjects: () => Promise<void>;
   moveProject: (project: Project) => Promise<void>;
 };
 
 export type ProjectsParams = {
   activeWorkspaceId: string;
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
   /** 项目被删除或切换时清空右侧详情（operationOutput / analysis 属于 Git 操作域）。 */
   onClearDetail: () => void;
   /** 移动项目时的默认目录提示。 */
@@ -79,7 +83,7 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
         .catch(() => undefined)
         .then(() => requireDesktopBridge().saveProjects(workspaceId, next))
         .catch((error) => {
-          onNotice(error instanceof Error ? error.message : "项目数据保存失败");
+          onNotice(error instanceof Error ? error.message : "项目数据保存失败", { kind: "error" });
         });
     },
     [onNotice],
@@ -116,14 +120,19 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
   );
 
   const deleteProjectFromList = useCallback(
-    (projectId: string) => {
+    async (projectId: string) => {
       const target = projectsRef.current.find((project) => project.id === projectId);
       if (!target) return;
-      const message =
-        target.path === ""
-          ? `确定移除「${target.alias || target.name}」？这是未克隆的远程收藏条目。`
-          : `确定从我的项目中移除「${target.alias || target.name}」？\n项目目录不会被删除，后续可重新导入。`;
-      if (!window.confirm(message)) return;
+      const confirmed = await confirmDialog({
+        title: `移除「${target.alias || target.name}」？`,
+        description:
+          target.path === ""
+            ? "这是未克隆的远程收藏条目。"
+            : "项目目录不会被删除，后续可重新导入。",
+        confirmLabel: "移除",
+        danger: target.path !== "",
+      });
+      if (!confirmed) return;
 
       const wasSelected = selectedId === projectId;
       const next = projectsRef.current.filter((project) => project.id !== projectId);
@@ -171,9 +180,12 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
         onNotice("浏览器预览不支持移动项目");
         return;
       }
-      if (
-        !window.confirm("移动项目会复制整个目录（含 .git）到新位置，并更新本地记录。确定继续吗？")
-      ) {
+      const confirmed = await confirmDialog({
+        title: "移动项目？",
+        description: "会复制整个目录（含 .git）到新位置，并更新本地记录。",
+        confirmLabel: "移动",
+      });
+      if (!confirmed) {
         return;
       }
       const bridge = requireDesktopBridge();
@@ -192,10 +204,10 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
           );
           onNotice("项目已移动，记录已更新");
         } else {
-          onNotice(`移动失败：${result.output}`);
+          onNotice(`移动失败：${result.output}`, { kind: "error" });
         }
       } catch (error) {
-        onNotice(error instanceof Error ? error.message : "移动失败");
+        onNotice(error instanceof Error ? error.message : "移动失败", { kind: "error" });
       }
     },
     [defaultDirectoryHint, onNotice, updateProjects],

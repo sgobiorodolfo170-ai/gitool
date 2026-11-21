@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { confirmDialog } from "./ConfirmProvider";
 import { AccountsWorkspace } from "./settings/AccountsWorkspace";
 import { AppSettingsTab } from "./settings/AppSettingsTab";
 import { AiSettingsTab } from "./settings/AiSettingsTab";
@@ -66,7 +67,10 @@ export function SettingsWorkspace({
   fontScale: number;
   onFontScaleChange: (scale: number) => void;
   /** 提示统一走 App 的全局 useNotice：本地 toast 与全局双轨已收敛。 */
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
 }) {
   const bridge = getDesktopBridge();
   const [settings, setSettings] = useState<AppSettings>(INITIAL_SETTINGS);
@@ -90,7 +94,8 @@ export function SettingsWorkspace({
       setSettings(loadedSettings);
       setHasAiKey(loadedHasKey);
     },
-    onError: (error) => onNotice(error instanceof Error ? error.message : "加载设置失败"),
+    onError: (error) =>
+      onNotice(error instanceof Error ? error.message : "加载设置失败", { kind: "error" }),
   });
 
   const save = async () => {
@@ -109,7 +114,7 @@ export function SettingsWorkspace({
       onSettingsChange({ ...settings, aiApiKeyConfigured: hasAiKey || Boolean(aiKeyInput.trim()) });
       onNotice("设置已保存");
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "保存失败");
+      onNotice(error instanceof Error ? error.message : "保存失败", { kind: "error" });
     } finally {
       setBusy(false);
     }
@@ -118,7 +123,13 @@ export function SettingsWorkspace({
   // 清除 Key 会同时改 hasAiKey/settings/notice 三个共享状态，因此留在父级
   const removeAiKey = async () => {
     if (!bridge) return;
-    if (!window.confirm("删除已保存的 AI API Key？")) return;
+    const confirmed = await confirmDialog({
+      title: "删除已保存的 AI API Key？",
+      description: "删除后需重新配置才能使用 AI 摘要。",
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!confirmed) return;
     await bridge.deleteAiApiKey();
     setHasAiKey(false);
     setSettings((current) => ({ ...current, aiApiKeyConfigured: false }));

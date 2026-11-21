@@ -28,7 +28,10 @@ export type WorkspacesParams = {
   /** 由 App 持有：useProjects 需要它做保存分区，提到 App 可避免两个 hook 互相依赖。 */
   activeWorkspaceId: string;
   setActiveWorkspaceId: (id: string) => void;
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
   /** 切换工作区后把新项目列表灌进 useProjects。 */
   onProjectsLoaded: (projects: Project[]) => void;
   /** 切工作区时清空筛选、详情与导航位置。 */
@@ -75,7 +78,7 @@ export function useWorkspaces(params: WorkspacesParams): WorkspacesApi {
         onNotice(`工作区「${created.name}」已创建`);
         return created;
       } catch (error) {
-        onNotice(error instanceof Error ? error.message : "创建工作区失败");
+        onNotice(error instanceof Error ? error.message : "创建工作区失败", { kind: "error" });
         return null;
       }
     },
@@ -97,7 +100,7 @@ export function useWorkspaces(params: WorkspacesParams): WorkspacesApi {
         );
         onNotice("工作区已重命名");
       } catch (error) {
-        onNotice(error instanceof Error ? error.message : "重命名失败");
+        onNotice(error instanceof Error ? error.message : "重命名失败", { kind: "error" });
       }
     },
     [onNotice],
@@ -120,7 +123,7 @@ export function useWorkspaces(params: WorkspacesParams): WorkspacesApi {
         }
         onNotice("工作区已删除");
       } catch (error) {
-        onNotice(error instanceof Error ? error.message : "删除失败");
+        onNotice(error instanceof Error ? error.message : "删除失败", { kind: "error" });
       }
     },
     [activeWorkspaceId, onNotice, switchWorkspace, workspaces],

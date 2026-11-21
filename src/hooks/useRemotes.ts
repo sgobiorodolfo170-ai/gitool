@@ -16,6 +16,7 @@ import {
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { remoteProjectMatch } from "../lib/projectMatch";
 import { LAST_IMPORT_DIRECTORY_KEY } from "../lib/storageKeys";
+import { confirmDialog } from "../components/ConfirmProvider";
 
 /**
  * 远程仓库：同步列表、克隆、增删改、收藏/关注。
@@ -58,7 +59,10 @@ export type RemotesApi = {
 export type RemotesParams = {
   getProjects: () => Project[];
   updateProjects: (updater: (prev: Project[]) => Project[]) => void;
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
   /** 克隆成功后选中并跳转到项目页。 */
   onCloned: (projectId: string) => void;
 };
@@ -144,7 +148,7 @@ export function useRemotes(params: RemotesParams): RemotesApi {
         }
       } catch (error) {
         if (seq !== loadSeqRef.current) return;
-        onNotice(error instanceof Error ? error.message : "远程仓库同步失败");
+        onNotice(error instanceof Error ? error.message : "远程仓库同步失败", { kind: "error" });
       } finally {
         // 过期请求不能关掉最新一次加载的 loading 状态
         if (seq === loadSeqRef.current) {
@@ -215,7 +219,7 @@ export function useRemotes(params: RemotesParams): RemotesApi {
           });
         } catch (error) {
           rollback?.();
-          onNotice(error instanceof Error ? error.message : "平台收藏操作失败");
+          onNotice(error instanceof Error ? error.message : "平台收藏操作失败", { kind: "error" });
         }
       }
     },
@@ -282,7 +286,7 @@ export function useRemotes(params: RemotesParams): RemotesApi {
           });
         } catch (error) {
           rollback?.();
-          onNotice(error instanceof Error ? error.message : "平台关注操作失败");
+          onNotice(error instanceof Error ? error.message : "平台关注操作失败", { kind: "error" });
         }
       }
     },
@@ -309,7 +313,7 @@ export function useRemotes(params: RemotesParams): RemotesApi {
           accountId: repository.accountId,
         });
         if (!result.success) {
-          onNotice(`克隆失败：${result.output.slice(0, 200)}`);
+          onNotice(`克隆失败：${result.output.slice(0, 200)}`, { kind: "error" });
           return;
         }
 
@@ -355,7 +359,9 @@ export function useRemotes(params: RemotesParams): RemotesApi {
         onCloned(newProject.id);
         onNotice("仓库克隆完成，已加入我的项目");
       } catch (error) {
-        onNotice(error instanceof Error ? error.message : "克隆失败，请查看日志");
+        onNotice(error instanceof Error ? error.message : "克隆失败，请查看日志", {
+          kind: "error",
+        });
       } finally {
         setCloningRepositoryId(null);
       }
@@ -380,9 +386,12 @@ export function useRemotes(params: RemotesParams): RemotesApi {
         return false;
       }
       if (action === "delete") {
-        const confirmed = window.confirm(
-          "删除远程仓库是不可逆操作，仓库及其历史将被永久删除。确定继续吗？",
-        );
+        const confirmed = await confirmDialog({
+          title: "删除远程仓库？",
+          description: "这是不可逆操作，仓库及其历史将被永久删除。",
+          confirmLabel: "永久删除",
+          danger: true,
+        });
         if (!confirmed) return false;
       }
       try {
@@ -406,7 +415,7 @@ export function useRemotes(params: RemotesParams): RemotesApi {
         }
         return result.success;
       } catch (error) {
-        onNotice(error instanceof Error ? error.message : "远程仓库操作失败");
+        onNotice(error instanceof Error ? error.message : "远程仓库操作失败", { kind: "error" });
         return false;
       }
     },

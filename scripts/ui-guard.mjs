@@ -26,10 +26,10 @@ const SRC = join(ROOT, "src");
 
 /** 当前允许的存量上限。每完成一项整改，把对应值下调；归零后保持 0。 */
 const BASELINE = {
-  nativeDialogs: 16,
+  nativeDialogs: 0,
   dmMono: 17,
   tinyFonts: 75,
-  failureNotice: 31,
+  failureNotice: 0,
   important: 8,
 };
 
@@ -59,11 +59,39 @@ function scanLines(files, pattern) {
   return hits;
 }
 
+/**
+ * 失败语义调用：跨行匹配整个 `onNotice(...)` 调用，只有“文案含失败词
+ * 且参数里没有显式 kind”才算违规。逐行匹配会把已经补了 `{ kind }` 的
+ * 调用继续算成问题，导致棘轮永远无法下调。
+ */
+function scanFailureNoticeCalls(files) {
+  const hits = [];
+  const callPattern = /onNotice\(([\s\S]*?)\)\s*;/g;
+
+  for (const file of files) {
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(callPattern)) {
+      const args = match[1];
+      if (!/失败|错误|无法|不可用|未完成/.test(args)) continue;
+      if (/kind\s*:/.test(args)) continue;
+      const line = text.slice(0, match.index).split(/\r?\n/).length;
+      hits.push(`${relative(ROOT, file)}:${line}`);
+    }
+  }
+
+  return hits;
+}
+
 const checks = [
   {
     label: "原生 confirm/alert",
     baseline: BASELINE.nativeDialogs,
-    hits: scanLines(codeFiles, /window\.(?:confirm|alert)\s*\(/),
+    // ConfirmProvider 的 window.confirm 是“Provider 未挂载”时的唯一兜底
+    // （浏览器预览 / 单测），不是界面交互路径，按设计豁免。
+    hits: scanLines(
+      codeFiles.filter((file) => !file.endsWith("ConfirmProvider.tsx")),
+      /window\.(?:confirm|alert)\s*\(/,
+    ),
   },
   {
     label: "未分发字体 DM Mono",
@@ -78,7 +106,7 @@ const checks = [
   {
     label: "失败语义仍走普通提示",
     baseline: BASELINE.failureNotice,
-    hits: scanLines(codeFiles, /onNotice\([^)]*(?:失败|错误|无法|不可用|未完成)/),
+    hits: scanFailureNoticeCalls(codeFiles),
   },
   {
     label: "!important",

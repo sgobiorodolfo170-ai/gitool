@@ -33,7 +33,10 @@ export function ProjectsPage({
 }: {
   projectsApi: ProjectsApi;
   importDomain: ImportDomain;
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
   /** 把本页的清除详情函数登记给 App（删除项目后 useProjects 要清右侧详情）。 */
   registerClearDetail: (clear: () => void) => void;
 }) {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { DesktopBridge } from "../../../shared/types";
 import type { BranchInfo } from "../../types";
 import { useLoadSequence } from "./loadSequence";
+import { confirmDialog } from "../ConfirmProvider";
 
 /**
  * 「分支」tab：分支列表（切换/删除）与新建分支。
@@ -104,7 +105,13 @@ export function BranchesTab({
 
   const deleteBranch = async (name: string) => {
     if (!bridge) return;
-    if (!window.confirm(`确定删除分支 ${name}？未合并的提交会一并丢弃。`)) return;
+    const confirmed = await confirmDialog({
+      title: `删除分支 ${name}？`,
+      description: "未合并的提交会一并丢弃。",
+      confirmLabel: "删除分支",
+      danger: true,
+    });
+    if (!confirmed) return;
     setBusy(true);
     try {
       await bridge.deleteBranch({ path: projectPath, name });

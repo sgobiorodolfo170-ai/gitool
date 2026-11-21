@@ -4,6 +4,7 @@ import type { DetectedCommand, Project, TaskProfile, TaskRun } from "../types";
 import { createTaskProfile } from "../../shared/entities";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { confirmDialog } from "./ConfirmProvider";
 import { TaskForm, type TaskDraft } from "./tasks/TaskForm";
 import { TaskProfilesList } from "./tasks/TaskProfilesList";
 import { TaskRunsList } from "./tasks/TaskRunsList";
@@ -32,7 +33,10 @@ export function TasksWorkspace({
 }: {
   projects: Project[];
   /** 提示统一走 App 的全局 useNotice：本地 toast 与全局双轨已收敛。 */
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
 }) {
   const bridge = getDesktopBridge();
   const [profiles, setProfiles] = useState<TaskProfile[]>([]);
@@ -62,7 +66,8 @@ export function TasksWorkspace({
       setProfiles(loadedProfiles);
       setRuns(loadedRuns);
     },
-    onError: (error) => onNotice(error instanceof Error ? error.message : "加载任务数据失败"),
+    onError: (error) =>
+      onNotice(error instanceof Error ? error.message : "加载任务数据失败", { kind: "error" }),
     pollMs: 4000,
   });
 
@@ -181,7 +186,7 @@ export function TasksWorkspace({
       setActiveTab("profiles");
       await load();
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "保存失败");
+      onNotice(error instanceof Error ? error.message : "保存失败", { kind: "error" });
     }
   };
 
@@ -193,7 +198,7 @@ export function TasksWorkspace({
       setRuns((current) => [run, ...current]);
       onNotice(`任务「${profile.name}」已启动`);
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "启动失败");
+      onNotice(error instanceof Error ? error.message : "启动失败", { kind: "error" });
     } finally {
       setRunningId(null);
     }
@@ -201,7 +206,13 @@ export function TasksWorkspace({
 
   const deleteProfile = async (profile: TaskProfile) => {
     if (!bridge) return;
-    if (!window.confirm(`删除任务「${profile.name}」？`)) return;
+    const confirmed = await confirmDialog({
+      title: `删除任务「${profile.name}」？`,
+      description: "任务配置将被移除，历史运行记录仍保留。",
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!confirmed) return;
     await bridge.deleteTaskProfile(profile.id);
     await load();
   };
@@ -213,7 +224,7 @@ export function TasksWorkspace({
       await bridge.stopTask(runId);
       onNotice("已请求停止任务");
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "停止失败");
+      onNotice(error instanceof Error ? error.message : "停止失败", { kind: "error" });
     } finally {
       setStoppingId(null);
       await load();

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { DesktopBridge } from "../../../shared/types";
 import type { GitTag } from "../../types";
 import { useLoadSequence } from "./loadSequence";
+import { confirmDialog } from "../ConfirmProvider";
 
 /**
  * 「标签」tab：标签列表（删除）与新建标签。
@@ -99,7 +100,12 @@ export function TagsTab({
 
   const removeTag = async (name: string) => {
     if (!bridge) return;
-    if (!window.confirm(`删除标签 ${name}？`)) return;
+    const confirmed = await confirmDialog({
+      title: `删除标签 ${name}？`,
+      confirmLabel: "删除标签",
+      danger: true,
+    });
+    if (!confirmed) return;
     setBusy(true);
     try {
       await bridge.deleteTag(projectPath, name);

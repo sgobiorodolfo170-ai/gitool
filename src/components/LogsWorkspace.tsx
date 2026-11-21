@@ -3,12 +3,16 @@ import { Clock3, HardDrive, RefreshCw, Search, Trash2 } from "lucide-react";
 import type { OperationRecord } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
 import { useAsyncData } from "../hooks/useAsyncData";
+import { confirmDialog } from "./ConfirmProvider";
 
 export function LogsWorkspace({
   onNotice,
 }: {
   /** 提示统一走 App 的全局 useNotice：本地 toast 与全局双轨已收敛。 */
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
 }) {
   const bridge = getDesktopBridge();
   const [records, setRecords] = useState<OperationRecord[]>([]);
@@ -22,7 +26,8 @@ export function LogsWorkspace({
   const { load } = useAsyncData<OperationRecord[]>({
     loader: () => (bridge ? bridge.listOperationRecords() : Promise.resolve([])),
     onLoaded: setRecords,
-    onError: (error) => onNotice(error instanceof Error ? error.message : "加载操作记录失败"),
+    onError: (error) =>
+      onNotice(error instanceof Error ? error.message : "加载操作记录失败", { kind: "error" }),
   });
 
   const operationTypes = ["fetch", "pull", "push", "sync", "clone", "commit"];
@@ -41,7 +46,13 @@ export function LogsWorkspace({
 
   const clear = async () => {
     if (!bridge) return;
-    if (!window.confirm("清空全部操作记录？")) return;
+    const confirmed = await confirmDialog({
+      title: "清空全部操作记录？",
+      description: "此操作不可撤销。",
+      confirmLabel: "清空",
+      danger: true,
+    });
+    if (!confirmed) return;
     await bridge.clearOperationRecords();
     onNotice("操作记录已清空");
     await load();
@@ -56,7 +67,7 @@ export function LogsWorkspace({
       const filePath = await bridge.exportOperationRecords(directory);
       onNotice(`已导出到 ${filePath}`);
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "导出失败");
+      onNotice(error instanceof Error ? error.message : "导出失败", { kind: "error" });
     } finally {
       setBusy(false);
     }

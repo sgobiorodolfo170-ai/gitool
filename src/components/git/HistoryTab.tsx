@@ -5,6 +5,7 @@ import type { BranchInfo, CommitEntry, GitTag } from "../../types";
 import { formatCommitDate } from "../../lib/format";
 import { useLoadSequence } from "./loadSequence";
 import { renderTimeline } from "./CommitTimeline";
+import { confirmDialog } from "../ConfirmProvider";
 
 /**
  * 「历史」tab：提交列表/时间线、版本对比（分支/标签/提交）与回退。
@@ -127,7 +128,13 @@ export function HistoryTab({
 
   const revert = async (hash: string) => {
     if (!bridge) return;
-    if (!window.confirm(`对提交 ${hash.slice(0, 7)} 执行 revert？这会生成一个反向提交。`)) return;
+    const confirmed = await confirmDialog({
+      title: `对提交 ${hash.slice(0, 7)} 执行 revert？`,
+      description: "这会生成一个反向提交。",
+      confirmLabel: "执行 revert",
+      danger: true,
+    });
+    if (!confirmed) return;
     setBusy(true);
     try {
       const result = await bridge.revertCommit({ path: projectPath, hash });

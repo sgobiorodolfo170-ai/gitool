@@ -3,6 +3,7 @@ import {
   clearNotices,
   dismissNotice,
   EMPTY_NOTICE_STATE,
+  inferNoticeKind,
   NOTICE_LIMIT,
   noticeTtl,
   pushNotice,
@@ -72,5 +73,26 @@ describe("notice 队列", () => {
     dismissNotice(state, "1");
 
     expect(state.items).toEqual(snapshot);
+  });
+});
+
+describe("notice 文案兜底分级", () => {
+  it("失败/无法类文案归为 error", () => {
+    expect(inferNoticeKind("保存失败")).toBe("error");
+    expect(inferNoticeKind("无法读取这个目录")).toBe("error");
+    expect(inferNoticeKind("远程仓库同步失败")).toBe("error");
+  });
+
+  it("请求前置/不支持类文案归为 warning", () => {
+    expect(inferNoticeKind("请先添加并选择一个远程账号")).toBe("warning");
+    expect(inferNoticeKind("浏览器预览不支持批量导入")).toBe("warning");
+    expect(inferNoticeKind("该目录已经是 Git 仓库")).toBe("warning");
+    expect(inferNoticeKind("没有可导入的新仓库")).toBe("warning");
+  });
+
+  it("普通完成文案归为 success", () => {
+    expect(inferNoticeKind("设置已保存")).toBe("success");
+    expect(inferNoticeKind("项目已导入")).toBe("success");
+    expect(inferNoticeKind("任务「build」已启动")).toBe("success");
   });
 });

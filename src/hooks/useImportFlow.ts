@@ -15,6 +15,7 @@ import {
 import { getDesktopBridge, isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { projectFromSnapshot } from "../lib/projectMatch";
 import { LAST_IMPORT_DIRECTORY_KEY } from "../lib/storageKeys";
+import { confirmDialog } from "../components/ConfirmProvider";
 
 /**
  * 项目导入：选目录导入、初始化新仓库、扫描目录批量导入。
@@ -32,7 +33,10 @@ export type ImportFlowApi = {
 };
 
 export type ImportFlowParams = {
-  onNotice: (message: string) => void;
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
   defaultDirectoryHint: () => string | undefined;
   /** 取当前项目列表（用于批量导入去重，必须是最新值）。 */
   getProjects: () => Project[];
@@ -97,7 +101,7 @@ export function useImportFlow(params: ImportFlowParams): ImportFlowApi {
       onImported(newProject.id);
       onNotice("项目已导入");
     } catch {
-      onNotice("无法读取这个目录，请确认路径存在且可访问");
+      onNotice("无法读取这个目录，请确认路径存在且可访问", { kind: "error" });
     } finally {
       setIsImporting(false);
     }
@@ -151,7 +155,7 @@ export function useImportFlow(params: ImportFlowParams): ImportFlowApi {
       onImported(newProject.id);
       onNotice("新 Git 仓库初始化完成");
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "初始化失败");
+      onNotice(error instanceof Error ? error.message : "初始化失败", { kind: "error" });
     } finally {
       setIsImporting(false);
     }
@@ -221,13 +225,15 @@ export function useImportFlow(params: ImportFlowParams): ImportFlowApi {
         onNotice("该目录下没有发现 Git 仓库");
         return;
       }
-      const confirmed = window.confirm(
-        `发现 ${items.length} 个子目录，其中 ${gitRepos.length} 个是 Git 仓库。导入全部仓库？`,
-      );
+      const confirmed = await confirmDialog({
+        title: "导入全部仓库？",
+        description: `发现 ${items.length} 个子目录，其中 ${gitRepos.length} 个是 Git 仓库。`,
+        confirmLabel: "导入",
+      });
       if (!confirmed) return;
       await importScannedRepositories(items);
     } catch (error) {
-      onNotice(error instanceof Error ? error.message : "扫描失败");
+      onNotice(error instanceof Error ? error.message : "扫描失败", { kind: "error" });
     }
   }, [defaultDirectoryHint, importScannedRepositories, onNotice]);
 

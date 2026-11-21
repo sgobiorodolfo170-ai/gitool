@@ -18,6 +18,27 @@ export type NoticeState = {
   items: Notice[];
 };
 
+export type NoticeOptions = { kind?: NoticeKind };
+
+/** 统一的消息上报签名：旧的 `(message: string) => void` 可直接赋值。 */
+export type NoticeReporter = (message: string, options?: NoticeOptions) => void;
+
+/**
+ * 文案启发式分级：仅在调用方没有显式传 kind 时兜底。
+ *
+ * 为什么需要它：77 个调用点里仍有 `onNotice(error.message)` 这类
+ * “消息内容由底层决定”的路径，无法在调用点静态判断。兜底至少保证
+ * 失败不会渲染成绿色对勾；显式 `{ kind }` 永远优先。
+ */
+const ERROR_HINTS = /失败|错误|无法|不可用|未完成|异常|拒绝/;
+const WARNING_HINTS = /请先|不支持|不会|只能|注意|尚未|没有|已经是/;
+
+export function inferNoticeKind(message: string): NoticeKind {
+  if (ERROR_HINTS.test(message)) return "error";
+  if (WARNING_HINTS.test(message)) return "warning";
+  return "success";
+}
+
 /** 同时可见的提示上限：再多会遮挡工作区，也不利于扫读。 */
 export const NOTICE_LIMIT = 3;
 

@@ -20,7 +20,12 @@ export type AccountsApi = {
   removeAccount: (accountId: string) => Promise<boolean>;
 };
 
-export function useAccounts(params: { onNotice: (message: string) => void }): AccountsApi {
+export function useAccounts(params: {
+  onNotice: (
+    message: string,
+    options?: { kind?: "success" | "error" | "warning" | "info" },
+  ) => void;
+}): AccountsApi {
   const { onNotice } = params;
 
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -47,7 +52,7 @@ export function useAccounts(params: { onNotice: (message: string) => void }): Ac
         onNotice(`账号「${account.username}」已保存`);
         return account;
       } catch (error) {
-        onNotice(error instanceof Error ? error.message : "账号保存失败");
+        onNotice(error instanceof Error ? error.message : "账号保存失败", { kind: "error" });
         return null;
       }
     },
@@ -78,7 +83,7 @@ export function useAccounts(params: { onNotice: (message: string) => void }): Ac
         );
         onNotice(result.message);
       } catch (error) {
-        onNotice(error instanceof Error ? error.message : "账号连接测试失败");
+        onNotice(error instanceof Error ? error.message : "账号连接测试失败", { kind: "error" });
       } finally {
         setAccountBusyId(null);
       }
@@ -99,7 +104,7 @@ export function useAccounts(params: { onNotice: (message: string) => void }): Ac
         onNotice("账号和对应凭据已删除");
         return true;
       } catch (error) {
-        onNotice(error instanceof Error ? error.message : "账号删除失败");
+        onNotice(error instanceof Error ? error.message : "账号删除失败", { kind: "error" });
         return false;
       } finally {
         setAccountBusyId(null);
