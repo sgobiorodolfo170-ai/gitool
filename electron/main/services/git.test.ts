@@ -30,7 +30,8 @@ import {
   assertNoCredentialInUrl,
   buildCredentialEnv,
   cloneRepository,
-  redactCloneOutput,
+  redactGitOutput,
+  runGitOperation,
 } from "./git";
 
 const execFileAsync = promisify(execFile);
@@ -234,11 +235,39 @@ describe.skipIf(!hasGit)("git credential hardening", () => {
 
   it("redacts token in output", () => {
     const leaked = `Fetching https://user:${fixtures.token}@github.com/a/b.git ...`;
-    const output = redactCloneOutput(leaked);
+    const output = redactGitOutput(leaked);
     expect(output).not.toContain(fixtures.token);
     expect(output).toContain("***");
     // 只有凭据被抹掉，仓库地址等可诊断信息必须保留
     expect(output).toContain("github.com/a/b.git");
+  });
+
+  it("redacts token in operation output", async () => {
+    // 真实泄漏源：remote URL 的 query 里带 token，git 出错时会把整条 URL 原样打进
+    // stderr（已实测：`...repo.git?access_token=<token>/`）。fetch 属非 clone 域，
+    // 正是 F-03 漏掉的那条出口。token 故意不带 ghp_ 前缀，确保只有新的
+    // key=value 规则能挡住它（否则前缀规则也会兜住，用例就失去鉴别力）。
+    // 127.0.0.1:1 连接立即失败，不依赖外网、也不会触发凭据提示。
+    const secret = "opaqueOperationToken123";
+    const repoPath = join(workRoot, "operation-token-repo");
+    await execFileAsync("git", ["init", repoPath]);
+    await execFileAsync("git", [
+      "-C",
+      repoPath,
+      "remote",
+      "add",
+      "origin",
+      `https://127.0.0.1:1/repo.git?access_token=${secret}`,
+    ]);
+
+    const result = await runGitOperation(repoPath, "fetch");
+
+    expect(result.success).toBe(false);
+    // 核心断言：最终返回渲染层的 output 不含 token
+    expect(result.output).not.toContain(secret);
+    // 但诊断信息必须保留：看得出是哪个参数被脱敏，且能定位到失败的主机
+    expect(result.output).toContain("access_token=***");
+    expect(result.output).toContain("127.0.0.1:1");
   });
 
   it("does not persist credential helper", async () => {

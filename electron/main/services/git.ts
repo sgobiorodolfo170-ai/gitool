@@ -337,7 +337,10 @@ export async function compareVersions(input: CompareRequest): Promise<CompareRes
   const range = `${base}..${head}`;
   const [statResult, numStatResult] = await Promise.all([
     runGitProcess(input.path, ["diff", "--stat", range]),
-    runGitProcess(input.path, ["diff", "--numstat", range]),
+    // why 用 raw 出口：--numstat 每一行要被 parseNumstatPaths / 数值累加逐字段解析，
+    // 先脱敏会把含 `key=value` 的文件路径改写，统计结果就错了。这里只做内部计算，
+    // 面向渲染层的 stat 文本已在上面走了脱敏出口。
+    runGitProcessRaw(input.path, ["diff", "--numstat", range]),
   ]);
   if (!statResult.success) {
     throw new Error(statResult.output || "对比失败");
@@ -545,14 +548,17 @@ export async function commitChanges(request: CommitRequest): Promise<CommitResul
   }
   const args = ["commit", ...buildCommitMessageArgs(message)];
   const result = await runGitProcess(request.path, args);
+  // why 再显式过一次 redactGitOutput：runGitProcess 的出口已统一脱敏（幂等），但
+  // commit 结果同样是「返回值直出渲染层」的入口，这里把 F-03 的约束在调用点写明，
+  // 避免日后 commit 改走其他执行路径（如自定义 execFile）时悄悄绕过脱敏。
   if (!result.success) {
     return {
       success: false,
-      output: result.output || "提交失败",
+      output: redactGitOutput(result.output || "提交失败"),
     };
   }
   const hash = await runGit(request.path, ["rev-parse", "--short", "HEAD"]).catch(() => undefined);
-  return { success: true, commitHash: hash, output: result.output };
+  return { success: true, commitHash: hash, output: redactGitOutput(result.output) };
 }
 
 export async function listBranches(projectPath: string): Promise<BranchInfo[]> {
@@ -650,6 +656,8 @@ async function commitRevertProcess(
   projectPath: string,
   hash: string,
 ): Promise<{ success: boolean; output: string }> {
+  // why 单独脱敏：revert 需要自定义 execFile（带 --no-edit），不走 runGitProcess 的
+  // 统一出口；返回给渲染层的文本若不在此处过一遍 redactSecrets，就会绕过 F-03。
   try {
     const { stdout, stderr } = await execFileAsync(
       getActiveGitBinary(),
@@ -660,11 +668,11 @@ async function commitRevertProcess(
       },
     );
     const output = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
-    return { success: true, output };
+    return { success: true, output: redactSecrets(output) };
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; message?: string };
     const output = [failure.stdout?.trim(), failure.stderr?.trim()].filter(Boolean).join("\n");
-    return { success: false, output: output || failure.message || "回退提交失败" };
+    return { success: false, output: redactSecrets(output || failure.message || "回退提交失败") };
   }
 }
 
@@ -704,7 +712,7 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
       runId,
       percent,
       phase,
-      output: redactCloneOutput(output),
+      output: redactGitOutput(output),
       done,
       success,
     });
@@ -747,13 +755,13 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
       if (existsSync(targetPath)) {
         rmSync(targetPath, { recursive: true, force: true });
       }
-      resolve({ success: false, output: redactCloneOutput(error.message), path: targetPath });
+      resolve({ success: false, output: redactGitOutput(error.message), path: targetPath });
     });
     child.on("close", (code) => {
       unregisterStopper();
       if (code === 0) {
         emitProgress(100, "完成", "克隆完成。", true, true);
-        resolve({ success: true, output: redactCloneOutput("克隆完成。"), path: targetPath });
+        resolve({ success: true, output: redactGitOutput("克隆完成。"), path: targetPath });
       } else {
         emitProgress(100, "失败", accumulated.slice(-400), true, false);
         if (existsSync(targetPath)) {
@@ -761,7 +769,7 @@ export async function cloneRepository(input: CloneRepositoryInput): Promise<Clon
         }
         resolve({
           success: false,
-          output: redactCloneOutput(accumulated.trim() || "克隆失败"),
+          output: redactGitOutput(accumulated.trim() || "克隆失败"),
           path: targetPath,
         });
       }
@@ -795,13 +803,16 @@ export function buildCredentialEnv(token: string): NodeJS.ProcessEnv {
 }
 
 /**
- * 克隆域「面向渲染层」文本的唯一出口：统一脱敏。
+ * git 域「面向渲染层」文本的唯一出口：统一脱敏。
  *
- * why：克隆进度与失败信息会把 git 的原始 stderr / 远程地址原样带回渲染层，
- * 一旦 URL 内嵌令牌或远端回显令牌，就会进入界面与日志。脱敏只改写要展示的文本，
- * 不影响真正用于执行命令的参数。导出供单测锁定「所有克隆出口都经过此函数」。
+ * why：git 的原始 stderr / 远程地址会被原样带回渲染层（clone 进度、pull/push/fetch/sync
+ * 的错误、commit 输出），一旦 URL 内嵌令牌或远端回显 `?access_token=...`，就会进入界面
+ * 与操作日志。脱敏只改写要展示的文本，不影响真正用于执行命令的参数。
+ *
+ * why 集中在这一处：这些入口全部经由 runGitProcess / 克隆回调，集中一层才不会漏——
+ * F-03 的成因正是「clone 域做了、操作域忘了」。导出供单测锁定出口行为。
  */
-export function redactCloneOutput(text: string): string {
+export function redactGitOutput(text: string): string {
   return redactSecrets(text);
 }
 
@@ -863,7 +874,24 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+/**
+ * 对外（返回渲染层 / 抛错文案）的 git 进程出口：返回前统一脱敏。
+ *
+ * why 必须在这里集中一次：pull/push/fetch/sync/commit/diff 的错误与输出都经由本函数，
+ * 逐函数处理正是 F-03 的漏点（clone 域做了、操作域忘了）；命令参数与判定条件
+ * （`success`）不受影响，脱敏只作用于文本。
+ *
+ * why 仍然保留 runGitProcessRaw：`git diff --numstat` 要被逐字段解析，先脱敏会把
+ * 含 `key=value` 的文件路径改写，导致变更文件与增删行统计错位——「内部解析要原文，
+ * 对外展示才脱敏」。
+ */
 async function runGitProcess(cwd: string, args: string[]): Promise<GitProcessResult> {
+  const result = await runGitProcessRaw(cwd, args);
+  return { success: result.success, output: redactGitOutput(result.output) };
+}
+
+/** git 进程原始输出（不脱敏），只供需要解析原文的内部调用使用。 */
+async function runGitProcessRaw(cwd: string, args: string[]): Promise<GitProcessResult> {
   try {
     const { stdout, stderr } = await execFileAsync(getActiveGitBinary(), ["-C", cwd, ...args], {
       windowsHide: true,

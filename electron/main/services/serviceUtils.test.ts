@@ -34,6 +34,42 @@ describe("redactSecrets", () => {
     }
   });
 
+  it("脱敏 query/form 形态的敏感键值", () => {
+    // 单个 query 参数：只替换值，URL 其余部分与后续参数必须原样保留
+    expect(redactSecrets("https://api.example.com/cb?access_token=abc123&page=2")).toBe(
+      "https://api.example.com/cb?access_token=***&page=2",
+    );
+    expect(redactSecrets("token=xyz")).toBe("token=***");
+    // 百分号编码的密码同样整值吃掉
+    expect(redactSecrets("password=p%40ss")).toBe("password=***");
+    // 多个敏感键（含 GitLab 私有令牌参数名）
+    expect(redactSecrets("private_token=glpat-AbCdEf123456789xyz client_secret=s3cr3t")).toBe(
+      "private_token=*** client_secret=***",
+    );
+    // 键名大小写不敏感，但键名本身原样保留（便于排查是哪个参数泄露）
+    expect(redactSecrets("Access_Token=abc&auth_token=def")).toBe(
+      "Access_Token=***&auth_token=***",
+    );
+    // CSV 场景：值遇到逗号/分号即截断，不能把后面的列一起吃掉
+    expect(redactSecrets("token=abc,foo,bar")).toBe("token=***,foo,bar");
+  });
+
+  it("query/form 脱敏不误伤正常键值", () => {
+    // 普通键名不含敏感键，一个字符都不能动
+    expect(redactSecrets("content-length=123&token_type=bearer")).toBe(
+      "content-length=123&token_type=bearer",
+    );
+    expect(redactSecrets("https://example.com/items?page=2&per_page=50")).toBe(
+      "https://example.com/items?page=2&per_page=50",
+    );
+    // 含敏感子串的普通键（前缀粘连 / 复数形态）不得误伤
+    expect(redactSecrets("mytoken=abc tokens=3")).toBe("mytoken=abc tokens=3");
+    // 空值不携带秘密，保持原样
+    expect(redactSecrets("token=&x=1")).toBe("token=&x=1");
+    // 已脱敏文本再脱一次必须不变（幂等）
+    expect(redactSecrets("token=***")).toBe("token=***");
+  });
+
   it("正常 URL 与普通文本不受影响", () => {
     // 关键回归：脱敏不能把正常仓库地址打码，否则日志失去可读性
     expect(redactSecrets("https://github.com/a/b")).toBe("https://github.com/a/b");
