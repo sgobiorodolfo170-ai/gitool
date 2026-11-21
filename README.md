@@ -65,16 +65,16 @@ Gitool 是一个 Windows Git 仓库管理桌面工具，统一管理本地仓库
 
 ## 架构
 
-| 层 | 实现 |
-| --- | --- |
-| 桌面壳 | Electron 44（内置 Node.js 24） |
-| 渲染层 | React 19 + TypeScript + Vite 8 |
-| 主进程 | Node.js + TypeScript，构建产物 `dist-electron/` |
-| IPC | `contextBridge` + `ipcRenderer.invoke` / `ipcMain.handle` |
-| 数据库 | `node:sqlite`（内置，无原生编译） |
-| 凭据 | `@napi-rs/keyring`（Windows Credential Manager） |
-| Git | `node:child_process` 调用系统 Git CLI |
-| 打包 | electron-builder（NSIS x64 安装包） |
+| 层     | 实现                                                      |
+| ------ | --------------------------------------------------------- |
+| 桌面壳 | Electron 44（内置 Node.js 24）                            |
+| 渲染层 | React 19 + TypeScript + Vite 8                            |
+| 主进程 | Node.js + TypeScript，构建产物 `dist-electron/`           |
+| IPC    | `contextBridge` + `ipcRenderer.invoke` / `ipcMain.handle` |
+| 数据库 | `node:sqlite`（内置，无原生编译）                         |
+| 凭据   | `@napi-rs/keyring`（Windows Credential Manager）          |
+| Git    | `node:child_process` 调用系统 Git CLI                     |
+| 打包   | electron-builder（NSIS x64 安装包）                       |
 
 ## 开发环境
 
@@ -121,7 +121,7 @@ npm run dist
 - Token 不写入远程 URL、操作日志或界面状态。
 - Git 操作通过参数数组直接调用系统 Git，不经过 shell。
 - 渲染层启用 `contextIsolation`、`sandbox`，禁用 `nodeIntegration`，仅暴露白名单桥接方法。
-- 生产环境启用严格 CSP；主进程校验所有 IPC 入参。
+- 生产环境启用严格 CSP；主进程对所有接收入参的 IPC 通道做类型/长度校验，路径类另由 `pathPolicy` 做本机绝对路径与允许根白名单的语义校验。
 - 更新包只允许从下载目录内执行，安装前校验路径白名单，拒绝任意路径的 exe。
 - 结构分析默认忽略 `.git`、`node_modules`、`target`、`dist` 等目录。
 

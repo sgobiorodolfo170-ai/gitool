@@ -114,21 +114,26 @@ describe("createProject", () => {
     expect(parsed.webUrl).toBeUndefined();
   });
 
-  it("超长字段不被静默截断，工厂与 schema 一致接受", () => {
-    // 现状：projectSchema 没有长度上限（唯一带上限的是 aiSecretSchema）。
-    // 这里锁定边界行为，避免以后加 cap 时工厂产物被悄悄改写。
-    const longName = "n".repeat(20000);
-    const longSummary = "s".repeat(50000);
+  it("4096 边界内超长字段不被静默截断，超限则在 schema 层拒绝（A-13 cap）", () => {
+    // A-13 给 requiredString / looseString 补了 4096 上限：边界内必须原样通过
+    //（证明工厂不与 schema 漂移、也不会悄悄截断），超限则必须报错而不是截断落库。
+    const boundaryName = "n".repeat(4096);
+    const boundarySummary = "s".repeat(4096);
     const project = createProject({
       id: "p1",
-      name: longName,
+      name: boundaryName,
       path: "C:\\work\\demo",
-      summary: longSummary,
+      summary: boundarySummary,
     });
 
     const parsed = projectSchema.parse(project);
-    expect(parsed.name).toBe(longName);
-    expect(parsed.summary).toBe(longSummary);
+    expect(parsed.name).toBe(boundaryName);
+    expect(parsed.summary).toBe(boundarySummary);
+    expect(
+      projectSchema.safeParse(
+        createProject({ id: "p1", name: "n".repeat(4097), path: "C:\\work\\demo" }),
+      ).success,
+    ).toBe(false);
   });
 
   it("非法业务字段不再被兜底：status / provider / tags / favorite 均必须报错", () => {
@@ -206,14 +211,19 @@ describe("createTaskProfile", () => {
     expect(taskProfileSchema.safeParse(profile).success).toBe(true);
   });
 
-  it("超长命令与工作目录不被截断，schema 一致接受", () => {
-    const longArgs = "--flag=" + "a".repeat(20000);
+  it("参数在 4096 边界内不被截断，超限则在 schema 层拒绝（A-13 cap）", () => {
+    // 参数会原样进入子进程命令行：边界内必须原样保留，超限则报错，
+    // 避免把超长命令行交给 spawn。
+    const boundaryArgs = "--flag=" + "a".repeat(4096 - "--flag=".length);
     const profile = createTaskProfile({
       ...FULL_PROFILE,
-      args: longArgs,
+      args: boundaryArgs,
     });
 
-    expect(taskProfileSchema.parse(profile).args).toBe(longArgs);
+    expect(taskProfileSchema.parse(profile).args).toBe(boundaryArgs);
+    expect(taskProfileSchema.safeParse({ ...FULL_PROFILE, args: `${boundaryArgs}a` }).success).toBe(
+      false,
+    );
   });
 
   it("非法业务字段必须报错：未知任务类型、空命令、非数字超时、非字符串参数", () => {

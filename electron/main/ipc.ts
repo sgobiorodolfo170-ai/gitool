@@ -96,13 +96,18 @@ import {
   createTagInputSchema,
   createWorkspaceInputSchema,
   deleteBranchInputSchema,
+  externalUrlSchema,
   fileDiffRequestSchema,
+  fileListSchema,
   gitOperationSchema,
+  idSchema,
   initRepositoryInputSchema,
+  localPathSchema,
   moveProjectInputSchema,
   openEditorInputSchema,
   parseOrThrow,
   projectsSchema,
+  refNameSchema,
   remoteRepositorySearchInputSchema,
   remoteRepositoryWriteInputSchema,
   renameWorkspaceInputSchema,
@@ -189,12 +194,14 @@ function defaultBackupDirectory(): string | null {
 }
 
 /**
- * 项目路径类通道的统一准入：字符串 → 本机绝对路径 → 允许根。
+ * 项目路径类通道的语义准入：已校验字符串 → 本机绝对路径 → 允许根。
  * why 收在一处：打开、读取、git 操作这一族通道的放行面必须完全一致，
  * 散落实现最容易出现「某个 handler 忘了校验」。
+ * why 只做语义：类型/长度层由每个调用点显式 `parseOrThrow(localPathSchema, ...)` 完成，
+ * 这样每个 handler 代码块都直接可见校验调用，源码级门禁不必再解析 helper 间接层。
  */
-function requireAllowedProjectPath(value: unknown, label = "项目路径"): string {
-  return assertPathAllowed(requireString(value, label), projectPathRoots(), label);
+function requireAllowedProjectPath(path: string, label = "项目路径"): string {
+  return assertPathAllowed(path, projectPathRoots(), label);
 }
 
 export function registerIpcHandlers(): void {
@@ -205,6 +212,10 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("system:installGit", async () => installGit());
 
   ipcMain.handle("system:selectDirectory", async (event, defaultPath: unknown) => {
+    // why 归入「无入参」通道：defaultPath 只是对话框的初始位置提示，非法值会被
+    // safeDialogDefaultPath 丢弃，本通道不接收任何业务入参；真正的安全边界在返回值
+    // 处——selected 由 assertLocalAbsolutePath（pathPolicy）校验后才登记为会话允许根。
+    // coverage.test 因此把 system:selectDirectory 列入 NO_INPUT_CHANNELS。
     const owner = BrowserWindow.fromWebContents(event.sender);
     const properties = ["openDirectory", "createDirectory"] as const;
     const options = {
@@ -228,16 +239,15 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("shell:openExternal", async (_event, url: unknown) => {
-    if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
-      throw new Error("只允许打开 HTTP 或 HTTPS 链接");
-    }
-    await shell.openExternal(url);
+    // why schema：只判协议前缀不足以防载荷失界；externalUrlSchema 统一负责
+    // 「非空 + 长度 ≤2048 + 拒控制字符 + 仅 http(s)」，错误文案与原实现一致。
+    await shell.openExternal(parseOrThrow(externalUrlSchema, url, "链接"));
   });
 
   ipcMain.handle("shell:openPath", async (_event, projectPath: unknown) => {
     // why root：资源管理器只打开项目；主目录/已登记项目/会话选择目录之外一律不打开，
     // 防止渲染层把 UNC 共享交给主进程（SMB 出站认证）。
-    const path = requireAllowedProjectPath(projectPath);
+    const path = requireAllowedProjectPath(parseOrThrow(localPathSchema, projectPath, "项目路径"));
     const errorMessage = await shell.openPath(path);
     if (errorMessage) {
       throw new Error(`无法在资源管理器中打开：${errorMessage}`);
@@ -252,32 +262,36 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("shell:openTerminal", (_event, p: unknown) => {
     // why root：终端 cwd 会继承给用户后续命令，绝不能让任意目录/UNC 成为命令起点。
-    return openInTerminal(requireAllowedProjectPath(p));
+    return openInTerminal(requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径")));
   });
 
   ipcMain.handle("projects:inspect", (_event, p: unknown) =>
     // why root：inspect 会读目录元数据；只允许主目录/已登记项目/会话选择目录。
-    inspectLocalProject(requireAllowedProjectPath(p)),
+    inspectLocalProject(requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径"))),
   );
   ipcMain.handle("projects:snapshot", (_event, projectPath: unknown) =>
     // why root：快照会执行 git 读取，路径必须落在同一条信任边界内。
-    getProjectSnapshot(requireAllowedProjectPath(projectPath)),
+    getProjectSnapshot(
+      requireAllowedProjectPath(parseOrThrow(localPathSchema, projectPath, "项目路径")),
+    ),
   );
   ipcMain.handle("projects:analyze", (_event, p: unknown) =>
     // why root：分析会递归遍历目录，任意路径等于把整盘结构暴露给渲染层。
-    analyzeProject(requireAllowedProjectPath(p)),
+    analyzeProject(requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径"))),
   );
   ipcMain.handle("projects:detectCommands", (_event, projectPath: unknown) =>
     // why root：命令探测会读取项目内配置文件，禁止指向未授权目录。
-    detectProjectCommands(requireAllowedProjectPath(projectPath)),
+    detectProjectCommands(
+      requireAllowedProjectPath(parseOrThrow(localPathSchema, projectPath, "项目路径")),
+    ),
   );
   ipcMain.handle("projects:diskSize", (_event, p: unknown) =>
     // why root：磁盘统计会递归读取目录，必须限制在允许根内。
-    getDiskSize(requireAllowedProjectPath(p)),
+    getDiskSize(requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径"))),
   );
   ipcMain.handle("projects:readme", (_event, p: unknown) =>
     // why root：readme 曾能读任意目录的 README，这里按项目路径同一放行面收紧。
-    readProjectReadme(requireAllowedProjectPath(p)),
+    readProjectReadme(requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径"))),
   );
   ipcMain.handle("projects:init", (_event, input: unknown) => {
     const parsed = parseOrThrow(initRepositoryInputSchema, input, "初始化仓库参数");
@@ -287,7 +301,7 @@ export function registerIpcHandlers(): void {
     return initRepository(parsed);
   });
   ipcMain.handle("projects:scanDirectory", (_event, directory: unknown) => {
-    const target = requireString(directory, "目录");
+    const target = parseOrThrow(localPathSchema, directory, "目录");
     // why 显式例外：批量导入的待扫描目录一定尚未登记，只允许会话内对话框选中的目录；
     // 扫描结果里的子仓库同样落在该目录之下，后续导入不会被误拒。
     assertPathAllowed(target, projectPathRoots(), "目录");
@@ -307,7 +321,7 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("git:tags", (_event, p: unknown) => {
     // why root：标签读取走 git 命令，cwd 必须是已登记/会话选中的项目。
-    return listTags(requireAllowedProjectPath(p));
+    return listTags(requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径")));
   });
   ipcMain.handle("git:createTag", (_event, input: unknown) => {
     const parsed = parseOrThrow(createTagInputSchema, input, "创建标签参数");
@@ -317,12 +331,14 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("git:deleteTag", (_event, projectPath: unknown, name: unknown) => {
     // why root：删标签同属写操作，项目路径先过同一放行面。
-    const target = requireAllowedProjectPath(projectPath);
-    return deleteTag(target, requireString(name, "标签名"));
+    const target = requireAllowedProjectPath(
+      parseOrThrow(localPathSchema, projectPath, "项目路径"),
+    );
+    return deleteTag(target, parseOrThrow(refNameSchema, name, "标签名"));
   });
   ipcMain.handle("git:listVersions", (_event, p: unknown) => {
     // why root：版本列表依赖 git 读取项目历史。
-    return listVersions(requireAllowedProjectPath(p));
+    return listVersions(requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径")));
   });
   ipcMain.handle("git:compareVersions", (_event, input: unknown) => {
     const parsed = parseOrThrow(compareRequestSchema, input, "版本对比参数");
@@ -332,7 +348,7 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("projects:gitOperation", (_event, p: unknown, o: unknown) => {
     // why root：操作日志按项目路径归组并执行 git 动作，路径必须受控。
-    const projectPath = requireAllowedProjectPath(p);
+    const projectPath = requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径"));
     return recordGitOperation(projectPath, parseOrThrow(gitOperationSchema, o, "Git 操作"));
   });
   ipcMain.handle("projects:clone", (_event, input: unknown) => {
@@ -344,15 +360,23 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("git:changedFiles", (_event, p: unknown) => {
     // why root：变更列表读取项目工作区状态。
-    return listChangedFiles(requireAllowedProjectPath(p));
+    return listChangedFiles(
+      requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径")),
+    );
   });
   ipcMain.handle("git:stageFiles", (_event, projectPath: unknown, files: unknown) => {
     // why root：暂存会写项目索引，项目路径必须已登记/由本次对话框选中。
-    return stageFiles(requireAllowedProjectPath(projectPath), requireStringArray(files));
+    return stageFiles(
+      requireAllowedProjectPath(parseOrThrow(localPathSchema, projectPath, "项目路径")),
+      parseOrThrow(fileListSchema, files, "文件列表"),
+    );
   });
   ipcMain.handle("git:unstageFiles", (_event, projectPath: unknown, files: unknown) => {
     // why root：取消暂存同样是项目索引写操作。
-    return unstageFiles(requireAllowedProjectPath(projectPath), requireStringArray(files));
+    return unstageFiles(
+      requireAllowedProjectPath(parseOrThrow(localPathSchema, projectPath, "项目路径")),
+      parseOrThrow(fileListSchema, files, "文件列表"),
+    );
   });
   ipcMain.handle("git:commit", (_event, i: unknown) => {
     const parsed = parseOrThrow(commitRequestSchema, i, "提交参数");
@@ -362,7 +386,7 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("git:branches", (_event, p: unknown) => {
     // why root：分支列表依赖 git 读取项目引用。
-    return listBranches(requireAllowedProjectPath(p));
+    return listBranches(requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径")));
   });
   ipcMain.handle("git:createBranch", (_event, input: unknown) => {
     const parsed = parseOrThrow(createBranchInputSchema, input, "创建分支参数");
@@ -384,7 +408,9 @@ export function registerIpcHandlers(): void {
   });
   ipcMain.handle("git:history", (_event, p: unknown) => {
     // why root：提交历史读取走 git 命令，cwd 必须受控。
-    return listCommitHistory(requireAllowedProjectPath(p));
+    return listCommitHistory(
+      requireAllowedProjectPath(parseOrThrow(localPathSchema, p, "项目路径")),
+    );
   });
   ipcMain.handle("git:revert", (_event, input: unknown) => {
     const parsed = parseOrThrow(revertCommitInputSchema, input, "回退提交参数");
@@ -393,10 +419,10 @@ export function registerIpcHandlers(): void {
     return revertCommit(parsed);
   });
   ipcMain.handle("projects:load", (_event, id: unknown) =>
-    loadWorkspaceProjects(requireString(id, "工作区 ID")),
+    loadWorkspaceProjects(parseOrThrow(idSchema, id, "工作区 ID")),
   );
   ipcMain.handle("projects:save", (_event, id: unknown, projects: unknown) => {
-    const workspaceId = requireString(id, "工作区 ID");
+    const workspaceId = parseOrThrow(idSchema, id, "工作区 ID");
     const parsed = parseOrThrow(projectsSchema, projects, "项目数据");
     // why 先读当前已登记路径：save 是整表覆盖，只有「新增/换路径」的条目才可能扩大
     // A-11 白名单，未变的既有路径重复校验没有安全收益，还会被离线盘误伤。
@@ -427,7 +453,7 @@ export function registerIpcHandlers(): void {
     renameWorkspace(parseOrThrow(renameWorkspaceInputSchema, input, "工作区数据")),
   );
   ipcMain.handle("workspaces:delete", (_event, id: unknown) =>
-    deleteWorkspace(requireString(id, "工作区 ID")),
+    deleteWorkspace(parseOrThrow(idSchema, id, "工作区 ID")),
   );
 
   ipcMain.handle("accounts:load", () => loadAccounts());
@@ -438,19 +464,19 @@ export function registerIpcHandlers(): void {
     return upsertAccount(provider, username, trimmed);
   });
   ipcMain.handle("accounts:test", (_event, id: unknown) =>
-    testAccount(requireString(id, "账号 ID")),
+    testAccount(parseOrThrow(idSchema, id, "账号 ID")),
   );
   ipcMain.handle("accounts:delete", (_event, id: unknown) =>
-    deleteAccount(requireString(id, "账号 ID")),
+    deleteAccount(parseOrThrow(idSchema, id, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:load", (_event, accountId: unknown) =>
-    loadRemoteRepositories(requireString(accountId, "账号 ID")),
+    loadRemoteRepositories(parseOrThrow(idSchema, accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:loadCached", (_event, accountId: unknown) =>
-    loadCachedRemoteRepositories(requireString(accountId, "账号 ID")),
+    loadCachedRemoteRepositories(parseOrThrow(idSchema, accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:cacheMeta", (_event, accountId: unknown) =>
-    loadRemoteRepositoryCacheMeta(requireString(accountId, "账号 ID")),
+    loadRemoteRepositoryCacheMeta(parseOrThrow(idSchema, accountId, "账号 ID")),
   );
   ipcMain.handle("remoteRepositories:create", (_event, input: unknown) =>
     createRemoteRepository(parseOrThrow(remoteRepositoryWriteInputSchema, input, "远程仓库参数")),
@@ -459,7 +485,10 @@ export function registerIpcHandlers(): void {
     updateRemoteRepository(parseOrThrow(remoteRepositoryWriteInputSchema, input, "远程仓库参数")),
   );
   ipcMain.handle("remoteRepositories:delete", (_event, a: unknown, r: unknown) =>
-    deleteRemoteRepository(requireString(a, "账号 ID"), requireString(r, "仓库 ID")),
+    deleteRemoteRepository(
+      parseOrThrow(idSchema, a, "账号 ID"),
+      parseOrThrow(idSchema, r, "仓库 ID"),
+    ),
   );
   ipcMain.handle("remoteRepositories:search", (_event, input: unknown) => {
     const { provider, query, accountId } = parseOrThrow(
@@ -483,15 +512,19 @@ export function registerIpcHandlers(): void {
     saveTaskProfile(parseOrThrow(taskProfileSchema, input, "任务配置")),
   );
   ipcMain.handle("tasks:deleteProfile", (_event, id: unknown) =>
-    deleteTaskProfile(requireString(id, "任务 ID")),
+    deleteTaskProfile(parseOrThrow(idSchema, id, "任务 ID")),
   );
   // running 记录的 insert 已移入 runTask（A-22）：旧实现在 runTask 返回后才落库，
   // 子进程若瞬间结束，close 回调的 UPDATE 会打到不存在的行（记录永远停在 running）。
-  ipcMain.handle("tasks:run", (_event, id: unknown) => runTask(requireString(id, "任务 ID")));
-  ipcMain.handle("tasks:stop", (_event, id: unknown) => stopTask(requireString(id, "运行 ID")));
+  ipcMain.handle("tasks:run", (_event, id: unknown) =>
+    runTask(parseOrThrow(idSchema, id, "任务 ID")),
+  );
+  ipcMain.handle("tasks:stop", (_event, id: unknown) =>
+    stopTask(parseOrThrow(idSchema, id, "运行 ID")),
+  );
   ipcMain.handle("tasks:listRuns", () => listTaskRuns());
   ipcMain.handle("tasks:getRunningOutput", (_event, runId: unknown) =>
-    getRunningTaskOutput(requireString(runId, "运行 ID")),
+    getRunningTaskOutput(parseOrThrow(idSchema, runId, "运行 ID")),
   );
 
   ipcMain.handle("backups:list", () => listBackups());
@@ -505,7 +538,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("operations:list", () => listOperationRecords());
   ipcMain.handle("operations:clear", () => clearOperationRecords());
   ipcMain.handle("operations:export", (_event, directory: unknown) => {
-    const target = requireString(directory, "导出目录");
+    const target = parseOrThrow(localPathSchema, directory, "导出目录");
     // why root：导出目录只允许主目录、设置里的备份目录或本次对话框选中的目录；
     // 放任任意可写目录（尤其 UNC）会让操作日志 CSV 被写到共享/系统位置。
     assertPathAllowed(target, exportPathRoots(), "导出目录");
@@ -562,7 +595,9 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("updater:install", async (_event, filePath: unknown) => {
-    const installerPath = requireString(filePath, "安装包路径");
+    const installerPath = parseOrThrow(localPathSchema, filePath, "安装包路径");
+    // why 白名单不搬进 schema：可信根（下载目录）与文件名规则属于 updater 服务的
+    // 业务约束，会随更新机制演进；schema 只守类型/长度/控制字符，避免两处规则漂移。
     // 该入参最终由 spawn 直接执行（已移除 cmd 链路），必须限制在下载目录内且命中文件名白名单。
     if (!isTrustedInstallerPath(installerPath)) {
       throw new Error("安装包路径不受信任，已拒绝执行");
@@ -573,40 +608,22 @@ export function registerIpcHandlers(): void {
   });
 }
 
-function requireString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new Error(`${label}不能为空`);
-  }
-  return value;
-}
-
 /**
  * 对话框「打开位置」提示的安全化：非法提示（UNC / 相对 / 穿越）直接忽略。
  * why 不抛错：defaultPath 只是建议位置，拒绝它没有安全收益，反而会让选择流程中断；
  * 真正的边界在返回值处（assertLocalAbsolutePath + 会话登记）。
  */
 function safeDialogDefaultPath(value: unknown): string | undefined {
-  if (typeof value !== "string" || value.length === 0) {
+  // why safeParse 而不是 parseOrThrow：defaultPath 只是「打开位置」提示，非法值
+  // （非字符串/空/超长/控制字符）直接忽略即可，不该让选择流程失败。
+  // 类型/长度层复用 localPathSchema，与其它路径通道同口径，避免这里成为长度盲区。
+  const parsed = localPathSchema.safeParse(value);
+  if (!parsed.success) {
     return undefined;
   }
   try {
-    return assertLocalAbsolutePath(value, "默认路径");
+    return assertLocalAbsolutePath(parsed.data, "默认路径");
   } catch {
     return undefined;
   }
-}
-
-// IPC 是公开攻击面：字符串数组必须有总量与单项长度上限
-const MAX_IPC_ARRAY_ITEMS = 10000;
-const MAX_IPC_ITEM_LENGTH = 4096;
-
-function requireStringArray(value: unknown): string[] {
-  if (
-    !Array.isArray(value) ||
-    value.length > MAX_IPC_ARRAY_ITEMS ||
-    !value.every((item) => typeof item === "string" && item.length <= MAX_IPC_ITEM_LENGTH)
-  ) {
-    throw new Error("文件列表格式不正确");
-  }
-  return value;
 }

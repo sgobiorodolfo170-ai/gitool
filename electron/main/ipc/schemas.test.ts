@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   aiSecretSchema,
   appSettingsSchema,
+  commitRequestSchema,
   createBranchInputSchema,
   gitOperationSchema,
   parseOrThrow,
   projectSchema,
+  remoteRepositorySearchInputSchema,
   taskProfileSchema,
   remoteRepositoryWriteInputSchema,
 } from "./schemas";
@@ -178,5 +180,74 @@ describe("remoteRepositoryWriteInputSchema", () => {
 
   it("init 缺省为 false", () => {
     expect(remoteRepositoryWriteInputSchema.parse(base).init).toBe(false);
+  });
+});
+
+describe("IPC 字符串/数组长度上限（A-13）", () => {
+  const baseProject = { id: "p1", name: "demo", path: "C:\\a", provider: "local", status: "clean" };
+
+  it("超长项目名（5000）拒绝，4096 边界通过", () => {
+    expect(() => projectSchema.parse({ ...baseProject, name: "名".repeat(5000) })).toThrow(
+      "项目名称过长（最多 4096 字符）",
+    );
+    expect(projectSchema.parse({ ...baseProject, name: "名".repeat(4096) }).name).toHaveLength(
+      4096,
+    );
+  });
+
+  it("超长 tag 单项拒绝，4096 边界通过", () => {
+    expect(() => projectSchema.parse({ ...baseProject, tags: ["t".repeat(4097)] })).toThrow(
+      "标签过长（最多 4096 字符）",
+    );
+    expect(projectSchema.parse({ ...baseProject, tags: ["t".repeat(4096)] }).tags[0]).toHaveLength(
+      4096,
+    );
+  });
+
+  it("tags 总量超过 10000 拒绝，10000 边界通过", () => {
+    expect(() => projectSchema.parse({ ...baseProject, tags: new Array(10001).fill("t") })).toThrow(
+      "标签数量过多（最多 10000 个）",
+    );
+    expect(
+      projectSchema.parse({ ...baseProject, tags: new Array(10000).fill("t") }).tags,
+    ).toHaveLength(10000);
+  });
+
+  it("超长搜索词拒绝，4096 边界通过", () => {
+    expect(() =>
+      remoteRepositorySearchInputSchema.parse({ provider: "github", query: "q".repeat(4097) }),
+    ).toThrow("搜索关键词过长（最多 4096 字符）");
+    expect(
+      remoteRepositorySearchInputSchema.parse({ provider: "github", query: "q".repeat(4096) })
+        .query,
+    ).toHaveLength(4096);
+  });
+
+  it("提交信息按 git 服务层同一口径（2000）拒绝", () => {
+    expect(() => commitRequestSchema.parse({ path: "C:\\a", message: "m".repeat(2001) })).toThrow(
+      "提交信息过长（最多 2000 字符）",
+    );
+    expect(
+      commitRequestSchema.parse({ path: "C:\\a", message: "m".repeat(2000) }).message,
+    ).toHaveLength(2000);
+  });
+
+  it("任务命令 / 参数超长拒绝（参数会进子进程命令行）", () => {
+    const base = {
+      id: "t1",
+      projectId: "p1",
+      projectPath: "C:\\a",
+      taskType: "build" as const,
+      name: "构建",
+      command: "npm",
+      args: "",
+      workingDirectory: "C:\\a",
+      createdAt: "2026-10-29",
+    };
+    expect(() => taskProfileSchema.parse({ ...base, command: "c".repeat(4097) })).toThrow(
+      "命令过长（最多 4096 字符）",
+    );
+    expect(() => taskProfileSchema.parse({ ...base, args: "a".repeat(4097) })).toThrow();
+    expect(taskProfileSchema.parse(base).command).toBe("npm");
   });
 });
