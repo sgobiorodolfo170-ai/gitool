@@ -222,18 +222,17 @@ function App() {
     );
   };
 
+  // 首屏数据链：工作区 / 账号 / 设置 / 项目。
+  // why 不再把 environment() 放进来：网络探测在不可达网络下要等满超时才返回，
+  // 会让侧栏一直停在「工作区 / 本地模式」占位（GUI 冒烟实测首启 6274ms）。
+  // 这里只等待首屏内容真正需要的四份数据，渲染 ASAP；环境结果由下方独立 effect 回填。
   useEffect(() => {
     let cancelled = false;
 
     if (isDesktopRuntime()) {
       const bridge = requireDesktopBridge();
-      void Promise.all([
-        bridge.listWorkspaces(),
-        bridge.environment(),
-        bridge.loadAccounts(),
-        bridge.loadSettings(),
-      ])
-        .then(async ([loadedWorkspaces, environmentStatus, storedAccounts, storedSettings]) => {
+      void Promise.all([bridge.listWorkspaces(), bridge.loadAccounts(), bridge.loadSettings()])
+        .then(async ([loadedWorkspaces, storedAccounts, storedSettings]) => {
           if (cancelled) return;
           setWorkspaces(loadedWorkspaces);
           setAppSettings(storedSettings);
@@ -246,17 +245,8 @@ function App() {
           if (cancelled) return;
           applyProjects(storedProjects);
           setSelectedId(storedProjects[0]?.id ?? "");
-          setEnvironment(environmentStatus);
           setAccounts(storedAccounts);
           setSelectedAccountId(storedAccounts[0]?.id ?? "");
-          // 首启体检：Git 不可用且用户未勾选「不再提醒」时，弹出引导模态。
-          // 设计理由：小白用户不会主动进设置页，必须首启就主动暴露缺失项。
-          if (
-            !environmentStatus.git_available &&
-            window.localStorage.getItem(SETUP_DISMISS_KEY) !== "1"
-          ) {
-            setShowSetupModal(true);
-          }
         })
         .catch(() => {
           if (!cancelled) setNotice("无法读取本地工作区数据");
@@ -270,6 +260,35 @@ function App() {
       setWorkspaces(loadedWorkspaces);
       setActiveWorkspaceId(workspaceId);
       applyProjects(loadProjects(workspaceId));
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 环境体检异步回填：与首屏数据链解耦，先渲染主体、结果到达后再补充。
+  // why 允许引导弹窗延后：git 缺失提示是「补充信息」，不能为了它挡住首屏；
+  // 弹窗迟到只会让用户晚一两秒看到提示，而白屏/占位会让应用显得卡死。
+  useEffect(() => {
+    let cancelled = false;
+
+    if (isDesktopRuntime()) {
+      void requireDesktopBridge()
+        .environment()
+        .then((status) => {
+          if (cancelled) return;
+          setEnvironment(status);
+          // 首启体检：Git 不可用且用户未勾选「不再提醒」时，弹出引导模态。
+          // 设计理由：小白用户不会主动进设置页，必须首启就主动暴露缺失项。
+          if (!status.git_available && window.localStorage.getItem(SETUP_DISMISS_KEY) !== "1") {
+            setShowSetupModal(true);
+          }
+        })
+        .catch(() => {
+          // 体检失败不回滚首屏：设置页保留「检测中」，用户可手动刷新。
+        });
+    } else {
       setEnvironment({
         git_available: true,
         git_version: "浏览器预览",

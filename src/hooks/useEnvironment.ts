@@ -7,6 +7,11 @@ import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
  *
  * 抽出来的原因：这组状态（环境 / 安装进度 / 引导弹窗 / 安装中标记）只被
  * 设置页和首启引导消费，与项目、远程仓库等主流程无耦合。
+ *
+ * why 挂载时不自动拉取环境：environment() 要跑 git 探测 + 三平台网络探测
+ * （不可达网络下最坏 2.5s），若在 hook 挂载时 await，会把首屏数据链一起卡住。
+ * 首启由 App.tsx 的独立 effect 异步回填；本 hook 只提供 refreshEnvironment
+ * 供设置页手动刷新，调用方自己决定何时等待。
  */
 export type EnvironmentApi = {
   environment: EnvironmentStatus | null;
