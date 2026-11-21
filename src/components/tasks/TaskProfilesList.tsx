@@ -39,7 +39,7 @@ export function TaskProfilesList({
           <span>{profiles.length} 个任务</span>
         </div>
         <div className="panel-heading-actions">
-          <button className="bare-button" onClick={onReload}>
+          <button className="bare-button" onClick={onReload} aria-label="刷新任务配置" title="刷新">
             <RefreshCw size={16} />
           </button>
           <span className="secure-label">

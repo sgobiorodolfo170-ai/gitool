@@ -129,9 +129,9 @@ export function BranchesTab({
       {branches.length === 0 ? (
         <div className="git-empty">{loading ? "正在读取分支..." : "没有分支"}</div>
       ) : (
-        <div className="branch-list">
+        <ul className="branch-list">
           {branches.map((branch) => (
-            <div className="branch-row" key={branch.name}>
+            <li className="branch-row" key={branch.name}>
               <div className="branch-main">
                 <span className={`branch-name ${branch.current ? "current" : ""}`}>
                   {branch.current ? "· " : ""}
@@ -165,9 +165,9 @@ export function BranchesTab({
                   </button>
                 )}
               </div>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
       <div className="new-branch-row">
         <input

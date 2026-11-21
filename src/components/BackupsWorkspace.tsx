@@ -129,7 +129,12 @@ export function BackupsWorkspace({
             <h2>备份记录</h2>
             <span>{backups.length} 条</span>
           </div>
-          <button className="bare-button" onClick={() => void load()}>
+          <button
+            className="bare-button"
+            onClick={() => void load()}
+            aria-label="刷新备份列表"
+            title="刷新"
+          >
             <RefreshCw size={16} />
           </button>
         </div>

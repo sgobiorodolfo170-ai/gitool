@@ -123,9 +123,9 @@ export function TagsTab({
       {tags.length === 0 ? (
         <div className="git-empty">{loading ? "正在读取标签..." : "还没有标签"}</div>
       ) : (
-        <div className="tag-list">
+        <ul className="tag-list">
           {tags.map((tag) => (
-            <div className="tag-row" key={tag.name}>
+            <li className="tag-row" key={tag.name}>
               <div className="tag-main">
                 <strong>{tag.name}</strong>
                 <small>
@@ -140,9 +140,9 @@ export function TagsTab({
               >
                 删除
               </button>
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
       <div className="tag-create">
         <input

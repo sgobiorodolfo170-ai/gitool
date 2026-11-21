@@ -85,19 +85,10 @@ export function ProjectRow({
   const status = statusMeta[project.status];
   const dormant = isDormant(project);
   return (
-    <div
+    <li
       className={`project-row ${selected ? "selected" : ""} ${bulkSelected ? "bulk-selected" : ""}`}
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onSelect();
-        }
-      }}
     >
-      <label className="bulk-check" onClick={(event) => event.stopPropagation()}>
+      <label className="bulk-check">
         <input
           type="checkbox"
           checked={bulkSelected}
@@ -105,57 +96,57 @@ export function ProjectRow({
           aria-label="选择项目"
         />
       </label>
-      <div className="project-type-icon" style={{ color: project.languageColor }}>
-        <ProviderIcon size={18} />
-      </div>
-      <div className="project-row-main">
-        <div className="project-name-line">
-          <strong>{project.alias || project.name}</strong>
-          <span className="provider-name">{providerLabels[project.provider]}</span>
+      {/* 主信息区是独立按钮（阶段 E3）：外层 li 不再承担 role="button"，
+          复选框/收藏/删除与它是同级控件，读屏不会把操作按钮报成行内容。 */}
+      <button type="button" className="project-row-select" onClick={onSelect}>
+        <div className="project-type-icon" style={{ color: project.languageColor }}>
+          <ProviderIcon size={18} aria-hidden="true" />
         </div>
-        <p>{project.path || "未克隆（远程收藏）"}</p>
-        <div className="project-row-meta">
-          <span className={`status-pill ${status.className}`}>
-            <span className="status-dot" />
-            {project.syncLabel}
-          </span>
-          <span>
-            <GitBranch size={12} />
-            {project.branch}
-          </span>
-          <span>
-            <HardDrive size={12} />
-            {project.diskSizeBytes > 0 ? formatBytes(project.diskSizeBytes) : "—"}
-          </span>
-          {dormant && (
-            <span className="status-pill status-behind">
+        <div className="project-row-main">
+          <div className="project-name-line">
+            <strong>{project.alias || project.name}</strong>
+            <span className="provider-name">{providerLabels[project.provider]}</span>
+          </div>
+          <p>{project.path || "未克隆（远程收藏）"}</p>
+          <div className="project-row-meta">
+            <span className={`status-pill ${status.className}`}>
               <span className="status-dot" />
-              休眠
+              {project.syncLabel}
             </span>
-          )}
+            <span>
+              <GitBranch size={12} />
+              {project.branch}
+            </span>
+            <span>
+              <HardDrive size={12} />
+              {project.diskSizeBytes > 0 ? formatBytes(project.diskSizeBytes) : "—"}
+            </span>
+            {dormant && (
+              <span className="status-pill status-behind">
+                <span className="status-dot" />
+                休眠
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      </button>
       <button
+        type="button"
         className="icon-button danger project-row-delete"
-        onClick={(event) => {
-          event.stopPropagation();
-          onDelete();
-        }}
+        onClick={onDelete}
         aria-label="从我的项目移除"
       >
         <Trash2 size={16} />
       </button>
       <button
+        type="button"
         className={`favorite-button ${project.favorite ? "active" : ""}`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggleFavorite();
-        }}
+        onClick={onToggleFavorite}
         aria-label={project.favorite ? "取消收藏" : "收藏项目"}
       >
         <Star size={16} fill={project.favorite ? "currentColor" : "none"} />
       </button>
-    </div>
+    </li>
   );
 }
 

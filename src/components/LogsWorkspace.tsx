@@ -149,7 +149,12 @@ export function LogsWorkspace({
             <h2>最近操作</h2>
             <span>{filtered.length} 条</span>
           </div>
-          <button className="bare-button" onClick={() => void load()}>
+          <button
+            className="bare-button"
+            onClick={() => void load()}
+            aria-label="刷新操作记录"
+            title="刷新"
+          >
             <RefreshCw size={16} />
           </button>
         </div>
@@ -168,11 +173,11 @@ export function LogsWorkspace({
             }
           />
         ) : filtered.length ? (
-          <div className="remote-list">
+          <ul className="remote-list">
             {filtered.map((record) => {
               const meta = resultMeta[record.result];
               return (
-                <div className="remote-row" key={record.id}>
+                <li className="remote-row" key={record.id}>
                   <div className="remote-main">
                     <div className="remote-title">
                       <strong>{record.operation}</strong>
@@ -184,10 +189,10 @@ export function LogsWorkspace({
                     </code>
                     <small>{record.createdAt}</small>
                   </div>
-                </div>
+                </li>
               );
             })}
-          </div>
+          </ul>
         ) : (
           <EmptyState
             variant={filtering ? "no-match" : "no-data"}

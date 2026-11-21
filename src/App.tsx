@@ -30,6 +30,7 @@ import { useRemotes } from "./hooks/useRemotes";
 import { useEnvironment } from "./hooks/useEnvironment";
 import { useNotice } from "./hooks/useNotice";
 import { useUpdater } from "./hooks/useUpdater";
+import { useFocusTrap } from "./hooks/useFocusTrap";
 
 import { DEFAULT_WORKSPACE_ID, listWorkspaces as listWorkspacesLocal } from "./lib/workspaces";
 import { loadProjects } from "./lib/projects";
@@ -58,6 +59,12 @@ function App() {
     refreshEnvironment,
     installGit,
   } = useEnvironment(showNotice);
+
+  // 首启 Git 引导是模态层（阶段 E5）：打开时焦点进入弹窗，Tab 不逃逸；
+  // 安装进行中不允许 Escape 关闭，避免打断下载/安装。
+  const setupModalRef = useFocusTrap<HTMLDivElement>(showSetupModal, () => {
+    if (!installingGit) setShowSetupModal(false);
+  });
 
   const {
     available: updateAvailable,
@@ -594,11 +601,16 @@ function App() {
         )}
 
         {showSetupModal && environment && !environment.git_available && (
-          <div className="modal-backdrop" role="dialog" aria-modal="true">
-            <div className="modal-panel setup-modal">
+          <div
+            className="modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="setup-modal-title"
+          >
+            <div className="modal-panel setup-modal" ref={setupModalRef} tabIndex={-1}>
               <div className="modal-heading">
                 <div>
-                  <h2>需要安装 Git 才能使用核心功能</h2>
+                  <h2 id="setup-modal-title">需要安装 Git 才能使用核心功能</h2>
                   <span>未检测到系统 Git，应用可为你一键下载并安装</span>
                 </div>
                 <AlertTriangle size={18} />

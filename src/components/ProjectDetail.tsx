@@ -88,6 +88,36 @@ export function ProjectDetail({
     setVisitedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   };
 
+  /**
+   * 选项卡键盘导航（阶段 E4）：WAI-ARIA tabs 模式——
+   * 左右箭头循环、Home/End 跳首尾，焦点与选中态同步。
+   */
+  const onTabKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const index = DETAIL_TABS.findIndex((item) => item.id === tab);
+    const last = DETAIL_TABS.length - 1;
+    let next = index;
+    switch (event.key) {
+      case "ArrowLeft":
+        next = index === 0 ? last : index - 1;
+        break;
+      case "ArrowRight":
+        next = index === last ? 0 : index + 1;
+        break;
+      case "Home":
+        next = 0;
+        break;
+      case "End":
+        next = last;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    selectTab(DETAIL_TABS[next].id);
+    const tabs = event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]');
+    tabs[next]?.focus();
+  };
+
   if (project.path === "") {
     return <UnclonedProjectPanel project={project} onToggleFavorite={onToggleFavorite} />;
   }
@@ -132,11 +162,20 @@ export function ProjectDetail({
           {project.updatedAt}
         </span>
       </div>
-      <nav className="detail-tabs" aria-label="项目详情分区">
+      <nav
+        className="detail-tabs"
+        role="tablist"
+        aria-label="项目详情分区"
+        onKeyDown={onTabKeyDown}
+      >
         {DETAIL_TABS.map((item) => (
           <button
             key={item.id}
-            aria-pressed={tab === item.id}
+            id={`detail-tab-${item.id}`}
+            role="tab"
+            aria-selected={tab === item.id}
+            aria-controls={`detail-tab-panel-${item.id}`}
+            tabIndex={tab === item.id ? 0 : -1}
             className={`detail-tab ${tab === item.id ? "active" : ""}`}
             onClick={() => selectTab(item.id)}
           >
@@ -149,7 +188,13 @@ export function ProjectDetail({
 
       {/* 面板首次访问后才挂载，之后保持挂载：README 不会每次切回都重新读盘，
           Git 操作的历史输出也不会因为切页而丢失。 */}
-      <div className="detail-tab-panel" hidden={tab !== "overview"}>
+      <div
+        className="detail-tab-panel"
+        id="detail-tab-panel-overview"
+        role="tabpanel"
+        aria-labelledby="detail-tab-overview"
+        hidden={tab !== "overview"}
+      >
         {visitedTabs.has("overview") && (
           <OverviewPanel
             project={project}
@@ -162,13 +207,25 @@ export function ProjectDetail({
         )}
       </div>
 
-      <div className="detail-tab-panel" hidden={tab !== "readme"}>
+      <div
+        className="detail-tab-panel"
+        id="detail-tab-panel-readme"
+        role="tabpanel"
+        aria-labelledby="detail-tab-readme"
+        hidden={tab !== "readme"}
+      >
         {visitedTabs.has("readme") && (
           <ReadmeSection readme={readme} onExpand={() => setReadmeExpanded(true)} />
         )}
       </div>
 
-      <div className="detail-tab-panel" hidden={tab !== "git"}>
+      <div
+        className="detail-tab-panel"
+        id="detail-tab-panel-git"
+        role="tabpanel"
+        aria-labelledby="detail-tab-git"
+        hidden={tab !== "git"}
+      >
         {visitedTabs.has("git") && (
           <GitTabPanel
             projectPath={project.path}

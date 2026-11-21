@@ -37,7 +37,7 @@ export function TagEditor({ tags, onAdd }: { tags: string[]; onAdd: (tag: string
         }}
         placeholder="新标签"
       />
-      <button className="bare-button" onClick={submit}>
+      <button className="bare-button" onClick={submit} aria-label="保存标签" title="保存">
         <Check size={13} />
       </button>
     </div>

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { Account, Project, RemoteRepository } from "../types";
 import { getDesktopBridge } from "../lib/bridge";
+import { useFocusTrap } from "../hooks/useFocusTrap";
 import { workspaceDescription } from "../lib/navigation";
 import { EmptyState } from "./EmptyState";
 import { PageHeader } from "./PageHeader";
@@ -90,6 +91,11 @@ export function RemoteRepositoriesWorkspace({
   const [saving, setSaving] = useState(false);
   const [formNotice, setFormNotice] = useState("");
   const [interactingRepo, setInteractingRepo] = useState<string | null>(null);
+
+  // 仓库表单是模态层（阶段 E5）：Tab 在表单内循环，Escape 关闭（保存中不关）。
+  const formRef = useFocusTrap<HTMLDivElement>(formState !== null, () => {
+    if (!saving) setFormState(null);
+  });
 
   // 星标/关注键与 remoteProjectMatch 同源（remoteMatchKeys）：
   // 项目收藏后克隆到不同名目录或平台仓库改名，webUrl 键仍能命中（审查遗留 A）。
@@ -270,9 +276,9 @@ export function RemoteRepositoriesWorkspace({
         {isLoading && repositories.length === 0 ? (
           <Skeleton rows={6} />
         ) : filtered.length ? (
-          <div className="remote-list">
+          <ul className="remote-list">
             {filtered.map((repository) => (
-              <div className="remote-row" key={`${repository.accountId}-${repository.id}`}>
+              <li className="remote-row" key={`${repository.accountId}-${repository.id}`}>
                 <div className={`account-provider-icon ${repository.provider}`}>
                   <span>{remoteProviderLabels[repository.provider].slice(0, 1)}</span>
                 </div>
@@ -358,9 +364,9 @@ export function RemoteRepositoriesWorkspace({
                     )}
                   </button>
                 </div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         ) : search.trim() ? (
           <EmptyState
             variant="no-match"
@@ -401,7 +407,14 @@ export function RemoteRepositoriesWorkspace({
             if (event.target === event.currentTarget && !saving) setFormState(null);
           }}
         >
-          <div className="modal-panel" role="dialog" aria-modal="true">
+          <div
+            className="modal-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label={formState.mode === "create" ? "创建远程仓库" : "编辑远程仓库"}
+            ref={formRef}
+            tabIndex={-1}
+          >
             <form onSubmit={submitForm}>
               <div className="modal-heading">
                 <div>

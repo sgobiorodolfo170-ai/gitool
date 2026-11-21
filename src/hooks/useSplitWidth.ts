@@ -18,6 +18,8 @@ export type SplitWidthApi = {
     onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
     onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
     onDoubleClick: () => void;
+    /** 键盘操作（阶段 E6）：方向键 ±2%（Shift ±10%），Home/End 到边界。 */
+    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
   };
   reset: () => void;
 };
@@ -95,6 +97,42 @@ export function useSplitWidth(storageKey: string, defaultPercent: number): Split
   // 组件卸载时兜底清掉拖拽态，避免 body 一直保持 col-resize 光标
   useEffect(() => () => document.body.classList.remove("is-resizing"), []);
 
+  /**
+   * 键盘调整（阶段 E6）：分隔条是 role="separator" 的可聚焦控件，
+   * 必须支持键盘改变宽度。步长 2% 便于微调，Shift 加速到 10%。
+   * 键盘调整立即落库（不是连续拖拽，没有每帧写入压力）。
+   */
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const step = event.shiftKey ? 10 : 2;
+      const current = percentRef.current;
+      let next: number;
+      switch (event.key) {
+        case "ArrowLeft":
+          next = current - step;
+          break;
+        case "ArrowRight":
+          next = current + step;
+          break;
+        case "Home":
+          next = MIN_PERCENT;
+          break;
+        case "End":
+          next = MAX_PERCENT;
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+      const clamped = clamp(next, MIN_PERCENT, MAX_PERCENT);
+      // 同步 ref：按住方向键连续触发时，下一帧渲染前也能基于最新值累加
+      percentRef.current = clamped;
+      setPercent(clamped);
+      writePercent(storageKey, clamped);
+    },
+    [storageKey],
+  );
+
   return {
     percent,
     containerRef,
@@ -103,6 +141,7 @@ export function useSplitWidth(storageKey: string, defaultPercent: number): Split
       onPointerMove,
       onPointerUp,
       onDoubleClick: reset,
+      onKeyDown,
     },
     reset,
   };

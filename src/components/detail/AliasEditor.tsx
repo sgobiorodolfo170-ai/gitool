@@ -51,6 +51,8 @@ export function AliasEditor({
       />
       <button
         className="bare-button"
+        aria-label="保存别名"
+        title="保存"
         onClick={() => {
           onSave(value);
           setEditing(false);

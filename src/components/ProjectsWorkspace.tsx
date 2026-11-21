@@ -269,10 +269,12 @@ export function ProjectsWorkspace({
               </label>
             </div>
           </div>
-          <div className="project-list">
-            {isLoading ? (
+          {isLoading ? (
+            <div className="project-list">
               <Skeleton rows={6} />
-            ) : loadError ? (
+            </div>
+          ) : loadError ? (
+            <div className="project-list">
               <EmptyState
                 variant="error"
                 icon={<CircleAlert size={21} />}
@@ -287,8 +289,10 @@ export function ProjectsWorkspace({
                   </button>
                 }
               />
-            ) : filteredProjects.length ? (
-              filteredProjects.map((project) => (
+            </div>
+          ) : filteredProjects.length ? (
+            <ul className="project-list">
+              {filteredProjects.map((project) => (
                 <ProjectRow
                   key={project.id}
                   project={project}
@@ -299,8 +303,10 @@ export function ProjectsWorkspace({
                   onToggleFavorite={() => projectsApi.toggleFavorite(project.id)}
                   onDelete={() => projectsApi.deleteProjectFromList(project.id)}
                 />
-              ))
-            ) : (
+              ))}
+            </ul>
+          ) : (
+            <div className="project-list">
               <EmptyProjects
                 hasProjects={projects.length > 0}
                 onImport={() => void importProject()}
@@ -310,16 +316,20 @@ export function ProjectsWorkspace({
                   setTagFilter("");
                 }}
               />
-            )}
-          </div>
+            </div>
+          )}
         </div>
         <div
           className="project-splitter"
           role="separator"
           aria-orientation="vertical"
+          aria-valuemin={30}
+          aria-valuemax={75}
           aria-valuenow={Math.round(split.percent)}
-          aria-label="调整项目列表宽度，双击恢复默认"
+          aria-valuetext={`列表宽度 ${Math.round(split.percent)}%`}
+          aria-label="调整项目列表宽度，方向键调整，双击恢复默认"
           title="拖动调整宽度，双击恢复默认"
+          tabIndex={0}
           {...split.splitterHandlers}
         />
         {selectedProject ? (

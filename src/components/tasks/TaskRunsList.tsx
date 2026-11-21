@@ -33,7 +33,7 @@ export function TaskRunsList({
           <h2>运行记录</h2>
           <span>最近 {runs.length} 次</span>
         </div>
-        <button className="bare-button" onClick={onReload}>
+        <button className="bare-button" onClick={onReload} aria-label="刷新运行记录" title="刷新">
           <RefreshCw size={16} />
         </button>
       </div>

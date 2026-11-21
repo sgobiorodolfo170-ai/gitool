@@ -70,19 +70,24 @@ button {
   text-transform: uppercase;
 }
 .workspace-switcher {
+  position: relative;
+  margin-bottom: var(--space-5);
+}
+.workspace-switcher-trigger {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  width: 100%;
   padding: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-5);
   border: 1px solid var(--border-sidebar);
   border-radius: var(--radius-md);
+  color: inherit;
   background: var(--bg-sidebar-hover);
-  position: relative;
-  cursor: pointer;
+  text-align: left;
   user-select: none;
 }
-.workspace-switcher > svg {
+.workspace-switcher-trigger > svg {
+  flex: none;
   color: var(--text-sidebar-muted);
 }
 .workspace-menu {
@@ -167,7 +172,6 @@ button {
   background: var(--bg-sidebar);
   color: var(--text-on-dark);
   font-size: calc(13px * var(--font-scale));
-  outline: none;
 }
 .workspace-menu-form input:focus {
   border-color: var(--border-sidebar);
@@ -472,6 +476,8 @@ kbd {
   position: relative;
   display: grid;
   place-items: center;
+  min-width: 28px;
+  min-height: 28px;
   padding: var(--space-1);
   color: var(--text-subtle);
   background: transparent;
@@ -725,7 +731,7 @@ p {
   width: 100%;
   height: 32px;
   padding: 0;
-  outline: none;
+
   border: 0;
   color: var(--text-body);
   background: transparent;
@@ -814,6 +820,8 @@ body.is-resizing {
 }
 .project-list {
   padding: var(--space-1) var(--space-2) var(--space-2);
+  margin: 0;
+  list-style: none;
 }
 .project-row {
   display: flex;
@@ -826,6 +834,18 @@ body.is-resizing {
   color: inherit;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+}
+/* 主信息区按钮（阶段 E3）：铺满剩余宽度、左对齐，视觉与旧整行点击一致。 */
+.project-row-select {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0;
+  color: inherit;
   background: transparent;
   text-align: left;
 }
@@ -1285,7 +1305,7 @@ body.is-resizing {
   height: 34px;
   padding: 0 var(--space-3);
   margin-top: var(--space-2);
-  outline: none;
+
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-body);
@@ -1464,7 +1484,7 @@ body.is-resizing {
   height: 34px;
   padding: 0 var(--space-2);
   color: var(--text-secondary);
-  outline: none;
+
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
@@ -1487,6 +1507,8 @@ body.is-resizing {
 }
 .remote-list {
   padding: var(--space-1) var(--space-2) var(--space-2);
+  margin: 0;
+  list-style: none;
 }
 .remote-row {
   display: flex;
@@ -1696,6 +1718,9 @@ body.is-resizing {
   overflow: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
+  padding: 0;
+  margin: 0;
+  list-style: none;
 }
 .change-row {
   display: flex;
@@ -1757,7 +1782,7 @@ body.is-resizing {
   padding: var(--space-2) var(--space-2);
   margin-top: var(--space-3);
   resize: vertical;
-  outline: none;
+
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-body);
@@ -1814,7 +1839,7 @@ body.is-resizing {
   flex: 1;
   height: 31px;
   padding: 0 var(--space-2);
-  outline: none;
+
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-body);
@@ -1989,7 +2014,7 @@ body.is-resizing {
   width: 90px;
   height: 26px;
   padding: 0 var(--space-2);
-  outline: none;
+
   border: 1px solid var(--accent-light);
   border-radius: var(--radius-sm);
   font-size: calc(11px * var(--font-scale));
@@ -2069,6 +2094,8 @@ body.is-resizing {
 .tag-remove {
   display: grid;
   place-items: center;
+  min-width: 24px;
+  min-height: 24px;
   padding: 0;
   margin-left: 2px;
   color: var(--text-subtle);
@@ -2089,7 +2116,7 @@ body.is-resizing {
   height: 24px;
   padding: 0 var(--space-2);
   font-size: calc(10px * var(--font-scale));
-  outline: none;
+
   border: 1px solid var(--accent-light);
   border-radius: var(--radius-sm);
 }
@@ -2387,7 +2414,7 @@ body.is-resizing {
   flex: 1;
   height: 30px;
   padding: 0 var(--space-2);
-  outline: none;
+
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-body);
@@ -2403,6 +2430,9 @@ body.is-resizing {
   overflow: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
+  padding: 0;
+  margin: 0;
+  list-style: none;
 }
 .tag-row {
   display: flex;
@@ -2442,7 +2472,7 @@ body.is-resizing {
 .tag-create input {
   height: 30px;
   padding: 0 var(--space-2);
-  outline: none;
+
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-body);
@@ -2499,7 +2529,7 @@ body.is-resizing {
   flex: 1;
   height: 30px;
   padding: 0 var(--space-2);
-  outline: none;
+
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-body);
@@ -2785,7 +2815,7 @@ body.is-resizing {
   height: 32px;
   padding: 0 var(--space-2);
   color: var(--text-secondary);
-  outline: none;
+
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
@@ -2795,7 +2825,7 @@ body.is-resizing {
   flex: 1;
   height: 32px;
   padding: 0 var(--space-3);
-  outline: none;
+
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   color: var(--text-body);
@@ -3494,4 +3524,49 @@ body.is-resizing {
 .remote-meta code,
 .detail-stat strong {
   font-variant-numeric: tabular-nums;
+}
+
+/* ---- 键盘焦点（阶段 E1）----
+   为什么统一放在文件末尾：输入框的基础规则不再写 outline: none，
+   鼠标点击由 :focus:not(:focus-visible) 抑制原生轮廓，键盘导航则由
+   :focus-visible 获得 2px accent 轮廓；放在末尾保证覆盖各组件的
+   局部 outline 声明。 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ---- 减少动态效果（阶段 E1）----
+   系统开启「减少动态效果」时关闭旋转、进度过渡与平滑滚动；不引入
+   强制优先级声明，靠同特异性规则后置覆盖。 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+
+  .spin {
+    animation: none;
+  }
+
+  .sidebar-update-progress-bar,
+  .button,
+  .metric-card-action,
+  .project-splitter::after,
+  .project-row-delete,
+  .clone-progress-bar,
+  .repo-search-row,
+  .setup-progress-fill,
+  .setup-progress-float .setup-progress-fill {
+    transition: none;
+  }
 }
