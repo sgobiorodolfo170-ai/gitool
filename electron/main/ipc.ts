@@ -14,6 +14,7 @@ import {
   pathsNeedingValidation,
   PathPolicyError,
   requireAllowedBackupPath,
+  resolveTargetPath,
   type BackupPathOptions,
 } from "./services/pathPolicy";
 import {
@@ -112,6 +113,7 @@ import {
   parseOrThrow,
   projectsSchema,
   refNameSchema,
+  resolveTargetPathInputSchema,
   remoteRepositorySearchInputSchema,
   remoteRepositoryWriteInputSchema,
   renameWorkspaceInputSchema,
@@ -255,6 +257,21 @@ export function registerIpcHandlers(): void {
     const validated = assertLocalAbsolutePath(selected, "所选目录");
     rememberSessionDirectory(validated);
     return validated;
+  });
+
+  // 解析目标路径：主进程负责 join 并做合法性校验，渲染层只传语义入参。
+  // 用于：克隆、初始化仓库、新建项目等「渲染层指定 parent + name，主进程拼路径」的场景。
+  // why 显式 assertPathAllowed：parentDirectory 本身必须落在允许根内（会话对话框
+  // 选出的目录），join 之后的二次准入由 resolveTargetPath 内部完成——两道校验
+  // 缺一不可，源码级门禁据此确认本通道是路径通道。
+  ipcMain.handle("system:resolveTargetPath", (_event, input: unknown) => {
+    const { parentDirectory, name } = parseOrThrow(
+      resolveTargetPathInputSchema,
+      input,
+      "目标路径参数",
+    );
+    assertPathAllowed(parentDirectory, projectPathRoots(), "父目录");
+    return resolveTargetPath(parentDirectory, name, projectPathRoots(), "目标路径");
   });
 
   ipcMain.handle("shell:openExternal", async (_event, url: unknown) => {

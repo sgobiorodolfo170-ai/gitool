@@ -70,6 +70,8 @@ export const bridge: DesktopBridge = {
     };
   },
   selectDirectory: (defaultPath) => invoke<string | null>("system:selectDirectory", defaultPath),
+  // P-31：路径拼接收归主进程，渲染层只传 parentDirectory + name（语义入参）
+  resolveTargetPath: (input) => invoke<string>("system:resolveTargetPath", input),
   openExternal: (url) => invoke<void>("shell:openExternal", url),
   openPath: (path) => invoke<void>("shell:openPath", path),
   openInEditor: (input) => invoke<void>("shell:openEditor", input),
