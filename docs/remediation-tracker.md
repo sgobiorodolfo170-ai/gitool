@@ -336,12 +336,20 @@
 ## 遗留项（下一里程碑，非阻塞）
 
 1. **CI 签名打包 + 产物归档**——依赖代码签名证书获取（P-03/P-26 尾项，外部流程）
-2. **tsconfig.app.json 开 noUncheckedIndexedAccess**——渲染层索引访问收窄（P-35 第二阶段）
-3. **`rowToX` 运行时断言**——storage 层 17 处 `as unknown as` 归零（P-35 第三阶段）
-4. **组件层 `@testing-library/react` 测试**——从 common.tsx 等纯展示件起步（P-18 第二阶段）
-5. **hooks 迁移到 Repository 注入**——useProjects/useWorkspaces 改造（P-10 第二阶段）
-6. **channels 常量表接入 preload/ipc**——两侧字符串替换为 INVOKE_CHANNELS 引用（P-14 第二阶段）
-7. **P-33 单例状态 `reset*ForTest()`**——模块级可变状态补测试隔离入口
+
+~~2. **tsconfig.app.json 开 noUncheckedIndexedAccess**——渲染层索引访问收窄（P-35 第二阶段）~~ ✅ 已完成（32 处修复）
+~~3. **`rowToX` 运行时断言**——storage 层 `as unknown as` 归零（P-35 第三阶段）~~ ✅ 已完成（asSqlRow + assertText/IntegerColumn 列级断言，源码 20+ 处替换）
+~~4. **组件层 `@testing-library/react` 测试**——从 common.tsx 等纯展示件起步（P-18 第二阶段）~~ ✅ 已完成（common.test.tsx 11 条用例）
+~~5. **hooks 迁移到 Repository 注入**——useProjects/useWorkspaces 改造（P-10 第二阶段）~~ ✅ 已完成（注入 + createRepositories 单例缓存）
+~~6. **channels 常量表接入 preload/ipc**——两侧字符串替换为 INVOKE_CHANNELS 引用（P-14 第二阶段）~~ ✅ 已完成（preload 78 处 + ipc 71 处替换，coverage 解析兼容常量形式）
+~~7. **P-33 单例状态 `reset*ForTest()`**——模块级可变状态补测试隔离入口~~ ✅ 已完成（gitBusyRef/diskSizeCache/runningTasks/cachedDownloadUrl/sessionDirectories 共 6 个 reset 函数）
+
+### 遗留项完成情况（2026-11-22 第二批收尾）
+
+- typecheck 全绿（主进程 + 渲染层双 noUncheckedIndexedAccess）
+- 536 个测试全绿（54 文件，含 11 条新增组件测试）
+- 生产构建通过
+- 唯一剩余外部依赖：代码签名证书（P-03/P-26 的 CI 签名打包）
 
 ---
 

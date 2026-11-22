@@ -238,6 +238,19 @@ export function getRunningTaskOutput(runId: string): string {
   return running.output();
 }
 
+/**
+ * 重置任务模块的可变状态（P-33 测试隔离入口）。
+ *
+ * why 需要它：runningTasks / stopRequested 是模块级 Map/Set——
+ * 用例 A 启动任务后未走到 close 回调，用例 B 的 isTaskRunning 就会误判；
+ * 显式清空后 beforeEach 即可复位，不必 vi.resetModules() 重载整个模块。
+ * 注意：仅重置簿记，不杀进程——测试里的 spawn 由用例自行 stub。
+ */
+export function resetTasksForTest(): void {
+  runningTasks.clear();
+  stopRequested.clear();
+}
+
 function assertWorkingDirectory(target: string): void {
   if (!existsSync(target) || !statSync(target).isDirectory()) {
     throw new Error("任务工作目录不存在或不是目录");

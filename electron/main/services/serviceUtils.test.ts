@@ -27,7 +27,7 @@ describe("redactSecrets", () => {
       "gho_1234567890abcdefghijklmnopqrstuvwx",
       "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz",
       "glpat-AbCdEf123456789xyz",
-      "[REDACTED_SLACK_TOKEN]",
+      "redacted-slack-token-for-test",
     ];
     for (const token of tokens) {
       expect(redactSecrets(`token=${token} end`)).toBe("token=*** end");

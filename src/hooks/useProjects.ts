@@ -3,7 +3,7 @@ import type { Project } from "../../shared/types";
 import { isDesktopRuntime, requireDesktopBridge } from "../lib/bridge";
 import { mapWithConcurrency } from "../lib/concurrency";
 import { projectFromSnapshot } from "../lib/projectMatch";
-import { saveProjects } from "../lib/projects";
+import { createRepositories } from "../lib/repositories";
 import { confirmDialog } from "../components/ConfirmProvider";
 
 /**
@@ -55,10 +55,15 @@ export type ProjectsParams = {
   onClearDetail: () => void;
   /** 移动项目时的默认目录提示。 */
   defaultDirectoryHint: () => string | undefined;
+  /** 可选：测试注入内存实现；生产环境缺省走 createRepositories() 单例。 */
+  repositories?: {
+    projects: import("../../shared/repository").ProjectRepository;
+  };
 };
 
 export function useProjects(params: ProjectsParams): ProjectsApi {
   const { activeWorkspaceId, onNotice, onClearDetail, defaultDirectoryHint } = params;
+  const projectRepository = params.repositories?.projects ?? createRepositories().projects;
 
   const [projects, setProjects] = useState<Project[]>([]);
   const projectsRef = useRef<Project[]>([]);
@@ -89,18 +94,16 @@ export function useProjects(params: ProjectsParams): ProjectsApi {
 
   const persistProjects = useCallback(
     (workspaceId: string, next: Project[]) => {
-      if (!isDesktopRuntime()) {
-        saveProjects(workspaceId, next);
-        return;
-      }
+      // P-10：持久化统一走注入的 ProjectRepository，hook 内不再 isDesktopRuntime 分叉。
+      // 串行队列语义保留：并发保存时后发起的请求可能先返回，旧快照会覆盖新快照。
       saveQueueRef.current = saveQueueRef.current
         .catch(() => undefined)
-        .then(() => requireDesktopBridge().saveProjects(workspaceId, next))
+        .then(() => projectRepository.saveProjects(workspaceId, next))
         .catch((error) => {
           onNotice(error instanceof Error ? error.message : "项目数据保存失败", { kind: "error" });
         });
     },
-    [onNotice],
+    [onNotice, projectRepository],
   );
 
   const updateProjects = useCallback(

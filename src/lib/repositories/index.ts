@@ -29,19 +29,36 @@ export interface RepositoryBundle {
   shell: ShellGateway;
 }
 
+/**
+ * 单例缓存（P-10 注入改造的稳定性保证）。
+ *
+ * why 必须缓存：hook 在每次渲染时调用 createRepositories()，
+ * 若每次新建对象，useCallback 的 repos 依赖会每帧变化、回调链整树重建。
+ * 环境在进程生命周期内不变，缓存首个构造结果即可。
+ */
+let cachedBundle: RepositoryBundle | null = null;
+
 export function createRepositories(): RepositoryBundle {
-  if (isDesktopRuntime()) {
-    return {
-      projects: desktopProjectRepository,
-      workspaces: desktopWorkspaceRepository,
-      shell: desktopShellGateway,
-    };
+  if (cachedBundle) {
+    return cachedBundle;
   }
-  return {
-    projects: webProjectRepository,
-    workspaces: webWorkspaceRepository,
-    shell: webShellGateway,
-  };
+  cachedBundle = isDesktopRuntime()
+    ? {
+        projects: desktopProjectRepository,
+        workspaces: desktopWorkspaceRepository,
+        shell: desktopShellGateway,
+      }
+    : {
+        projects: webProjectRepository,
+        workspaces: webWorkspaceRepository,
+        shell: webShellGateway,
+      };
+  return cachedBundle;
+}
+
+/** 测试专用：清空单例缓存，让下一测试可重新选择运行环境。 */
+export function resetRepositoriesForTest(): void {
+  cachedBundle = null;
 }
 
 export type { ProjectRepository, ShellGateway, WorkspaceRepository };

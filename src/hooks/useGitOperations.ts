@@ -46,6 +46,17 @@ export type GitOperationsParams = {
  */
 const gitBusyRef = { current: false };
 
+/**
+ * 重置 Git 互斥锁（P-33 测试隔离入口）。
+ *
+ * why 模块级锁需要显式重置：锁的语义是「跨页面、跨挂载实例的应用级锁」，
+ * 单测场景里用例 A 若模拟「操作执行中」，用例 B 不应看到 gitBusyRef.current=true；
+ * 提供此入口后 beforeEach 即可复位，不再依赖 vi.resetModules() 重载整个模块。
+ */
+export function resetGitBusyForTest(): void {
+  gitBusyRef.current = false;
+}
+
 export function useGitOperations(params: GitOperationsParams): GitOperationsApi {
   const {
     selectedProject,

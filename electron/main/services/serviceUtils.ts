@@ -33,8 +33,8 @@ const CREDENTIAL_URL_PATTERN = /([a-z][a-z0-9+.-]*):\/\/[^\s/@:]+:[^\s/@]+@/gi;
  */
 const AUTHORIZATION_BEARER_PATTERN = /(\bauthorization:\s*bearer\s+)[^\s"',;]+/gi;
 
-/** 常见平台令牌前缀。长串下限 8 字符，避免把 `glpat-`、`[REDACTED_SLACK_TOKEN]` 这类裸前缀本身打码。 */
-const TOKEN_PREFIXES = ["ghp_", "gho_", "github_pat_", "glpat-", "[REDACTED_SLACK_TOKEN]"] as const;
+/** 常见平台令牌前缀。长串下限 8 字符，避免把 `glpat-`、`xoxb-` 这类裸前缀本身打码。 */
+const TOKEN_PREFIXES = ["ghp_", "gho_", "github_pat_", "glpat-", "xoxb-"] as const;
 const MIN_TOKEN_BODY_LENGTH = 8;
 const TOKEN_PATTERN = new RegExp(
   `\\b(?:${TOKEN_PREFIXES.join("|")})[A-Za-z0-9_-]{${MIN_TOKEN_BODY_LENGTH},}`,

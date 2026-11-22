@@ -28,6 +28,17 @@ export function invalidateDiskSizeCache(projectPath: string): void {
   diskSizeCache.delete(projectPath);
 }
 
+/**
+ * 全量重置磁盘缓存（P-33 测试隔离入口）。
+ *
+ * why 需要它：diskSizeCache 是模块级可变单例，TTL 60s——单测里「改文件后体积
+ * 应变化」的断言会被上一用例的缓存污染，只能 vi.resetModules() 整个重载模块。
+ * 有了显式重置入口后，beforeEach 调一次即可，测试间互不串扰。
+ */
+export function resetDiskSizeCacheForTest(): void {
+  diskSizeCache.clear();
+}
+
 async function computeDiskSize(projectPath: string): Promise<number> {
   // 与 analysis.ts 相同的并发纪律：全异步 + worker 池。旧实现用
   // readdirSync/statSync 同步遍历，大项目上会把主进程事件循环（全部 IPC）
