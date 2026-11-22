@@ -1,5 +1,5 @@
 import type { RemoteProvider, RemoteRepository } from "../../../../shared/types";
-import { openDatabase, type SqlRow } from "./database";
+import { asSqlRow, openDatabase } from "./database";
 
 /**
  * 远程仓库缓存数据域：每个账号一份仓库列表快照（payload 为 JSON）。
@@ -29,9 +29,10 @@ export function saveRemoteRepositoryCache(
 
 export function loadRemoteRepositoryCache(accountId: string): RemoteRepository[] | null {
   const connection = openDatabase();
-  const row = connection
+  const rawRow = connection
     .prepare("SELECT payload FROM remote_repository_cache WHERE accountId = ?")
-    .get(accountId) as unknown as SqlRow | undefined;
+    .get(accountId);
+  const row = rawRow === undefined ? undefined : asSqlRow(rawRow);
   if (!row || typeof row.payload !== "string") {
     return null;
   }
@@ -58,9 +59,10 @@ export function deleteByAccount(accountId: string): void {
 
 export function getRemoteRepositoryCacheMeta(accountId: string): { syncedAt: string } | null {
   const connection = openDatabase();
-  const row = connection
+  const rawRow = connection
     .prepare("SELECT syncedAt FROM remote_repository_cache WHERE accountId = ?")
-    .get(accountId) as unknown as SqlRow | undefined;
+    .get(accountId);
+  const row = rawRow === undefined ? undefined : asSqlRow(rawRow);
   if (!row || row.syncedAt === null) {
     return null;
   }

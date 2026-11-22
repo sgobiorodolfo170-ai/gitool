@@ -1,6 +1,6 @@
 import type { Project } from "../../../../shared/types";
 import { errorMessage } from "../serviceUtils";
-import { openDatabase, rowToProject, type SqlRow } from "./database";
+import { asSqlRow, openDatabase, rowToProject } from "./database";
 
 /**
  * 项目数据域：按工作区加载与整表保存。
@@ -20,7 +20,8 @@ export function loadProjects(workspaceId: string): Project[] {
               files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl
        FROM projects WHERE workspaceId = ? ORDER BY favorite DESC, updatedAt DESC, name ASC`,
     )
-    .all(workspaceId) as unknown as SqlRow[];
+    .all(workspaceId)
+    .map(asSqlRow);
 
   return rows.map(rowToProject);
 }
@@ -41,13 +42,14 @@ export function loadProjects(workspaceId: string): Project[] {
  */
 export function findByPath(projectPath: string): Project | null {
   const connection = openDatabase();
-  const row = connection
+  const rawRow = connection
     .prepare(
       `SELECT id, name, path, provider, branch, status, commitHash, favorite, tags, remote,
               files, syncLabel, language, languageColor, summary, updatedAt, diskSizeBytes, alias, webUrl
        FROM projects WHERE path = ? ORDER BY updatedAt DESC LIMIT 1`,
     )
-    .get(projectPath) as unknown as SqlRow | undefined;
+    .get(projectPath);
+  const row = rawRow === undefined ? undefined : asSqlRow(rawRow);
   return row ? rowToProject(row) : null;
 }
 
@@ -60,9 +62,10 @@ export function findByPath(projectPath: string): Project | null {
  */
 export function countByWorkspace(workspaceId: string): number {
   const connection = openDatabase();
-  const row = connection
+  const rawRow = connection
     .prepare("SELECT COUNT(*) AS total FROM projects WHERE workspaceId = ?")
-    .get(workspaceId) as SqlRow | undefined;
+    .get(workspaceId);
+  const row = rawRow === undefined ? undefined : asSqlRow(rawRow);
   return row ? Number(row.total) : 0;
 }
 
@@ -114,7 +117,8 @@ export function saveProjects(workspaceId: string, projects: Project[]): void {
     // 从列表移除即不再展示，磁盘目录不受影响）
     const stale = connection
       .prepare("SELECT id FROM projects WHERE workspaceId = ?")
-      .all(workspaceId) as unknown as SqlRow[];
+      .all(workspaceId)
+      .map(asSqlRow);
     const deleteStatement = connection.prepare(
       "DELETE FROM projects WHERE id = ? AND workspaceId = ?",
     );

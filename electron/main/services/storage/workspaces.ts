@@ -3,7 +3,7 @@ import type {
   RenameWorkspaceInput,
   WorkspaceEntity,
 } from "../../../../shared/types";
-import { openDatabase, rowToWorkspace, type SqlRow } from "./database";
+import { asSqlRow, openDatabase, rowToWorkspace } from "./database";
 import { countByWorkspace } from "./projects";
 
 /**
@@ -21,7 +21,8 @@ export function listWorkspaces(): WorkspaceEntity[] {
     .prepare(
       `SELECT id, name, createdAt, updatedAt FROM workspaces ORDER BY createdAt ASC, name ASC`,
     )
-    .all() as unknown as SqlRow[];
+    .all()
+    .map(asSqlRow);
   return rows.map(rowToWorkspace);
 }
 
@@ -50,8 +51,8 @@ export function renameWorkspace(input: RenameWorkspaceInput): void {
     throw new Error("工作区名称不能为空");
   }
   const connection = openDatabase();
-  const existing = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(input.id) as
-    SqlRow | undefined;
+  const existingRaw = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(input.id);
+  const existing = existingRaw === undefined ? undefined : asSqlRow(existingRaw);
   if (!existing) {
     throw new Error("工作区不存在");
   }
@@ -63,13 +64,13 @@ export function renameWorkspace(input: RenameWorkspaceInput): void {
 export function deleteWorkspace(id: string): void {
   const connection = openDatabase();
   const count = Number(
-    (connection.prepare("SELECT COUNT(*) AS total FROM workspaces").get() as SqlRow).total,
+    asSqlRow(connection.prepare("SELECT COUNT(*) AS total FROM workspaces").get()).total,
   );
   if (count <= 1) {
     throw new Error("至少保留一个工作区，无法删除最后一个工作区");
   }
-  const existing = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(id) as
-    SqlRow | undefined;
+  const existingRaw = connection.prepare("SELECT id FROM workspaces WHERE id = ?").get(id);
+  const existing = existingRaw === undefined ? undefined : asSqlRow(existingRaw);
   if (!existing) {
     throw new Error("工作区不存在");
   }

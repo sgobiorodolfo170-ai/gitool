@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { OperationRecord } from "../../../../shared/types";
 import { buildOperationRecordsCsv } from "../operationCsv";
-import { openDatabase, rowToOperationRecord, type SqlRow } from "./database";
+import { openDatabase, rowToOperationRecord, asSqlRow } from "./database";
 
 /**
  * 操作审计数据域：写入、查询、清空、CSV 导出。
@@ -19,7 +19,8 @@ export function listOperationRecords(limit = 500): OperationRecord[] {
       `SELECT id, operation, projectId, projectPath, detail, result, createdAt
        FROM operation_records ORDER BY createdAt DESC LIMIT ?`,
     )
-    .all(limit) as unknown as SqlRow[];
+    .all(limit)
+    .map(asSqlRow);
   return rows.map(rowToOperationRecord);
 }
 

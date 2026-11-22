@@ -1,5 +1,5 @@
 import type { BackupRecord } from "../../../../shared/types";
-import { openDatabase, rowToBackup, type SqlRow } from "./database";
+import { asSqlRow, openDatabase, rowToBackup } from "./database";
 
 /**
  * 备份数据域：备份记录列表与写入。
@@ -13,7 +13,8 @@ export function listBackups(): BackupRecord[] {
       `SELECT id, projectId, projectName, sourcePath, archivePath, sizeBytes, status, error, createdAt
        FROM backup_records ORDER BY createdAt DESC`,
     )
-    .all() as unknown as SqlRow[];
+    .all()
+    .map(asSqlRow);
   return rows.map(rowToBackup);
 }
 

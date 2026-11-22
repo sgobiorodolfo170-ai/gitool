@@ -1,7 +1,7 @@
 import type { Account, RemoteProvider } from "../../../../shared/types";
 import { deleteCredential, readCredential, saveCredential } from "../credentials";
 import { errorMessage } from "../serviceUtils";
-import { openDatabase, rowToAccount, type SqlRow } from "./database";
+import { asSqlRow, openDatabase, rowToAccount } from "./database";
 import { deleteByAccount } from "./remoteRepositoryCache";
 
 /**
@@ -19,20 +19,22 @@ export function loadAccounts(): Account[] {
               lastCheckedAt, createdAt, updatedAt
        FROM accounts ORDER BY updatedAt DESC`,
     )
-    .all() as unknown as SqlRow[];
+     .all()
+     .map(asSqlRow);
 
   return rows.map(rowToAccount);
 }
 
 export function getAccount(accountId: string): Account {
   const connection = openDatabase();
-  const row = connection
+  const rawRow = connection
     .prepare(
       `SELECT id, provider, username, displayName, authType, credentialRef, status, scopes,
               lastCheckedAt, createdAt, updatedAt
        FROM accounts WHERE id = ?`,
     )
-    .get(accountId) as unknown as SqlRow | undefined;
+    .get(accountId);
+  const row = rawRow === undefined ? undefined : asSqlRow(rawRow);
 
   if (!row) {
     throw new Error("账号不存在");
@@ -112,13 +114,14 @@ export function upsertAccount(provider: RemoteProvider, username: string, token:
 
 function findAccountByProviderUsername(provider: string, username: string): Account | null {
   const connection = openDatabase();
-  const row = connection
+  const rawRow = connection
     .prepare(
       `SELECT id, provider, username, displayName, authType, credentialRef, status, scopes,
               lastCheckedAt, createdAt, updatedAt
        FROM accounts WHERE provider = ? AND username = ?`,
     )
-    .get(provider, username) as unknown as SqlRow | undefined;
+    .get(provider, username);
+  const row = rawRow === undefined ? undefined : asSqlRow(rawRow);
   return row ? rowToAccount(row) : null;
 }
 

@@ -1,5 +1,5 @@
 import type { TaskProfile, TaskRun } from "../../../../shared/types";
-import { openDatabase, rowToTaskProfile, rowToTaskRun, type SqlRow } from "./database";
+import { asSqlRow, openDatabase, rowToTaskProfile, rowToTaskRun } from "./database";
 
 /**
  * 任务数据域：任务配置（task_profiles）与执行记录（task_runs）。
@@ -15,22 +15,24 @@ export function listTaskProfiles(): TaskProfile[] {
       `SELECT id, projectId, projectPath, taskType, name, command, args, workingDirectory, timeoutSeconds, createdAt
        FROM task_profiles ORDER BY createdAt DESC`,
     )
-    .all() as unknown as SqlRow[];
+    .all()
+    .map(asSqlRow);
   return rows.map(rowToTaskProfile);
 }
 
 export function getTaskProfile(profileId: string): TaskProfile | undefined {
   const connection = openDatabase();
-  const row = connection
+  const rawRow = connection
     .prepare(`SELECT * FROM task_profiles WHERE id = ?`)
-    .get(profileId) as unknown as SqlRow | undefined;
+    .get(profileId);
+  const row = rawRow === undefined ? undefined : asSqlRow(rawRow);
   return row ? rowToTaskProfile(row) : undefined;
 }
 
 export function saveTaskProfile(input: TaskProfile): TaskProfile {
   const connection = openDatabase();
-  const existing = connection.prepare("SELECT id FROM task_profiles WHERE id = ?").get(input.id) as
-    SqlRow | undefined;
+  const existingRaw = connection.prepare("SELECT id FROM task_profiles WHERE id = ?").get(input.id);
+  const existing = existingRaw === undefined ? undefined : asSqlRow(existingRaw);
   if (existing) {
     connection
       .prepare(
@@ -83,7 +85,8 @@ export function listTaskRuns(): TaskRun[] {
       `SELECT id, profileId, projectId, name, command, startedAt, finishedAt, status, exitCode, output
        FROM task_runs ORDER BY startedAt DESC LIMIT 200`,
     )
-    .all() as unknown as SqlRow[];
+    .all()
+    .map(asSqlRow);
   return rows.map(rowToTaskRun);
 }
 

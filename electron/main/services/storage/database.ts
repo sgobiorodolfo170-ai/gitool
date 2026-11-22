@@ -205,9 +205,8 @@ function ensureIndexes(connection: DatabaseSync): void {
 }
 
 function migrationEnsureWorkspaceColumns(connection: DatabaseSync): void {
-  const columns = connection.prepare("PRAGMA table_info(projects)").all() as unknown as Array<
-    Record<string, unknown>
-  >;
+  // P-35：行形状断言统一走 asSqlRow，替代 as unknown as
+  const columns = connection.prepare("PRAGMA table_info(projects)").all().map(asSqlRow);
   if (!columns.some((column) => column.name === "workspaceId")) {
     connection.exec(
       `ALTER TABLE projects ADD COLUMN workspaceId TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE_ID}'`,
@@ -216,7 +215,7 @@ function migrationEnsureWorkspaceColumns(connection: DatabaseSync): void {
 }
 
 function seedDefaultWorkspace(connection: DatabaseSync): void {
-  const count = connection.prepare("SELECT COUNT(*) AS total FROM workspaces").get() as SqlRow;
+  const count = asSqlRow(connection.prepare("SELECT COUNT(*) AS total FROM workspaces").get());
   if (Number(count.total) > 0) {
     return;
   }
@@ -227,9 +226,7 @@ function seedDefaultWorkspace(connection: DatabaseSync): void {
 }
 
 function migrationEnsureProjectColumns(connection: DatabaseSync): void {
-  const columns = connection.prepare("PRAGMA table_info(projects)").all() as unknown as Array<
-    Record<string, unknown>
-  >;
+  const columns = connection.prepare("PRAGMA table_info(projects)").all().map(asSqlRow);
   if (!columns.some((column) => column.name === "diskSizeBytes")) {
     connection.exec("ALTER TABLE projects ADD COLUMN diskSizeBytes INTEGER NOT NULL DEFAULT 0");
   }
@@ -242,9 +239,10 @@ function migrationEnsureProjectColumns(connection: DatabaseSync): void {
 }
 
 function migrationDropPathUniqueConstraint(connection: DatabaseSync): void {
-  const row = connection
+  const rawRow = connection
     .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'")
-    .get() as unknown as SqlRow | undefined;
+    .get();
+  const row = rawRow === undefined ? undefined : asSqlRow(rawRow);
   if (!row || typeof row.sql !== "string") return;
   if (!row.sql.includes("path TEXT NOT NULL UNIQUE")) return;
   // 整段包进事务：重建表涉及 CREATE / INSERT / DROP / RENAME 四步，
@@ -305,107 +303,162 @@ export function parseStringArray(
 
 /** 行 → 领域对象映射统一收在此处：与建表列一一对应，schema 变更时同步修改。 */
 
+/**
+ * 行形状运行时断言（P-35 第三阶段）：替代各域模块的 `.all() as unknown as SqlRow[]`。
+ *
+ * why 需要运行时收口：node:sqlite 的 all()/get() 返回 unknown。原先的
+ * `as unknown as SqlRow[]` 把「驱动返回异常形状」的故障全部吞掉——列名写错时
+ * row.xxx 得到 undefined，String(undefined) 静默落成字符串 "undefined" 进库/上屏。
+ * 这里做最小形状校验：非 null 对象、非数组；列级类型由 assertText/IntegerColumn 负责。
+ */
+export function asSqlRow(value: unknown): SqlRow {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("数据库行形状异常：期望对象行，收到 " + Object.prototype.toString.call(value));
+  }
+  return value as SqlRow;
+}
+
+/**
+ * 必填 TEXT 列断言：列缺失（undefined）或类型异常时抛出带列名的错误。
+ * 列缺失是 schema/查询写错的信号，必须 fail-fast，而不是落成 "undefined"。
+ */
+export function assertTextColumn(row: SqlRow, column: string): string {
+  const value = row[column];
+  if (typeof value !== "string") {
+    throw new Error(`数据库列 ${column} 期望 TEXT，实际为 ${value === undefined ? "缺失" : typeof value}`);
+  }
+  return value;
+}
+
+/** 必填 INTEGER 列断言：SQLite 整数在 node:sqlite 中为 number/bigint，统一转 number。 */
+export function assertIntegerColumn(row: SqlRow, column: string): number {
+  const value = row[column];
+  if (typeof value !== "number" && typeof value !== "bigint") {
+    throw new Error(`数据库列 ${column} 期望 INTEGER，实际为 ${value === undefined ? "缺失" : typeof value}`);
+  }
+  return Number(value);
+}
+
+/** 可空 TEXT 列：NULL 或缺失返回 undefined，存在则必须为 string。 */
+export function optionalTextColumn(row: SqlRow, column: string): string | undefined {
+  const value = row[column];
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  return assertTextColumn(row, column);
+}
+
+/** 可空 TEXT 列（保留 null 语义，用于 lastCheckedAt 这类三态字段）。 */
+export function nullableTextColumn(row: SqlRow, column: string): string | null {
+  const value = row[column];
+  if (value === null || value === undefined) {
+    return null;
+  }
+  return assertTextColumn(row, column);
+}
+
 export function rowToProject(row: SqlRow): Project {
   return {
-    id: String(row.id),
-    name: String(row.name),
-    path: String(row.path),
-    provider: String(row.provider) as Project["provider"],
-    branch: String(row.branch),
-    status: String(row.status) as Project["status"],
-    commit: String(row.commitHash),
-    favorite: Number(row.favorite) !== 0,
+    id: assertTextColumn(row, "id"),
+    name: assertTextColumn(row, "name"),
+    path: assertTextColumn(row, "path"),
+    provider: assertTextColumn(row, "provider") as Project["provider"],
+    branch: assertTextColumn(row, "branch"),
+    status: assertTextColumn(row, "status") as Project["status"],
+    commit: assertTextColumn(row, "commitHash"),
+    favorite: assertIntegerColumn(row, "favorite") !== 0,
     tags: parseStringArray(row.tags),
-    remote: row.remote === null ? undefined : String(row.remote),
-    files: Number(row.files),
-    syncLabel: String(row.syncLabel),
-    language: String(row.language),
-    languageColor: String(row.languageColor),
-    summary: String(row.summary),
-    updatedAt: String(row.updatedAt),
-    diskSizeBytes: Number(row.diskSizeBytes ?? 0),
-    alias: row.alias === null || row.alias === undefined ? undefined : String(row.alias),
-    webUrl: row.webUrl === null || row.webUrl === undefined ? undefined : String(row.webUrl),
+    remote: optionalTextColumn(row, "remote"),
+    files: assertIntegerColumn(row, "files"),
+    syncLabel: assertTextColumn(row, "syncLabel"),
+    language: assertTextColumn(row, "language"),
+    languageColor: assertTextColumn(row, "languageColor"),
+    summary: assertTextColumn(row, "summary"),
+    updatedAt: assertTextColumn(row, "updatedAt"),
+    // 迁移后补的列：旧库行可能为 NULL，保持 0 兜底（与迁移前行为一致）
+    diskSizeBytes: row.diskSizeBytes == null ? 0 : assertIntegerColumn(row, "diskSizeBytes"),
+    alias: optionalTextColumn(row, "alias"),
+    webUrl: optionalTextColumn(row, "webUrl"),
   };
 }
 
 export function rowToWorkspace(row: SqlRow): WorkspaceEntity {
   return {
-    id: String(row.id),
-    name: String(row.name),
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
+    id: assertTextColumn(row, "id"),
+    name: assertTextColumn(row, "name"),
+    createdAt: assertTextColumn(row, "createdAt"),
+    updatedAt: assertTextColumn(row, "updatedAt"),
   };
 }
 
 export function rowToAccount(row: SqlRow): Account {
   return {
-    id: String(row.id),
-    provider: String(row.provider) as RemoteProvider,
-    username: String(row.username),
-    displayName: String(row.displayName),
-    authType: String(row.authType) as Account["authType"],
-    credentialRef: String(row.credentialRef),
-    status: String(row.status) as Account["status"],
+    id: assertTextColumn(row, "id"),
+    provider: assertTextColumn(row, "provider") as RemoteProvider,
+    username: assertTextColumn(row, "username"),
+    displayName: assertTextColumn(row, "displayName"),
+    authType: assertTextColumn(row, "authType") as Account["authType"],
+    credentialRef: assertTextColumn(row, "credentialRef"),
+    status: assertTextColumn(row, "status") as Account["status"],
     scopes: parseStringArray(row.scopes),
-    lastCheckedAt: row.lastCheckedAt === null ? null : String(row.lastCheckedAt),
-    createdAt: String(row.createdAt),
-    updatedAt: String(row.updatedAt),
+    lastCheckedAt: nullableTextColumn(row, "lastCheckedAt"),
+    createdAt: assertTextColumn(row, "createdAt"),
+    updatedAt: assertTextColumn(row, "updatedAt"),
   };
 }
 
 export function rowToTaskProfile(row: SqlRow): TaskProfile {
   return {
-    id: String(row.id),
-    projectId: String(row.projectId),
-    projectPath: String(row.projectPath),
-    taskType: String(row.taskType) as TaskProfile["taskType"],
-    name: String(row.name),
-    command: String(row.command),
-    args: String(row.args),
-    workingDirectory: String(row.workingDirectory),
-    timeoutSeconds: Number(row.timeoutSeconds),
-    createdAt: String(row.createdAt),
+    id: assertTextColumn(row, "id"),
+    projectId: assertTextColumn(row, "projectId"),
+    projectPath: assertTextColumn(row, "projectPath"),
+    taskType: assertTextColumn(row, "taskType") as TaskProfile["taskType"],
+    name: assertTextColumn(row, "name"),
+    command: assertTextColumn(row, "command"),
+    args: assertTextColumn(row, "args"),
+    workingDirectory: assertTextColumn(row, "workingDirectory"),
+    timeoutSeconds: assertIntegerColumn(row, "timeoutSeconds"),
+    createdAt: assertTextColumn(row, "createdAt"),
   };
 }
 
 export function rowToTaskRun(row: SqlRow): TaskRun {
   return {
-    id: String(row.id),
-    profileId: String(row.profileId),
-    projectId: String(row.projectId),
-    name: String(row.name),
-    command: String(row.command),
-    startedAt: String(row.startedAt),
-    finishedAt: row.finishedAt === null ? undefined : String(row.finishedAt),
-    status: String(row.status) as TaskRun["status"],
-    exitCode: row.exitCode === null ? undefined : Number(row.exitCode),
-    output: String(row.output),
+    id: assertTextColumn(row, "id"),
+    profileId: assertTextColumn(row, "profileId"),
+    projectId: assertTextColumn(row, "projectId"),
+    name: assertTextColumn(row, "name"),
+    command: assertTextColumn(row, "command"),
+    startedAt: assertTextColumn(row, "startedAt"),
+    finishedAt: optionalTextColumn(row, "finishedAt"),
+    status: assertTextColumn(row, "status") as TaskRun["status"],
+    exitCode: row.exitCode == null ? undefined : assertIntegerColumn(row, "exitCode"),
+    output: assertTextColumn(row, "output"),
   };
 }
 
 export function rowToBackup(row: SqlRow): BackupRecord {
   return {
-    id: String(row.id),
-    projectId: String(row.projectId),
-    projectName: String(row.projectName),
-    sourcePath: String(row.sourcePath),
-    archivePath: String(row.archivePath),
-    sizeBytes: Number(row.sizeBytes),
-    status: String(row.status) as BackupRecord["status"],
-    error: row.error === null ? undefined : String(row.error),
-    createdAt: String(row.createdAt),
+    id: assertTextColumn(row, "id"),
+    projectId: assertTextColumn(row, "projectId"),
+    projectName: assertTextColumn(row, "projectName"),
+    sourcePath: assertTextColumn(row, "sourcePath"),
+    archivePath: assertTextColumn(row, "archivePath"),
+    sizeBytes: assertIntegerColumn(row, "sizeBytes"),
+    status: assertTextColumn(row, "status") as BackupRecord["status"],
+    error: optionalTextColumn(row, "error"),
+    createdAt: assertTextColumn(row, "createdAt"),
   };
 }
 
 export function rowToOperationRecord(row: SqlRow): OperationRecord {
   return {
-    id: String(row.id),
-    operation: String(row.operation),
-    projectId: String(row.projectId),
-    projectPath: String(row.projectPath),
-    detail: String(row.detail),
-    result: String(row.result) as OperationRecord["result"],
-    createdAt: String(row.createdAt),
+    id: assertTextColumn(row, "id"),
+    operation: assertTextColumn(row, "operation"),
+    projectId: assertTextColumn(row, "projectId"),
+    projectPath: assertTextColumn(row, "projectPath"),
+    detail: assertTextColumn(row, "detail"),
+    result: assertTextColumn(row, "result") as OperationRecord["result"],
+    createdAt: assertTextColumn(row, "createdAt"),
   };
 }

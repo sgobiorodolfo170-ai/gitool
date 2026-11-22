@@ -1,6 +1,6 @@
 import type { AppSettings } from "../../../../shared/types";
 import { errorMessage } from "../serviceUtils";
-import { openDatabase, type SqlRow } from "./database";
+import { asSqlRow, openDatabase } from "./database";
 
 /**
  * 应用设置数据域：settings 键值对的读写。
@@ -11,7 +11,7 @@ import { openDatabase, type SqlRow } from "./database";
 
 export function loadSettings(): AppSettings {
   const connection = openDatabase();
-  const rows = connection.prepare("SELECT key, value FROM settings").all() as unknown as SqlRow[];
+  const rows = connection.prepare("SELECT key, value FROM settings").all().map(asSqlRow);
   const values = new Map<string, string>();
   for (const row of rows) {
     values.set(String(row.key), String(row.value));
