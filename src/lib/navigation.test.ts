@@ -9,14 +9,14 @@ describe("buildNavGroups", () => {
 
   it("计数为 0 时不显示徽标", () => {
     const groups = buildNavGroups({ projects: 0, remotes: 0 });
-    const projects = groups[0].items.find((item) => item.id === "projects");
+    const projects = groups[0]!.items.find((item) => item.id === "projects");
     expect(projects?.count).toBeUndefined();
   });
 
   it("计数大于 0 时显示字符串徽标", () => {
     const groups = buildNavGroups({ projects: 12, remotes: 3 });
-    expect(groups[0].items.find((item) => item.id === "projects")?.count).toBe("12");
-    expect(groups[0].items.find((item) => item.id === "remotes")?.count).toBe("3");
+    expect(groups[0]!.items.find((item) => item.id === "projects")?.count).toBe("12");
+    expect(groups[0]!.items.find((item) => item.id === "remotes")?.count).toBe("3");
   });
 
   it("覆盖全部 7 个视图且无重复", () => {

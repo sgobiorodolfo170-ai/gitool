@@ -28,7 +28,7 @@ describe("NoticeViewport", () => {
     render(<NoticeViewport notices={notices} onDismiss={onDismiss} />);
 
     const buttons = screen.getAllByRole("button", { name: "关闭提示" });
-    await user.click(buttons[1]);
+    await user.click(buttons[1]!);
 
     expect(onDismiss).toHaveBeenCalledWith("2");
   });

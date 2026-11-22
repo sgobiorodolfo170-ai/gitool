@@ -141,12 +141,10 @@ export function OverviewPanel({
         setActionMessage(`${aiResult.error ?? "AI 摘要失败"}，已回退到本地摘要`);
       }
 
+      const firstReadmeLine = readmeSummary.split(/\r?\n/)[0] ?? "";
       const fallbackParts = [
         readmeSummary
-          ? `「${readmeSummary
-              .split(/\r?\n/)[0]
-              .replace(/^#+\s*/, "")
-              .slice(0, 120)}」`
+          ? `「${firstReadmeLine.replace(/^#+\s*/, "").slice(0, 120)}」`
           : `基于 ${project.name} 的项目摘要。`,
         languageLine,
         historyLine,

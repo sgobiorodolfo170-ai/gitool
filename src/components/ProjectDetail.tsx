@@ -113,7 +113,7 @@ export function ProjectDetail({
         return;
     }
     event.preventDefault();
-    selectTab(DETAIL_TABS[next].id);
+    selectTab(DETAIL_TABS[next]!.id);
     const tabs = event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]');
     tabs[next]?.focus();
   };

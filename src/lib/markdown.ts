@@ -54,8 +54,11 @@ const baseLinkOpen =
 // 链接一律新窗口打开：主进程的 setWindowOpenHandler 会转交给系统浏览器，
 // 否则点击会顶掉应用自己的界面。
 markdown.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-  tokens[idx].attrSet("target", "_blank");
-  tokens[idx].attrSet("rel", "noreferrer noopener");
+  // P-35：markdown-it 的 tokens[idx] 按 index 取值，noUncheckedIndexedAccess
+  // 下可能为 undefined（规则只会对存在的 token 触发，但编译器无法证明）。
+  const token = tokens[idx]!;
+  token.attrSet("target", "_blank");
+  token.attrSet("rel", "noreferrer noopener");
   return baseLinkOpen(tokens, idx, options, env, self);
 };
 
@@ -65,13 +68,14 @@ const baseImage =
 
 markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
   // attrGet 的返回类型是 string | number | null，统一成字符串再判断
-  const src = String(tokens[idx].attrGet("src") ?? "");
+  const token = tokens[idx]!;
+  const src = String(token.attrGet("src") ?? "");
   if (SAFE_PROTOCOL.test(src) || SAFE_IMAGE_DATA.test(src)) {
     return baseImage(tokens, idx, options, env, self);
   }
   // 相对路径的图片在桌面应用里没有可用的基址，直接渲染只会得到裂图。
   // 改为占位提示，至少让人知道这里本该有张图、路径是什么。
-  const alt = (tokens[idx].content || "").trim() || src;
+  const alt = (token.content || "").trim() || src;
   return (
     `<span class="md-image-placeholder" title="${escapeHtml(src)}">` +
     `图片：${escapeHtml(alt)}</span>`

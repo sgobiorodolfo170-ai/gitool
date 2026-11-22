@@ -43,16 +43,16 @@ describe("WorkspaceSwitcher（阶段 E2）", () => {
     const items = screen.getAllByRole("menuitem");
     await waitFor(() => expect(document.activeElement).toBe(items[0]));
 
-    fireEvent.keyDown(items[0], { key: "ArrowDown" });
+    fireEvent.keyDown(items[0]!, { key: "ArrowDown" });
     expect(document.activeElement).toBe(items[1]);
 
-    fireEvent.keyDown(items[1], { key: "ArrowUp" });
+    fireEvent.keyDown(items[1]!, { key: "ArrowUp" });
     expect(document.activeElement).toBe(items[0]);
 
-    fireEvent.keyDown(items[0], { key: "End" });
+    fireEvent.keyDown(items[0]!, { key: "End" });
     expect(document.activeElement).toBe(items[items.length - 1]);
 
-    fireEvent.keyDown(items[items.length - 1], { key: "Home" });
+    fireEvent.keyDown(items[items.length - 1]!, { key: "Home" });
     expect(document.activeElement).toBe(items[0]);
   });
 

@@ -16,7 +16,11 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    // P-35 第二阶段：渲染层开启 noUncheckedIndexedAccess。
+    // 主进程（tsconfig.electron.json）已先行清零；渲染层的索引访问
+    // （split()[0]、数组解构、record[x]）同样需要编译期强制判空。
+    "noUncheckedIndexedAccess": true
   },
   "include": ["src"]
 }

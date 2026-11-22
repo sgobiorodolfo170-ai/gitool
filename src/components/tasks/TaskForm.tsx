@@ -128,7 +128,7 @@ export function TaskForm({
             </div>
             <p>
               以下命令不支持 Windows 系统，仅支持：
-              {incompatibleCommands[0].osSupport.join("、")}
+              {incompatibleCommands[0]!.osSupport.join("、")}
               。可在其他系统上执行，或使用自定义命令手动配置。
             </p>
             <div className="conflict-files">

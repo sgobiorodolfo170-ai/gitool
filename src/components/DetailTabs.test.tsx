@@ -60,22 +60,22 @@ describe("详情选项卡（阶段 E4）", () => {
     renderDetail();
     const tabs = screen.getAllByRole("tab");
 
-    tabs[0].focus();
-    fireEvent.keyDown(tabs[0], { key: "ArrowRight" });
+    tabs[0]!.focus();
+    fireEvent.keyDown(tabs[0]!, { key: "ArrowRight" });
     expect(tabs[1]).toHaveAttribute("aria-selected", "true");
     expect(document.activeElement).toBe(tabs[1]);
 
-    fireEvent.keyDown(tabs[1], { key: "ArrowLeft" });
+    fireEvent.keyDown(tabs[1]!, { key: "ArrowLeft" });
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
 
-    fireEvent.keyDown(tabs[0], { key: "ArrowLeft" });
+    fireEvent.keyDown(tabs[0]!, { key: "ArrowLeft" });
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
     expect(document.activeElement).toBe(tabs[2]);
 
-    fireEvent.keyDown(tabs[2], { key: "Home" });
+    fireEvent.keyDown(tabs[2]!, { key: "Home" });
     expect(tabs[0]).toHaveAttribute("aria-selected", "true");
 
-    fireEvent.keyDown(tabs[0], { key: "End" });
+    fireEvent.keyDown(tabs[0]!, { key: "End" });
     expect(tabs[2]).toHaveAttribute("aria-selected", "true");
   });
 });

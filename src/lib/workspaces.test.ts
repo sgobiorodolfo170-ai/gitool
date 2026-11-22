@@ -66,7 +66,7 @@ describe("listWorkspaces", () => {
     expect(list).toHaveLength(1);
     expect(list[0]).toMatchObject({ id: DEFAULT_WORKSPACE_ID, name: "个人工作区" });
     expect(readStoredWorkspaces()).toHaveLength(1);
-    expect(readStoredWorkspaces()[0].id).toBe(DEFAULT_WORKSPACE_ID);
+    expect(readStoredWorkspaces()[0]!.id).toBe(DEFAULT_WORKSPACE_ID);
   });
 
   it("已有数组原样返回，不重写存储", () => {
@@ -124,10 +124,10 @@ describe("renameWorkspace", () => {
     renameWorkspace({ id: "ws-a", name: "  新名字  " });
 
     const [renamed] = readStoredWorkspaces();
-    expect(renamed.name).toBe("新名字");
-    expect(renamed.id).toBe("ws-a");
-    expect(renamed.createdAt).toBe("2026-01-01T00:00:00.000Z");
-    expect(renamed.updatedAt).not.toBe(renamed.createdAt);
+    expect(renamed!.name).toBe("新名字");
+    expect(renamed!.id).toBe("ws-a");
+    expect(renamed!.createdAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(renamed!.updatedAt).not.toBe(renamed!.createdAt);
   });
 
   it("空名称抛错，且不改动存储", () => {

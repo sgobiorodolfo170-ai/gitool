@@ -139,7 +139,8 @@ export function WorkspaceSwitcher({
         return;
     }
     event.preventDefault();
-    items[next].focus();
+    // P-35：next 为 -1 时表示没有可聚焦项（全部禁用），跳过聚焦而非越界。
+    items[next]?.focus();
   };
 
   return (

@@ -19,7 +19,9 @@ export async function mapWithConcurrency<T, R>(
       if (index >= items.length) {
         return;
       }
-      results[index] = await worker(items[index]);
+      // P-35：index 已在上方判定有界，! 仅做类型收窄（cursor 是模块外可变量，
+      // 编译器无法证明 items[index] 非 undefined）。
+      results[index] = await worker(items[index]!);
     }
   }
 

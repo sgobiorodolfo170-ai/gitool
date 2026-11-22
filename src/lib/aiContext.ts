@@ -92,12 +92,10 @@ export function buildSummaryContext(input: BuildSummaryContextInput): SummaryCon
     .join("\n");
 
   // 本地回退摘要片段（原 OverviewPanel.tsx:144-154）
+  const firstReadmeLine = readmeSummary.split(/\r?\n/)[0] ?? "";
   const fallbackParts = [
     readmeSummary
-      ? `「${readmeSummary
-          .split(/\r?\n/)[0]
-          .replace(/^#+\s*/, "")
-          .slice(0, FALLBACK_SUMMARY_MAX_CHARS)}」`
+      ? `「${firstReadmeLine.replace(/^#+\s*/, "").slice(0, FALLBACK_SUMMARY_MAX_CHARS)}」`
       : `基于 ${project.name} 的项目摘要。`,
     languageLine,
     historyLine,

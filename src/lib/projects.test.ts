@@ -104,8 +104,8 @@ describe("loadProjects", () => {
     storage.setItem(storageKey("ws-1"), JSON.stringify(partial));
     const [first] = loadProjects("ws-1");
     expect(first).toEqual({ id: "p1", name: "only-two-fields" });
-    expect(first.branch).toBeUndefined();
-    expect(first.favorite).toBeUndefined();
+    expect(first!.branch).toBeUndefined();
+    expect(first!.favorite).toBeUndefined();
   });
 
   it("只读取对应工作区的键，互不干扰", () => {
