@@ -9,6 +9,52 @@ import { getTaskProfile, insertTaskRun, updateTaskRun } from "./storage/tasks";
 /** 子进程输出保留上限：只留最近 256KB，避免长跑任务把主进程内存吃满。 */
 const MAX_OUTPUT_LENGTH = 256 * 1024;
 
+/**
+ * 允许执行的命令白名单。
+ *
+ * why 白名单：任务执行器是「产品设计内的能力」，对用户自己输入的命令不算漏洞；
+ * 但风险在于：渲染层被攻破后可借 saveProfile + run 持久化一条恶意命令到 DB，
+ * 即使本次会话结束、重启后仍可被再次触发。白名单把可执行面收窄到已知安全的命令。
+ */
+const ALLOWED_TASK_COMMANDS = new Set([
+  "npm",
+  "pnpm",
+  "yarn",
+  "cargo",
+  "go",
+  "mvn",
+  "gradle",
+  "dotnet",
+  "docker",
+  "python",
+  "node",
+  "py",
+]);
+
+/**
+ * 命令元字符拒绝模式。
+ *
+ * why 拒元字符：`shell:true` 使 `& | > ^` 等元字符不限于「命令 + 参数」，
+ * `profile.command` 可写 `npm run build & powershell -enc <base64>`。
+ * 白名单 + 元字符拒绝双保险，防止「命令合法但参数恶意」的绕过。
+ */
+const META_CHARACTERS = /[&|<>^()`]/;
+
+/**
+ * 断言命令在白名单内且不含元字符。
+ */
+function assertAllowedCommand(command: string, label = "命令"): void {
+  if (!command || typeof command !== "string") {
+    throw new Error(`${label}不能为空`);
+  }
+  if (!ALLOWED_TASK_COMMANDS.has(command)) {
+    throw new Error(`不允许执行该命令：${command}`);
+  }
+  if (META_CHARACTERS.test(command)) {
+    throw new Error(`${label}中包含不允许的字符`);
+  }
+}
+
 const runningTasks = new Map<string, { process: ReturnType<typeof spawn>; output: () => string }>();
 
 /** 用户主动停止的运行 ID。close 事件据此把状态记为 stopped 而非 failed。 */
@@ -19,6 +65,7 @@ export async function runTask(profileId: string): Promise<TaskRun> {
   if (!profile) {
     throw new Error("任务配置不存在");
   }
+  assertAllowedCommand(profile.command);
   assertWorkingDirectory(profile.workingDirectory);
 
   const now = new Date().toISOString();

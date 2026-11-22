@@ -52,7 +52,7 @@ import { bridge } from "../../preload/index";
 import { registerIpcHandlers } from "../ipc";
 
 /** 本批次（删除 2 个死通道后）的 handler 基线，任何增减都必须显式改这个数字。 */
-const EXPECTED_HANDLER_COUNT = 77;
+const EXPECTED_HANDLER_COUNT = 78;
 
 beforeAll(() => {
   registerIpcHandlers();
