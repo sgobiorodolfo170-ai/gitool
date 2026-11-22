@@ -1,0 +1,85 @@
+/*
+ * 暗色主题（阶段 F1）。
+ *
+ * 只覆盖语义 token，不写具体组件选择器：组件样式全部经 var(--token) 取色，
+ * 因此换主题不需要改任何一条组件规则。
+ *
+ * 取值原则（Quiet Precision）：
+ * 1. 侧栏与内容区统一深色阶，侧栏比内容区再深一档，保留层级而不靠边框硬切；
+ * 2. 正文/次要文字对 `--bg-surface` 的对比度全部 ≥ 4.5:1（实测值见各行注释）；
+ * 3. 状态色在暗底重新校准：背景为低饱和深色，前景为同色相提亮；
+ * 4. 阴影加深，避免深色下浮层「糊」在一起。
+ */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-app: #14181b;
+  --bg-surface: #1b2024;
+  --bg-subtle: #171c1f;
+  --bg-muted: #171c1f;
+  --bg-accent-soft: #16241f;
+  --bg-sidebar: #0f1315;
+  --bg-sidebar-hover: #1c2528;
+
+  --border-subtle: #262d30;
+  --border-default: #303a3e;
+  --border-strong: #303a3e;
+  --border-muted: #262d30;
+  --border-accent: #2f5f51;
+  --border-sidebar: #263134;
+
+  /* 对 --bg-surface 的对比度：strong 14.2、body 10.3、secondary 7.6、
+     subtle 6.1、faint 4.6（≥4.5） */
+  --text-strong: #e9f0ee;
+  --text-body: #c3cfcb;
+  --text-secondary: #aab7b3;
+  --text-secondary-strong: #aab7b3;
+  --text-muted: #98a5a1;
+  --text-tertiary: var(--text-muted);
+  --text-subtle: #93a09c;
+  --text-faint: #7d8a86;
+  --text-sidebar-muted: #8b9a95;
+  --text-on-dark: #eef8f3;
+
+  --accent: #6cb8a3;
+  --accent-strong: #8fd0bd;
+  --accent-light: #4f8f7d;
+  --danger: #e08a86;
+  --danger-soft: #5a3333;
+
+  /* 状态色：前景/背景对比 ≥ 7:1（clean 7.9、ahead 7.7、behind 7.5、
+     dirty 7.0、conflict 7.6） */
+  --status-clean-fg: #7fd6b5;
+  --status-clean-bg: #14332a;
+  --status-ahead-fg: #9cc0dd;
+  --status-ahead-bg: #172a38;
+  --status-behind-fg: #e2c07a;
+  --status-behind-bg: #3a2f16;
+  --status-dirty-fg: #efa08a;
+  --status-dirty-bg: #3a231c;
+  --status-conflict-fg: #f0a3b4;
+  --status-conflict-bg: #3a1f27;
+
+  /* 反馈色：沿用 light 的语义派生（success/info 自动跟随状态色），
+     error/warning 的底色需要单独加深否则在深色卡片上过亮 */
+  --feedback-error-bg: #2a1a1e;
+  --feedback-error-border: #573039;
+  --feedback-warning-bg: #2f2716;
+  --feedback-warning-border: #4d3f1f;
+  --feedback-info-bg: #1a2933;
+  --feedback-info-border: #294052;
+
+  --provider-github: var(--text-strong);
+  --provider-gitee: #e07a80;
+  --provider-gitlab: #e59a5f;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-overlay: 0 18px 48px rgba(0, 0, 0, 0.6);
+  --shadow-toast: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+
+/* 显式浅色：允许用户把「跟随系统」改成固定浅色，同时让原生控件回到浅色 */
+:root[data-theme="light"] {
+  color-scheme: light;
+}

@@ -196,7 +196,11 @@ export const appSettingsSchema = z.object({
   aiModel: looseString(),
   aiBaseUrl: looseString(),
   closeToTray: z.boolean().catch(false),
+  theme: z.enum(["system", "light", "dark"]).catch("system"),
 }) satisfies z.ZodType<AppSettings>;
+
+/** 主题同步入参（阶段 F4）：与 AppSettings.theme 同一枚举，非法值直接拒绝。 */
+export const themePreferenceSchema = z.enum(["system", "light", "dark"]);
 
 export const aiSummaryRequestSchema = z.object({
   projectName: requiredString("项目名称"),

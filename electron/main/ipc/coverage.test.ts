@@ -60,7 +60,7 @@ import {
 } from "./schemas";
 
 /** 本批次 handler 基线：任何增减都必须显式改这个数字（与 bridgeParity 保持一致）。 */
-const EXPECTED_HANDLER_COUNT = 76;
+const EXPECTED_HANDLER_COUNT = 77;
 
 /**
  * 接收入参且已接入校验的通道。
@@ -126,6 +126,7 @@ const VALIDATED_CHANNELS: ReadonlySet<string> = new Set([
   "backups:restore",
   "operations:export",
   "settings:save",
+  "theme:set",
   "projects:move",
   "ai:generateSummary",
   "ai:saveKey",
@@ -366,8 +367,8 @@ describe("IPC 通道校验覆盖（源码级接线）", () => {
     expect([...VALIDATED_CHANNELS].filter((channel) => !wiredChannels.has(channel))).toEqual([]);
   });
 
-  it("清单大小固定：60 已校验 + 16 无入参 = 76", () => {
-    expect(VALIDATED_CHANNELS.size).toBe(60);
+  it("清单大小固定：61 已校验 + 16 无入参 = 77", () => {
+    expect(VALIDATED_CHANNELS.size).toBe(61);
     expect(NO_INPUT_CHANNELS.size).toBe(16);
   });
 

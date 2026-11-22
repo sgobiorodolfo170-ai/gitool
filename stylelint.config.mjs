@@ -15,7 +15,8 @@
 /** @type {import("stylelint").Config} */
 export default {
   rules: {
-    // tokens.css 是唯一允许写 hex 的文件；其余样式必须使用 var(--token)。
+    // tokens.css 与 dark.css 是 token 层（只定义变量），是唯一允许写 hex 的文件；
+    // 其余样式必须使用 var(--token)。
     "color-no-hex": true,
     // !important 会破坏 token/主题覆盖的层叠关系，禁止新增。
     "declaration-no-important": true,
@@ -26,9 +27,9 @@ export default {
   },
   overrides: [
     {
-      files: ["src/styles/tokens.css"],
+      files: ["src/styles/tokens.css", "src/styles/dark.css"],
       rules: {
-        // token 层是 hex 的唯一合法归宿
+        // token 层是 hex 的唯一合法归宿（dark.css 与 tokens.css 同为变量层）
         "color-no-hex": null,
       },
     },

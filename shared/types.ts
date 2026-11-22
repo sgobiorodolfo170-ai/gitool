@@ -352,6 +352,9 @@ export type OperationRecord = {
   createdAt: string;
 };
 
+/** 主题偏好：跟随系统 / 强制浅色 / 强制深色（阶段 F3）。 */
+export type ThemePreference = "system" | "light" | "dark";
+
 export type AppSettings = {
   gitPath: string;
   defaultProjectDirectory: string;
@@ -363,6 +366,8 @@ export type AppSettings = {
   aiBaseUrl: string;
   /** 关闭主窗口时的行为：false = 彻底退出并回收子进程；true = 隐藏到托盘保持后台运行。 */
   closeToTray: boolean;
+  /** 外观偏好。老库缺省读出 system，保证升级用户不改观感。 */
+  theme: ThemePreference;
 };
 
 export type MoveProjectInput = {
@@ -522,6 +527,8 @@ export type DesktopBridge = {
   exportOperationRecords(directory: string): Promise<string>;
   loadSettings(): Promise<AppSettings>;
   saveSettings(settings: AppSettings): Promise<void>;
+  /** 同步原生窗口主题（nativeTheme）与窗口底色，避免切换时白闪（阶段 F4）。 */
+  setTheme(theme: ThemePreference): Promise<void>;
   moveProject(input: MoveProjectInput): Promise<MoveProjectResult>;
   initRepository(input: InitRepositoryInput): Promise<void>;
   scanDirectoryForRepositories(path: string): Promise<RepositoryDiscoveryItem[]>;

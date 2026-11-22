@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { Account, AppSettings } from "../../types";
 import { providerLabels } from "../../lib/meta";
 import { getDesktopBridge } from "../../lib/bridge";
+import { THEME_OPTIONS } from "../../lib/theme";
 
 /**
  * 「应用设置」tab：默认搜索账号、Git 路径、默认目录与备份排除规则。
@@ -70,6 +71,29 @@ export function AppSettingsTab({
         <Settings2 size={16} />
       </div>
       <div className="form-body">
+        <fieldset className="theme-choice">
+          <legend>外观</legend>
+          <div className="theme-options">
+            {THEME_OPTIONS.map((option) => (
+              <label
+                className={`theme-option ${settings.theme === option.value ? "active" : ""}`}
+                key={option.value}
+              >
+                <input
+                  type="radio"
+                  name="theme"
+                  value={option.value}
+                  checked={settings.theme === option.value}
+                  onChange={() => setSettings((current) => ({ ...current, theme: option.value }))}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+          <small className="setting-hint">
+            跟随系统会随 Windows 浅色/深色自动切换；保存后立即生效
+          </small>
+        </fieldset>
         <label>
           默认搜索账号
           <select

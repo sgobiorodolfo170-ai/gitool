@@ -16,6 +16,7 @@ export function loadSettings(): AppSettings {
   for (const row of rows) {
     values.set(String(row.key), String(row.value));
   }
+  const storedTheme = values.get("theme");
   return {
     gitPath: values.get("gitPath") ?? "",
     defaultProjectDirectory: values.get("defaultProjectDirectory") ?? "",
@@ -26,6 +27,8 @@ export function loadSettings(): AppSettings {
     aiModel: values.get("aiModel") ?? "",
     aiBaseUrl: values.get("aiBaseUrl") ?? "",
     closeToTray: values.get("closeToTray") === "1",
+    // 老库没有 theme 行：回退「跟随系统」，升级用户观感不变
+    theme: storedTheme === "light" || storedTheme === "dark" ? storedTheme : "system",
   };
 }
 
@@ -46,6 +49,7 @@ export function saveSettings(settings: AppSettings): void {
     statement.run("aiModel", settings.aiModel);
     statement.run("aiBaseUrl", settings.aiBaseUrl);
     statement.run("closeToTray", settings.closeToTray ? "1" : "0");
+    statement.run("theme", settings.theme);
     connection.exec("COMMIT");
   } catch (error) {
     connection.exec("ROLLBACK");

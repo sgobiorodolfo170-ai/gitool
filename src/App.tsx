@@ -31,6 +31,8 @@ import { useEnvironment } from "./hooks/useEnvironment";
 import { useNotice } from "./hooks/useNotice";
 import { useUpdater } from "./hooks/useUpdater";
 import { useFocusTrap } from "./hooks/useFocusTrap";
+import { useTheme } from "./hooks/useTheme";
+import { parseTheme, type ThemePreference } from "./lib/theme";
 
 import { DEFAULT_WORKSPACE_ID, listWorkspaces as listWorkspacesLocal } from "./lib/workspaces";
 import { loadProjects } from "./lib/projects";
@@ -44,6 +46,14 @@ function App() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [fontScale, setFontScale] = useState(FONT_SCALE_DEFAULT);
+
+  // 首帧主题由主进程通过 query 注入（见 electron/main/index.ts），
+  // 数据库设置到达前先沿用它，避免深色用户看到浅色首帧。
+  const [initialThemePreference] = useState<ThemePreference>(() =>
+    document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+  );
+  const themePreference = appSettings ? parseTheme(appSettings.theme) : initialThemePreference;
+  useTheme(themePreference);
 
   // 三个独立领域 hook：提示、环境体检、应用更新。
   // 提示改为类型化队列（成功/失败/警告/信息），渲染交给 NoticeViewport。
@@ -99,6 +109,15 @@ function App() {
     saveFontScale(scale);
     applyFontScale(scale);
   }, []);
+
+  // 主题同步原生层（标题栏/滚动条 + 窗口底色）：渲染层已即时生效，
+  // 这里失败只影响原生层，不回滚页面主题。
+  useEffect(() => {
+    if (!isDesktopRuntime()) return;
+    void requireDesktopBridge()
+      .setTheme(themePreference)
+      .catch(() => undefined);
+  }, [themePreference]);
 
   const defaultDirectoryHint = () => {
     return (
@@ -431,12 +450,7 @@ function App() {
                 现在是真实按钮：点击与快捷键同样聚焦项目搜索框（阶段 D7）。
                 早期版本的铃铛按钮无任何行为且红点恒亮，属装饰性误导，已移除 */}
               {workspace === "projects" && (
-                <button
-                  type="button"
-                  className="command-hint"
-                  onClick={requestSearchFocus}
-                  aria-label="聚焦项目搜索（Ctrl K）"
-                >
+                <button type="button" className="command-hint" onClick={requestSearchFocus}>
                   <Command size={13} />
                   <span>快速查找</span>
                   <kbd>Ctrl K</kbd>

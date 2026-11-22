@@ -3,6 +3,7 @@
 /* 设计 token 必须在所有规则之前加载：@import 只能出现在样式表顶部。
    当前只新增变量，不覆盖下方 :root 的旧值，因此视觉零变化。 */
 @import "./styles/tokens.css";
+@import "./styles/dark.css";
 
 /* 颜色/字体等 token 已迁移到 src/styles/tokens.css（阶段 C10）。
    本文件不再定义任何具体色值，只保留元素与组件规则。 */
@@ -2256,6 +2257,51 @@ body.is-resizing {
   margin-top: var(--space-1);
   color: var(--text-subtle);
   font-size: calc(10px * var(--font-scale));
+}
+/* 外观三态单选（阶段 F5）：用分段按钮的视觉承载原生 radio，
+   键盘方向键仍由浏览器按 radio group 处理。 */
+.theme-choice {
+  padding: 0;
+  margin: 0 0 var(--space-3);
+  border: 0;
+}
+.theme-choice legend {
+  padding: 0;
+  margin-bottom: var(--space-2);
+  color: var(--text-subtle);
+  font-size: calc(11px * var(--font-scale));
+  font-weight: 600;
+}
+.theme-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.theme-options .theme-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-body);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  font-size: calc(12px * var(--font-scale));
+  font-weight: 500;
+  cursor: pointer;
+}
+.theme-options .theme-option.active {
+  color: var(--text-strong);
+  border-color: var(--border-accent);
+  background: var(--bg-accent-soft);
+}
+.theme-options .theme-option input {
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
 }
 .setting-value {
   display: inline-flex;

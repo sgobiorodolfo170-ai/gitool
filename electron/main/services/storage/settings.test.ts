@@ -17,6 +17,7 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     aiModel: "gpt-x",
     aiBaseUrl: "https://api.example.com",
     closeToTray: false,
+    theme: "system",
     ...overrides,
   };
 }
@@ -46,6 +47,7 @@ describe("settings 域（应用设置）", () => {
       aiModel: "",
       aiBaseUrl: "",
       closeToTray: false,
+      theme: "system",
     });
   });
 
@@ -63,7 +65,7 @@ describe("settings 域（应用设置）", () => {
     expect(loaded.defaultProjectDirectory).toBe("C:\\work");
   });
 
-  it("saveSettings 只更新表中固定的 9 个键（无多余行）", () => {
+  it("saveSettings 只更新表中固定的 10 个键（无多余行）", () => {
     saveSettings(settings());
     // 直接连库校验行数：防止未来有人往 settings 表漏写/多写键
     const connection = initDatabase(dataDir);
@@ -71,7 +73,19 @@ describe("settings 域（应用设置）", () => {
       (connection.prepare("SELECT COUNT(*) AS total FROM settings").get() as { total: number })
         .total,
     );
-    expect(count).toBe(9);
+    expect(count).toBe(10);
+  });
+
+  it("theme 往返一致：保存深色后读回 dark", () => {
+    saveSettings(settings({ theme: "dark" }));
+    expect(loadSettings().theme).toBe("dark");
+  });
+
+  it("旧库没有 theme 行时回退 system（升级用户不改变观感）", () => {
+    saveSettings(settings({ theme: "light" }));
+    const connection = initDatabase(dataDir);
+    connection.prepare("DELETE FROM settings WHERE key = ?").run("theme");
+    expect(loadSettings().theme).toBe("system");
   });
 
   it("closeToTray 往返一致：勾选托盘模式后读回 true", () => {

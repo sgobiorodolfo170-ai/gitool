@@ -31,6 +31,7 @@ const INITIAL_SETTINGS: AppSettings = {
   aiModel: "",
   aiBaseUrl: "",
   closeToTray: false,
+  theme: "system",
 };
 
 /**

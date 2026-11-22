@@ -1,6 +1,8 @@
-import { BrowserWindow, Menu, Tray, app, nativeImage, shell } from "electron";
+import { BrowserWindow, Menu, Tray, app, nativeImage, nativeTheme, shell } from "electron";
+import type { ThemePreference } from "../../shared/types";
 import { join } from "node:path";
 import { registerIpcHandlers } from "./ipc.js";
+import { applyNativeTheme } from "./services/windowTheme";
 import { checkForUpdates, CHECK_INTERVAL_MS } from "./services/updater.js";
 import { killAllProcesses } from "./services/processCleanup.js";
 import { loadSettings } from "./services/storage/settings.js";
@@ -80,13 +82,25 @@ function createTrayIcon(): Electron.NativeImage {
 
 function createMainWindow(): BrowserWindow {
   const iconPath = join(currentDirectory, "..", "build", "icon.png");
+  // 建窗前先读主题偏好并同步 nativeTheme：否则窗口会先以浅色出现再变暗，
+  // 启动瞬间可见白闪（阶段 F4）。设置读取失败按「跟随系统」兜底。
+  let themePreference: ThemePreference = "system";
+  try {
+    themePreference = loadSettings().theme;
+  } catch {
+    // 数据库尚不可用：保持跟随系统
+  }
+  const background = applyNativeTheme(themePreference);
+  // 初始主题随首屏 query 传给渲染层：页面在 React 挂载前就能设置 data-theme，
+  // 避免「深色窗口 + 浅色页面」的首帧白闪（阶段 F4）。
+  const initialTheme = nativeTheme.shouldUseDarkColors ? "dark" : "light";
   const window = new BrowserWindow({
     title: "Gitool",
     width: 1440,
     height: 900,
     minWidth: 1120,
     minHeight: 720,
-    backgroundColor: "#f5f7f9",
+    backgroundColor: background,
     show: false,
     autoHideMenuBar: true,
     icon: iconPath,
@@ -144,9 +158,11 @@ function createMainWindow(): BrowserWindow {
   });
 
   if (devServerUrl) {
-    void window.loadURL(devServerUrl);
+    void window.loadURL(`${devServerUrl}?theme=${initialTheme}`);
   } else {
-    void window.loadFile(join(currentDirectory, "../dist/index.html"));
+    void window.loadFile(join(currentDirectory, "../dist/index.html"), {
+      query: { theme: initialTheme },
+    });
   }
 
   return window;

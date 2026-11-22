@@ -28,6 +28,7 @@ import type {
   Project,
   ProjectAnalysis,
   ReadmeResult,
+  ThemePreference,
   RemoteRepository,
   RemoteRepositoryMutationResult,
   RepositoryDiscoveryItem,
@@ -140,6 +141,7 @@ export const bridge: DesktopBridge = {
   exportOperationRecords: (directory) => invoke<string>("operations:export", directory),
   loadSettings: () => invoke<AppSettings>("settings:load"),
   saveSettings: (settings: AppSettings) => invoke<void>("settings:save", settings),
+  setTheme: (theme: ThemePreference) => invoke<void>("theme:set", theme),
   moveProject: (input: MoveProjectInput) => invoke<MoveProjectResult>("projects:move", input),
   initRepository: (input) => invoke<void>("projects:init", input),
   scanDirectoryForRepositories: (path) =>

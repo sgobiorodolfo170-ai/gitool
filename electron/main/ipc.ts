@@ -78,6 +78,7 @@ import {
   saveTaskProfile,
 } from "./services/storage/tasks";
 import { getRunningTaskOutput, runTask, stopTask } from "./services/tasks";
+import { applyNativeTheme } from "./services/windowTheme";
 import {
   checkForUpdates,
   downloadUpdate,
@@ -102,6 +103,7 @@ import {
   fileDiffRequestSchema,
   fileListSchema,
   gitOperationSchema,
+  themePreferenceSchema,
   idSchema,
   initRepositoryInputSchema,
   localPathSchema,
@@ -590,6 +592,15 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("settings:load", () => loadSettings());
   ipcMain.handle("settings:save", (_event, settings: unknown) => {
     saveSettings(parseOrThrow(appSettingsSchema, settings, "设置数据"));
+  });
+  // 主题切换（阶段 F4）：同步原生标题栏/滚动条主题与窗口底色；
+  // 渲染层已先行改 data-theme，这里只补齐原生层，失败不影响页面。
+  ipcMain.handle("theme:set", (_event, value: unknown) => {
+    const theme = parseOrThrow(themePreferenceSchema, value, "主题偏好");
+    const background = applyNativeTheme(theme);
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.setBackgroundColor(background);
+    }
   });
   ipcMain.handle("projects:move", (_event, input: unknown) => {
     const parsed = parseOrThrow(moveProjectInputSchema, input, "移动项目参数");

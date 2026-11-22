@@ -23,7 +23,8 @@ vi.mock("electron", () => ({
     getVersion: () => "0.0.0",
     isPackaged: false,
   },
-  BrowserWindow: { fromWebContents: () => null },
+  BrowserWindow: { fromWebContents: () => null, getAllWindows: () => [] },
+  nativeTheme: { themeSource: "system", shouldUseDarkColors: false },
   dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
   shell: { openExternal: async () => undefined, openPath: async () => "" },
   ipcMain: {
@@ -51,7 +52,7 @@ import { bridge } from "../../preload/index";
 import { registerIpcHandlers } from "../ipc";
 
 /** 本批次（删除 2 个死通道后）的 handler 基线，任何增减都必须显式改这个数字。 */
-const EXPECTED_HANDLER_COUNT = 76;
+const EXPECTED_HANDLER_COUNT = 77;
 
 beforeAll(() => {
   registerIpcHandlers();
