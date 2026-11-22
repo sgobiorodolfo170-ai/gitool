@@ -59,7 +59,8 @@ describe("buildOperationRecordsCsv", () => {
 
   it("路径含逗号时列数仍然正确", () => {
     const csv = buildOperationRecordsCsv([record({ projectPath: "C:\\a,b\\c" })]);
-    const row = csv.split("\n")[1];
+    // P-35：split 结果可能为 undefined；csv 至少含表头+1 行，! 仅做类型收窄。
+    const row = csv.split("\n")[1]!;
     // 逗号在引号内，简单计数会偏多，这里验证引号配对完整
     expect(row).toContain('"C:\\a,b\\c"');
     expect((row.match(/"/g) ?? []).length).toBe(14);

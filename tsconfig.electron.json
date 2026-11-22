@@ -13,6 +13,11 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    // P-35（SEC-15）：索引访问不再默认为 T。storage 行映射（row.xxx）与
+    // porcelain 解析（line[0]）原先靠运行时兜底，越界静默成 undefined；
+    // 开启后编译器强制显式判空。分步推进：先主进程（本文件），渲染层
+    // （tsconfig.app.json）待主进程清零后下一里程碑再开。
+    "noUncheckedIndexedAccess": true,
     "types": ["node"]
   },
   "include": ["electron", "shared"]

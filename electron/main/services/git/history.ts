@@ -59,15 +59,20 @@ export async function listCommitHistory(projectPath: string, limit = 50): Promis
   // 格式串（字段顺序、记录尾分隔符 \x1e）与解析逻辑的对应关系见
   // buildCommitHistoryArgs；解析抽在 parseCommitHistory，零依赖可单测（P0-1）。
   const output = await runGit(projectPath, buildCommitHistoryArgs(limit)).catch(() => "");
-  return parseCommitHistory(output).map((record) => ({
-    hash: record.hash,
-    shortHash: record.hash.slice(0, 7),
-    author: record.author,
-    email: record.email,
-    date: record.date,
-    subject: record.subject.split("\n")[0],
-    message: [record.subject.split("\n")[0], ...record.body.split("\n")].filter(Boolean).join("\n"),
-  }));
+  return parseCommitHistory(output).map((record) => {
+    // P-35：split("\n")[0] 在 noUncheckedIndexedAccess 下可能为 undefined；
+    // 空主题按空串处理（与 parseCommitHistory 的 subject ?? "" 兜底一致）。
+    const firstLine = record.subject.split("\n")[0] ?? "";
+    return {
+      hash: record.hash,
+      shortHash: record.hash.slice(0, 7),
+      author: record.author,
+      email: record.email,
+      date: record.date,
+      subject: firstLine,
+      message: [firstLine, ...record.body.split("\n")].filter(Boolean).join("\n"),
+    };
+  });
 }
 
 export async function revertCommit(input: RevertCommitInput): Promise<GitOperationResult> {

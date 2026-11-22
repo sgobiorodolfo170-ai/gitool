@@ -13,15 +13,19 @@
  * - 非数字段按 0 处理（NaN 会让所有比较都为 false，进而静默判定"无更新"）
  */
 function parseVersion(value: string): number[] {
-  return value
-    .trim()
-    .replace(/^[vV]/, "")
-    .split(/[-+]/)[0]
-    .split(".")
-    .map((part) => {
-      const numeric = Number.parseInt(part, 10);
-      return Number.isFinite(numeric) ? numeric : 0;
-    });
+  return (
+    value
+      .trim()
+      .replace(/^[vV]/, "")
+      .split(/[-+]/)[0]
+      // P-35：split 结果可能为 undefined（空串输入）；空版本按 [0] 处理，
+      // 与「非数字段按 0」的既有语义一致。
+      ?.split(".")
+      .map((part) => {
+        const numeric = Number.parseInt(part, 10);
+        return Number.isFinite(numeric) ? numeric : 0;
+      }) ?? [0]
+  );
 }
 
 /**

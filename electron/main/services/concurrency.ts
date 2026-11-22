@@ -23,7 +23,10 @@ export async function mapLimit<T>(
       if (current >= items.length) {
         return;
       }
-      await handler(items[current], current);
+      // P-35：cursor 自增后回读 items[current]，noUncheckedIndexedAccess 下
+      // 编译器无法证明有界（cursor 是模块外可变量）；current < length 已在
+      // 上方判定，此处 ! 仅做类型收窄，语义不变。
+      await handler(items[current]!, current);
     }
   });
 

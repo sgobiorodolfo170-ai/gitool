@@ -112,6 +112,50 @@ export function assertPathAllowed(
 }
 
 /**
+ * 解析目标路径：主进程负责 join 并做合法性校验。
+ *
+ * why 主进程 join：路径拼接属于「平台相关文件系统语义」，
+ * 渲染层用硬编码反斜杠会导致：① 跨平台/边缘命名行为不可预期；
+ * ② 后续「按 provider 分子目录」等策略变更要改渲染层。
+ * 由主进程 join 并做合法性校验，渲染层只传 parentDirectory + name。
+ *
+ * 校验规则：
+ * 1. parentDirectory 必须是本地绝对路径（非 UNC）
+ * 2. name 必须是非空字符串，不含路径分隔符和非法字符
+ * 3. 结果路径必须落在允许的根目录范围内
+ */
+export function resolveTargetPath(
+  parentDirectory: string,
+  name: string,
+  roots: readonly string[],
+  label = "目标路径",
+): string {
+  // 校验 parentDirectory
+  const parent = assertLocalAbsolutePath(parentDirectory, "父目录");
+  // 校验 name
+  if (!name || typeof name !== "string") {
+    throw new PathPolicyError(`${label}名称不能为空`);
+  }
+  // 拒绝路径分隔符、通配符、控制字符、保留字
+  const INVALID_NAME_PATTERN = /[<>:"|?*\x00-\x1f\x7f]/;
+  if (INVALID_NAME_PATTERN.test(name)) {
+    throw new PathPolicyError(`${label}名称包含非法字符`);
+  }
+  // 拒绝 Windows 保留字（CON, PRN, AUX, NUL, COM1-9, LPT1-9）
+  const RESERVED_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+  if (RESERVED_NAMES.test(name.trim())) {
+    throw new PathPolicyError(`${label}名称是系统保留字`);
+  }
+  // 拒绝尾随空格和点（Windows 会吃掉，导致实际路径与预期不符）
+  if (name !== name.trim() || name.endsWith(".")) {
+    throw new PathPolicyError(`${label}名称不能以空格或点结尾`);
+  }
+  // join 并校验
+  const target = win32.join(parent, name);
+  return assertPathAllowed(target, roots, label);
+}
+
+/**
  * 断言目标可以作为「已登记项目」写入数据库。
  *
  * why 需要它：projects 表是路径策略中「已登记项目路径」白名单的唯一来源。
@@ -321,7 +365,8 @@ function assertNoParentTraversal(target: string, label: string): void {
  */
 function assertNoReservedDeviceName(target: string, label: string): void {
   for (const segment of target.split(/[\\/]+/)) {
-    const baseName = segment.split(".")[0].replace(/[ .]+$/, "");
+    // P-35：split(".")[0] 至少返回 [""]，越界不可能但编译器无法证明；兜底整段。
+    const baseName = (segment.split(".")[0] ?? segment).replace(/[ .]+$/, "");
     if (baseName.length > 0 && RESERVED_DEVICE_NAME_PATTERN.test(baseName)) {
       throw new PathPolicyError(`${label}包含 Windows 保留设备名`);
     }

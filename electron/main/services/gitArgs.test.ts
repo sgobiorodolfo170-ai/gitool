@@ -212,10 +212,12 @@ describe("stage / unstage 参数与分批", () => {
     const chunks = chunkFilesForGitArgs(files);
     // 展平后与原始列表完全一致：分批只切分，不做过滤/排序/去重
     expect(chunks.flat()).toEqual(files);
-    expect(buildStageArgs(chunks[0]).slice(2)).toEqual(
+    // P-35：chunks[0]/[1] 在 noUncheckedIndexedAccess 下需非空断言
+    // （201 个文件必然分成 2 批，上式 flat 已隐式验证）。
+    expect(buildStageArgs(chunks[0]!).slice(2)).toEqual(
       files.slice(0, 200).map((p) => `:(literal)${p}`),
     );
-    expect(buildStageArgs(chunks[1])).toEqual(["add", "--", ":(literal)src/f200.ts"]);
+    expect(buildStageArgs(chunks[1]!)).toEqual(["add", "--", ":(literal)src/f200.ts"]);
   });
 });
 
@@ -242,8 +244,8 @@ describe("tag 参数", () => {
       "--format=%(refname:short)\n%(objectname:short)\n%(creatordate:iso8601-strict)\n%(contents:subject)",
     ]);
     // 解析端按 4 行一组消费，字段数量不能被悄悄改动
-    expect(args[3].split("\n")).toHaveLength(4);
-    expect(args[2].startsWith("--sort=-")).toBe(true);
+    expect(args[3]!.split("\n")).toHaveLength(4);
+    expect(args[2]!.startsWith("--sort=-")).toBe(true);
   });
 });
 
@@ -343,7 +345,8 @@ describe("快照 / 历史 / 无副作用的查询参数", () => {
   it("log 格式串：字段顺序固定、记录分隔符在末尾", () => {
     const args = buildCommitHistoryArgs(50);
     expect(args).toEqual(["log", "-n 50", "--format=%H\x1f%an\x1f%ae\x1f%aI\x1f%s\x1f%b\x1e"]);
-    const format = args[2];
+    // P-35：args[2] 由上方 toEqual 锚定为固定三元数组，! 仅做类型收窄。
+    const format = args[2]!;
     // 6 个字段 = 5 个字段分隔符 \x1f；少一个解析端就会少解一列
     expect(format.split("\x1f")).toHaveLength(6);
     // 记录尾分隔符 \x1e 必须在格式串末尾（放中间会让下一条 hash 粘上上一条 body）

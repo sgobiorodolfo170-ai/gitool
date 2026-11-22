@@ -81,10 +81,11 @@ describe.skipIf(!hasGit)("listChangedFiles（真实仓库）", () => {
     const files = await listChangedFiles(repoPath);
 
     expect(files).toHaveLength(1);
-    expect(files[0].path).toBe("README.md");
+    // P-35：noUncheckedIndexedAccess 下 files[0] 需非空断言（toHaveLength 已保证存在）
+    expect(files[0]!.path).toBe("README.md");
     // 关键回归点：`" M"`（工作区已改、索引未变）；若被 trim 成 `"M "` 语义就反了
-    expect(files[0].status).toBe("modified");
-    expect(files[0].staged).toBe(false);
+    expect(files[0]!.status).toBe("modified");
+    expect(files[0]!.staged).toBe(false);
   });
 
   it("已暂存修改返回 staged=true", async () => {
@@ -96,8 +97,8 @@ describe.skipIf(!hasGit)("listChangedFiles（真实仓库）", () => {
     const files = await listChangedFiles(repoPath);
 
     expect(files).toHaveLength(1);
-    expect(files[0].path).toBe("README.md");
-    expect(files[0].staged).toBe(true);
+    expect(files[0]!.path).toBe("README.md");
+    expect(files[0]!.staged).toBe(true);
   });
 
   it("rename 成对解析：1 条记录、路径取新名", async () => {
@@ -109,8 +110,8 @@ describe.skipIf(!hasGit)("listChangedFiles（真实仓库）", () => {
 
     // `-z` 下 rename 是 `R  new.txt\0old.txt\0`；若不对称消费第二个段会多出一条幻影
     expect(files).toHaveLength(1);
-    expect(files[0].path).toBe("new.txt");
-    expect(files[0].status).toBe("renamed");
+    expect(files[0]!.path).toBe("new.txt");
+    expect(files[0]!.status).toBe("renamed");
   });
 
   it("混合变更（未暂存 + 已暂存 + 未跟踪）条数与状态都正确", async () => {

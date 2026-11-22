@@ -48,10 +48,12 @@ export async function listTags(projectPath: string): Promise<GitTag[]> {
   const lines = output.split(/\r?\n/);
   const tags: GitTag[] = [];
   for (let index = 0; index + 3 < lines.length; index += 4) {
-    const name = lines[index].trim();
-    const shortCommit = lines[index + 1].trim();
-    const createdAt = lines[index + 2].trim();
-    const message = lines[index + 3].trim();
+    // P-35：四元组按固定步进取值，循环条件已保证 index+3 有界；
+    // 判空 + 兜底空串，防止最后一段被截断时 undefined 穿透到 UI。
+    const name = lines[index]?.trim() ?? "";
+    const shortCommit = lines[index + 1]?.trim() ?? "";
+    const createdAt = lines[index + 2]?.trim() ?? "";
+    const message = lines[index + 3]?.trim() ?? "";
     if (!name) continue;
     tags.push({
       name,

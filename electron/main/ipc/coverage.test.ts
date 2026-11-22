@@ -60,7 +60,7 @@ import {
 } from "./schemas";
 
 /** 本批次 handler 基线：任何增减都必须显式改这个数字（与 bridgeParity 保持一致）。 */
-const EXPECTED_HANDLER_COUNT = 77;
+const EXPECTED_HANDLER_COUNT = 78;
 
 /**
  * 接收入参且已接入校验的通道。
@@ -70,6 +70,8 @@ const EXPECTED_HANDLER_COUNT = 77;
  * 新增带参通道必须同时在这里登记并补 schema，否则下面的接线检查失败。
  */
 const VALIDATED_CHANNELS: ReadonlySet<string> = new Set([
+  // P-31：路径拼接收归主进程，入参经 resolveTargetPathInputSchema + pathPolicy 校验
+  "system:resolveTargetPath",
   "shell:openExternal",
   "shell:openPath",
   "shell:openEditor",
@@ -182,6 +184,8 @@ const NO_INPUT_CHANNELS: ReadonlySet<string> = new Set([
  *   assertLocalAbsolutePath 校验（见 NO_INPUT_CHANNELS 注释）。
  */
 const PATH_GUARDED_CHANNELS: ReadonlySet<string> = new Set([
+  // P-31：join 结果经 resolveTargetPath 内的 assertPathAllowed 做根目录准入
+  "system:resolveTargetPath",
   "shell:openPath",
   "shell:openEditor",
   "shell:openTerminal",
@@ -236,7 +240,9 @@ function splitHandlerBlocks(source: string): HandlerBlock[] {
   return starts.map((match, index) => {
     const start = match.index ?? 0;
     const end = starts[index + 1]?.index ?? source.length;
-    return { channel: match[1], code: source.slice(start, end) };
+    // P-35：正则捕获组 [1] 在 noUncheckedIndexedAccess 下可能为 undefined；
+    // 正则含字面量捕获组，match 非 null 时必有值，! 仅做类型收窄。
+    return { channel: match[1]!, code: source.slice(start, end) };
   });
 }
 
@@ -367,8 +373,8 @@ describe("IPC 通道校验覆盖（源码级接线）", () => {
     expect([...VALIDATED_CHANNELS].filter((channel) => !wiredChannels.has(channel))).toEqual([]);
   });
 
-  it("清单大小固定：61 已校验 + 16 无入参 = 77", () => {
-    expect(VALIDATED_CHANNELS.size).toBe(61);
+  it("清单大小固定：62 已校验 + 16 无入参 = 78", () => {
+    expect(VALIDATED_CHANNELS.size).toBe(62);
     expect(NO_INPUT_CHANNELS.size).toBe(16);
   });
 
@@ -404,7 +410,7 @@ describe("IPC 通道校验覆盖（源码级接线）", () => {
     // 硬编码基线：ipc.ts 中接收路径的 handler 共 34 个（以实际
     // requireAllowedProjectPath / assertPathAllowed / requireAllowedBackupPath 调用点为准）。
     // 数量变化意味着有通道新增或移除了路径语义，必须显式确认后同步改这里。
-    expect(PATH_GUARDED_CHANNELS.size).toBe(34);
+    expect(PATH_GUARDED_CHANNELS.size).toBe(35);
     // 路径通道必然要先过 schema：凡是路径通道都必须已在 VALIDATED_CHANNELS 登记。
     expect(
       [...PATH_GUARDED_CHANNELS].filter((channel) => !VALIDATED_CHANNELS.has(channel)),
