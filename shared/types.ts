@@ -61,7 +61,7 @@ export type ProjectAnalysis = {
   key_files: string[];
 };
 
-export type RemoteProvider = "github" | "gitee" | "gitlab";
+export type RemoteProvider = (typeof import("./constants").REMOTE_PROVIDERS)[number];
 
 export type Account = {
   id: string;
@@ -105,7 +105,8 @@ export type Project = {
   id: string;
   name: string;
   path: string;
-  provider: "github" | "gitee" | "gitlab" | "local";
+  // P-29：从 PROJECT_PROVIDERS 常量派生，替代手写联合（types/schemas/渲染三处口径统一）
+  provider: (typeof import("./constants").PROJECT_PROVIDERS)[number];
   branch: string;
   status: ProjectStatus;
   commit: string;
@@ -386,6 +387,19 @@ export type InitRepositoryInput = {
   defaultBranch?: string;
 };
 
+/**
+ * 解析目标路径：主进程负责 join，渲染层只传语义入参。
+ *
+ * why 主进程 join：路径拼接属于「平台相关文件系统语义」，
+ * 渲染层用硬编码反斜杠会导致：① 跨平台/边缘命名行为不可预期；
+ * ② 后续「按 provider 分子目录」等策略变更要改渲染层。
+ * 由主进程 join 并做合法性校验，渲染层只传 parentDirectory + name。
+ */
+export type ResolveTargetPathInput = {
+  parentDirectory: string;
+  name: string;
+};
+
 export type RepositoryDiscoveryItem = {
   path: string;
   name: string;
@@ -466,6 +480,11 @@ export type DesktopBridge = {
   installGit(): Promise<InstallGitResult>;
   onInstallProgress(callback: (event: InstallProgress) => void): () => void;
   selectDirectory(defaultPath?: string): Promise<string | null>;
+  /**
+   * 解析目标路径：主进程 join 并做合法性校验，渲染层只传语义入参（P-31）。
+   * 用于克隆/初始化/新建项目等场景，替代渲染层硬编码反斜杠拼接。
+   */
+  resolveTargetPath(input: ResolveTargetPathInput): Promise<string>;
   openExternal(url: string): Promise<void>;
   openPath(path: string): Promise<void>;
   openInEditor(input: OpenEditorInput): Promise<void>;

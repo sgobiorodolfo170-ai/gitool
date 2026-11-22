@@ -22,11 +22,17 @@ import type {
   RemoteRepositoryWriteInput,
   RenameWorkspaceInput,
   RepositoryInteractionInput,
+  ResolveTargetPathInput,
   RevertCommitInput,
   SetRemoteUrlInput,
   SwitchBranchInput,
   TaskProfile,
 } from "../../../shared/types";
+import {
+  PROJECT_PROVIDERS,
+  REMOTE_PROVIDERS,
+  SEARCHABLE_PROVIDERS,
+} from "../../../shared/constants";
 import {
   DEFAULT_LANGUAGE_COLOR,
   DEFAULT_TASK_ARGS,
@@ -217,6 +223,14 @@ export const initRepositoryInputSchema = z.object({
   defaultBranch: optionalTrimmed,
 }) satisfies z.ZodType<InitRepositoryInput>;
 
+/**
+ * 解析目标路径：主进程负责 join 并做合法性校验，渲染层只传语义入参。
+ */
+export const resolveTargetPathInputSchema = z.object({
+  parentDirectory: requiredString("父目录"),
+  name: requiredString("名称"),
+}) satisfies z.ZodType<ResolveTargetPathInput>;
+
 export const fileDiffRequestSchema = z.object({
   path: requiredString("项目路径"),
   file: requiredString("文件路径"),
@@ -292,7 +306,7 @@ export const projectSchema = z.object({
   id: requiredString("项目 ID"),
   name: requiredString("项目名称"),
   path: requiredString("项目路径"),
-  provider: z.enum(["local", "github", "gitee", "gitlab"], { message: "项目的平台无效" }),
+  provider: z.enum(PROJECT_PROVIDERS, { message: "项目的平台无效" }),
   // 以下字符串/数字是快照与结构分析会重算的派生展示字段：旧数据缺失或类型不符时
   // 退回默认值只是容错展示，不影响项目身份，下一次扫描会被真实值覆盖。
   branch: looseString(),
@@ -333,7 +347,7 @@ export const renameWorkspaceInputSchema = z.object({
 }) satisfies z.ZodType<RenameWorkspaceInput>;
 
 export const createAccountInputSchema = z.object({
-  provider: z.enum(["github", "gitee", "gitlab"], { message: "不支持的远程平台" }),
+  provider: z.enum(REMOTE_PROVIDERS, { message: "不支持的远程平台" }),
   token: requiredString("令牌"),
 }) satisfies z.ZodType<CreateAccountInput>;
 
@@ -376,7 +390,7 @@ export const revertCommitInputSchema = z.object({
 }) satisfies z.ZodType<RevertCommitInput>;
 
 export const remoteRepositorySearchInputSchema = z.object({
-  provider: z.enum(["github", "gitee"], { message: "仅支持搜索 GitHub 与 Gitee 平台" }),
+  provider: z.enum(SEARCHABLE_PROVIDERS, { message: "仅支持搜索 GitHub 与 Gitee 平台" }),
   query: requiredString("搜索关键词"),
   accountId: z
     .string()
