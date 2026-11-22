@@ -51,6 +51,7 @@ vi.mock("electron", () => ({
 }));
 
 import { registerIpcHandlers } from "../ipc";
+import { INVOKE_CHANNELS } from "../../../shared/channels";
 import {
   externalUrlSchema,
   fileListSchema,
@@ -230,19 +231,29 @@ interface HandlerBlock {
 }
 
 /**
- * 按 `ipcMain.handle("channel"` 把源码切成 handler 代码块（切到下一个 handle 或文件尾）。
+ * 按 `ipcMain.handle("channel"` 或 `ipcMain.handle(INVOKE_CHANNELS.key` 把源码切成
+ * handler 代码块（切到下一个 handle 或文件尾）。
  *
  * why 行首锚定：正则加 `^[ \t]*` 可避免把注释/字符串里出现的 `ipcMain.handle` 当成
  * 真正的注册点；真实的注册都带两个空格缩进，注释行以 `//` 开头不会被命中。
+ *
+ * why 兼容常量形式（P-14 通道常量表迁移）：handler 现在统一写
+ * `ipcMain.handle(INVOKE_CHANNELS.environment, ...)`，正则必须同时匹配字面量
+ * 与常量引用，并把常量名解析回通道字符串，才能与运行时注册表（常量求值结果）
+ * 做差集比对。
  */
 function splitHandlerBlocks(source: string): HandlerBlock[] {
-  const starts = [...source.matchAll(/^[ \t]*ipcMain\.handle\(\s*"([^"]+)"/gm)];
+  const starts = [
+    ...source.matchAll(/^[ \t]*ipcMain\.handle\(\s*(?:"([^"]+)"|INVOKE_CHANNELS\.(\w+))/gm),
+  ];
   return starts.map((match, index) => {
     const start = match.index ?? 0;
     const end = starts[index + 1]?.index ?? source.length;
-    // P-35：正则捕获组 [1] 在 noUncheckedIndexedAccess 下可能为 undefined；
-    // 正则含字面量捕获组，match 非 null 时必有值，! 仅做类型收窄。
-    return { channel: match[1]!, code: source.slice(start, end) };
+    // P-35：字面量捕获组 [1] 与常量捕获组 [2] 二选一；常量形式经 INVOKE_CHANNELS
+    // 反查为真实通道字符串，确保与 mock ipcMain.handle 收到的求值结果一致。
+    const channel =
+      match[1] ?? INVOKE_CHANNELS[match[2] as keyof typeof INVOKE_CHANNELS] ?? match[2]!;
+    return { channel, code: source.slice(start, end) };
   });
 }
 
