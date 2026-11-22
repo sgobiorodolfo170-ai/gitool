@@ -1,5 +1,7 @@
 import { execFileSync, spawn } from "node:child_process";
-import { createWriteStream, existsSync, rm } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream, createWriteStream, existsSync, rm } from "node:fs";
+import { rm as rmPromise } from "node:fs/promises";
 import https from "node:https";
 import { join } from "node:path";
 import { app } from "electron";
@@ -24,6 +26,8 @@ type GithubAsset = {
   name: string;
   browser_download_url: string;
   size: number;
+  /** GitHub Release API 的 sha256 摘要（`sha256:<64 位 hex>`）；P-24 完整性锚点。 */
+  digest?: string | null;
 };
 
 type GithubRelease = {
@@ -61,9 +65,11 @@ async function fetchLatestRelease(): Promise<GithubRelease> {
 
 // 流式下载安装包到临时目录，避免一次性读入内存（安装包约 60MB）。
 // 通过 Content-Length 推送百分比，无 Content-Length 时退化为状态消息。
+// P-24：文件名用 randomUUID——`Date.now()` 可预测，同用户低权限进程可在
+// 「下载完成 → UAC 执行」窗口期抢注同名文件（TOCTOU 本地提权）。
 function downloadInstaller(url: string, expectedSize: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const targetPath = join(app.getPath("temp"), `gitool-git-setup-${Date.now()}.exe`);
+    const targetPath = join(app.getPath("temp"), `gitool-git-setup-${randomUUID()}.exe`);
     const fileStream = createWriteStream(targetPath);
     // 写流（磁盘满/路径不可写）若无 error 监听会成为未捕获异常直接崩掉主进程，
     // 挂了监听但不 settle 则会让 Promise 永久挂起——统一走 fail 收口：
@@ -107,6 +113,51 @@ function downloadInstaller(url: string, expectedSize: number): Promise<string> {
     });
     request.on("error", fail);
   });
+}
+
+/**
+ * 校验下载安装包的 sha256 摘要（P-24）。
+ *
+ * why 必须校验：`%TEMP%` 是当前用户可写目录，同用户低权限进程可在「下载完成 →
+ * UAC 执行」窗口期替换 exe（TOCTOU 本地提权）；且下载走 https 直连，任何中间层
+ * 被攻破都会把任意二进制送进 UAC 提权执行。摘要来自 GitHub Release API 的
+ * `digest` 字段（`sha256:<64 位 hex>`），是唯一不依赖下载通道的完整性锚点。
+ *
+ * 失败语义：返回中文错误文案（直接进 UI），成功返回 null；文件不匹配时已删除。
+ * 上游未提供 digest 时**拒绝执行**（fail-closed）——宁可让用户手动安装，
+ * 也不能把未经校验的 60MB 可执行文件交给 UAC。
+ */
+async function verifyInstallerDigest(installerPath: string, rawDigest: string | null): Promise<string | null> {
+  const expected = parseSha256Digest(rawDigest);
+  // P-24：promises 版 rm（callback 版不返回 Promise，链不了 catch）。
+  const discard = (): Promise<void> => rmPromise(installerPath, { force: true }).catch(() => undefined);
+  if (!expected) {
+    await discard();
+    return "上游 Release 未提供 sha256 摘要，无法校验安装包完整性，已取消安装；请前往 gitforwindows.org 手动下载";
+  }
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(installerPath)) {
+    hash.update(chunk as Buffer);
+  }
+  const actual = hash.digest("hex");
+  if (actual !== expected) {
+    await discard();
+    return `安装包摘要校验失败（期望 sha256:${expected.slice(0, 12)}…，实际 sha256:${actual.slice(0, 12)}…），已删除下载文件并取消安装`;
+  }
+  return null;
+}
+
+/** 解析 `sha256:<64 位 hex>` 形式的摘要；格式非法返回 null（按「缺失」处理，fail-closed）。 */
+function parseSha256Digest(rawDigest: string | null): string | null {
+  if (typeof rawDigest !== "string") {
+    return null;
+  }
+  const normalized = rawDigest.trim().toLowerCase();
+  if (!normalized.startsWith("sha256:")) {
+    return null;
+  }
+  const hex = normalized.slice("sha256:".length);
+  return hex.length === 64 && /^[0-9a-f]+$/.test(hex) ? hex : null;
 }
 
 // 用 PowerShell Start-Process -Verb RunAs 触发 UAC 提权并静默安装。
@@ -178,10 +229,14 @@ export async function installGit(): Promise<InstallGitResult> {
     return { success: false, gitPath: "", message: "未找到适用于 64 位 Windows 的 Git 安装包" };
   }
 
-  // 阶段 2：下载安装包
+  // 阶段 2：下载安装包（P-24：下载后立即校验 sha256 摘要）
   let installerPath: string;
   try {
     installerPath = await downloadInstaller(asset.browser_download_url, asset.size);
+    const digestFailure = await verifyInstallerDigest(installerPath, asset.digest ?? null);
+    if (digestFailure) {
+      return { success: false, gitPath: "", message: digestFailure };
+    }
   } catch (error) {
     emitProgress("failed", 0, "下载安装包失败");
     return {

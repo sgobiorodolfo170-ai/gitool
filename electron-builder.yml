@@ -16,8 +16,12 @@ files:
   - build/icon.png
 
 asar: true
+# P-26（SEC-16）：只外置确需的原生模块。原先 `**/*.node` 把整棵原生树暴露在
+# app.asar.unpacked（用户可写目录），任何本地低权限进程都能替换 .node 注入
+# 恶意原生库；@napi-rs/keyring 是本项目唯一原生依赖，收窄后其余 .node
+# （即使未来新增依赖）默认留在 asar 内。
 asarUnpack:
-  - "**/*.node"
+  - "**/@napi-rs/keyring/**"
 
 npmRebuild: false
 nodeGypRebuild: false

@@ -23,6 +23,11 @@ jobs:
         env:
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
+      # P-26（SEC-16）：依赖漏洞门禁。high 以上（含 critical）直接红灯，
+      # 中低危随日志暴露但不阻塞——单人项目先保住「已知高危必拦」这条线。
+      - name: 依赖漏洞扫描
+        run: npm audit --audit-level=high
+
       - name: 类型检查（渲染层 + 主进程）
         run: npm run typecheck
 
