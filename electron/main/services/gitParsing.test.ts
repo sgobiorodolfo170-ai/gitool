@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   bracketValue,
   buildCommitMessageArgs,
+  isConflictStatus,
   isValidCommitHash,
   isValidRefName,
   parseBranchLine,
@@ -94,6 +95,38 @@ describe("parseChangeStatus", () => {
 
   it("默认归类为修改", () => {
     expect(parseChangeStatus(" M")).toBe("modified");
+  });
+});
+
+describe("isConflictStatus（P-30 单点冲突判定的直接锚点）", () => {
+  it("裸状态码：任一位置 U、AA、DD 均为冲突", () => {
+    expect(isConflictStatus("UU")).toBe(true);
+    expect(isConflictStatus("UA")).toBe(true);
+    expect(isConflictStatus("AU")).toBe(true);
+    expect(isConflictStatus("DU")).toBe(true);
+    expect(isConflictStatus("UD")).toBe(true);
+    expect(isConflictStatus("AA")).toBe(true);
+    expect(isConflictStatus("DD")).toBe(true);
+  });
+
+  it("整行输入：裁掉路径后按两字符码判定（与快照解析同语义）", () => {
+    expect(isConflictStatus("UU src/a.ts")).toBe(true);
+    expect(isConflictStatus("DD src/a.ts")).toBe(true);
+    // 关键回归：路径中的 U/AA 不得影响判定（只看状态码段）
+    expect(isConflictStatus(" M src/UAA.ts")).toBe(false);
+    expect(isConflictStatus("R  new.txtold.txt")).toBe(false);
+  });
+
+  it("非冲突状态码返回 false", () => {
+    expect(isConflictStatus(" M")).toBe(false);
+    expect(isConflictStatus("??")).toBe(false);
+    expect(isConflictStatus("M ")).toBe(false);
+    expect(isConflictStatus("A ")).toBe(false);
+  });
+
+  it("空串与空白返回 false", () => {
+    expect(isConflictStatus("")).toBe(false);
+    expect(isConflictStatus("  ")).toBe(false);
   });
 });
 

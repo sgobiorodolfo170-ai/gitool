@@ -14,6 +14,7 @@ import type {
 import {
   bracketValue,
   buildCommitMessageArgs,
+  isConflictStatus,
   parseChangeStatus,
   parseStatusPorcelainZ,
   toLiteralPathspec,
@@ -128,11 +129,9 @@ export async function getProjectSnapshot(projectPath: string): Promise<GitSnapsh
   const lines = statusOutput.split(/\r?\n/).filter((line) => line.length > 0);
   const branchLine = lines[0] ?? "";
   const changedFiles = lines.slice(1).length;
-  const hasConflict = lines.slice(1).some((line) => {
-    const first = line[0];
-    const second = line[1];
-    return first === "U" || second === "U" || line.startsWith("AA ") || line.startsWith("DD ");
-  });
+  // P-30：冲突判定单点化——与 parseChangeStatus 共用 isConflictStatus，
+  // 两处口径（快照 vs 变更列表）永远一致，不再各自维护内联实现。
+  const hasConflict = lines.slice(1).some((line) => isConflictStatus(line));
 
   let status: ProjectStatus = "clean";
   let syncLabel = "未关联远程";

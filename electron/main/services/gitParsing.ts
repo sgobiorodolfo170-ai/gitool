@@ -59,7 +59,7 @@ export function isValidCommitHash(value: string): boolean {
  */
 export function parseChangeStatus(status: string): ChangeFile["status"] {
   const combined = status.trim();
-  if (combined.includes("U") || combined === "AA" || combined === "DD") {
+  if (isConflictStatus(combined)) {
     return "conflicted";
   }
   if (status[0] === "R" || status[1] === "R") {
@@ -78,6 +78,33 @@ export function parseChangeStatus(status: string): ChangeFile["status"] {
 }
 
 /**
+ * 冲突状态码判定（P-30 / 架构评审 L-17 的单点实现）。
+ *
+ * why 抽出独立函数：「什么是冲突」原先在两处各写一遍——
+ * parseChangeStatus 看 `includes("U")`，getProjectSnapshot 内联看
+ * `line[0]==="U" || line[1]==="U" || startsWith("AA ") || startsWith("DD ")`——
+ * 两处口径必须永远一致，否则出现「详情页 conflicted、项目卡片 dirty」的矛盾展示。
+ * 统一后冲突定义只有这一份：两字符码任一位置为 U（UU/UA/AU/DU/UD），
+ * 或双字符码恰为 AA/DD（both added / both deleted）。
+ *
+ * why 接受整行也接受裸状态码：快照解析拿到的是 `XY <path>` 整行，
+ * 变更列表解析拿到的是裸 `XY`；先裁掉路径部分再判两字符，两种输入共用同一语义。
+ */
+export function isConflictStatus(lineOrStatus: string): boolean {
+  // 整行形如 "XY path"：XY 之后必有空格；裸状态码没有空格。
+  // slice(0, idx) 对裸码（idx=-1 → slice(0,-1)）会裁掉末字符，因此 -1 时取全长。
+  const spaceIndex = lineOrStatus.indexOf(" ");
+  const combined = (spaceIndex === -1 ? lineOrStatus : lineOrStatus.slice(0, spaceIndex)).trim();
+  if (combined.length === 0) {
+    return false;
+  }
+  if (combined.includes("U")) {
+    return true;
+  }
+  return combined === "AA" || combined === "DD";
+}
+
+/**
  * 从 `git status --branch` 的分支行里取 `[ahead 3, behind 1]` 中的数值。
  * 例如 `## main...origin/main [ahead 2]` → bracketValue(line, "ahead") === "2"。
  */
@@ -87,11 +114,13 @@ export function bracketValue(branchLine: string, key: string): string | null {
   if (start === -1) {
     return null;
   }
+  // P-35：split 结果按 noUncheckedIndexedAccess 语义可能为 undefined，
+  // 显式判空比 `?? ""` 更准确——空串会伪装成「有值但为空」的合法进度。
   const value = branchLine
     .slice(start + marker.length)
     .split(/[,\]]/)[0]
-    .trim();
-  return value.length > 0 ? value : null;
+    ?.trim();
+  return value && value.length > 0 ? value : null;
 }
 
 /**
@@ -143,7 +172,9 @@ export function parseCommitHistory(output: string): ParsedCommitRecord[] {
       continue;
     }
     const [hash, author, email, date, subject, ...rest] = fields;
-    if (!hash) {
+    // P-35：解构结果可能为 undefined；subject 缺失按空串处理（无主题行的
+    // 提交合法存在），其余字段缺失则该行不可信，跳过。
+    if (!hash || !author || !email || !date) {
       continue;
     }
     // body 里理论上也可能出现 \x1f，把剩余字段拼回去而不是丢弃
@@ -152,7 +183,7 @@ export function parseCommitHistory(output: string): ParsedCommitRecord[] {
       author,
       email,
       date,
-      subject,
+      subject: subject ?? "",
       body: rest.join(COMMIT_FIELD_SEP),
     });
   }
@@ -190,8 +221,10 @@ export function parseStatusPorcelainZ(output: string): ParsedStatusEntry[] {
   const entries: ParsedStatusEntry[] = [];
   const segments = output.split("\0");
   for (let index = 0; index < segments.length; index += 1) {
+    // P-35：segments[index] 在 noUncheckedIndexedAccess 下为 string | undefined。
+    // 索引循环无法被编译器证明有界，显式判空（undefined 段直接跳过，语义不变）。
     const segment = segments[index];
-    if (segment.length < 4 || segment[2] !== " ") {
+    if (!segment || segment.length < 4 || segment[2] !== " ") {
       continue;
     }
     const status = segment.slice(0, 2);
@@ -271,7 +304,9 @@ export function parseBranchLine(raw: string): {
   const behindMatch = tracking?.[1]?.match(/behind (\d+)/);
   const remotePart = tracking?.[1]?.split(":")[0];
   return {
-    name: match[1],
+    // P-35：match[1] 在 noUncheckedIndexedAccess 下可能为 undefined；
+    // 正则 `^([^\s]+)` 保证捕获组非空，match 非 null 时 [1] 必有值，用 ! 收窄。
+    name: match[1]!,
     current,
     remote: tracking ? (remotePart ?? undefined) : undefined,
     ahead: aheadMatch ? Number(aheadMatch[1]) : 0,
